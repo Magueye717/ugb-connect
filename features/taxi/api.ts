@@ -40,7 +40,8 @@ export type TaxiStanding = { key: string; strikes: number; limit: number; suspen
 
 export type PayoutDto = { id: string; amount: number; method: PaymentMethod; status: string; phoneMasked: string };
 
-export type NewTrip = { from: string; to: string; seats: number; fare: number; leaveInMinutes: number };
+/** `lockMinutes`: non-refundable this long before departure; left out, 10 min (never earlier than half-way). */
+export type NewTrip = { from: string; to: string; seats: number; fare: number; leaveInMinutes: number; lockMinutes?: number };
 
 const auth = { auth: true } as const;
 

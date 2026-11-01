@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,8 +17,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/ui';
-import { places } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
+import { placeIcon, placesApi, placeTone, usePlaces, type PlaceDto } from '@/features/places/api';
 import { openDirections } from '@/lib/maps';
 
 const HERO_HEIGHT = 280;
@@ -26,18 +27,38 @@ const AUTO_SLIDE_MS = 3000;
 export default function LieuScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
-  const p = places.find((x) => x.id === id) ?? places[0];
+  const { places } = usePlaces();
+  const [fetched, setFetched] = useState<PlaceDto | null>(null);
+  const [missing, setMissing] = useState(false);
+  // From the list when it's there (instant), and read again when the screen shows.
+  useFocusEffect(
+    useCallback(() => {
+      if (id) placesApi.get(id).then(setFetched, () => setMissing(true));
+    }, [id]),
+  );
+  const p = fetched ?? places?.find((x) => x.id === id) ?? null;
   const back = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/lieux'));
+  if (!p) {
+    return (
+      <View style={[styles.root, { paddingTop: insets.top + 60, alignItems: 'center', gap: 10 }]}>
+        {missing ? <Text style={styles.note}>Lieu introuvable.</Text> : <ActivityIndicator color={colors.primary} />}
+        <Pressable onPress={back} style={[styles.back, { top: insets.top + 8 }]} accessibilityRole="button" accessibilityLabel="Retour">
+          <Ionicons name="arrow-back" size={20} color={colors.navy} />
+        </Pressable>
+      </View>
+    );
+  }
+  const tone = placeTone(p.category);
 
   return (
     <View style={styles.root}>
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24 }} showsVerticalScrollIndicator={false}>
-        <View style={[styles.hero, { backgroundColor: p.bg }]}>
+        <View style={[styles.hero, { backgroundColor: tone.bg }]}>
           {p.photos.length ? (
             <Gallery photos={p.photos} name={p.name} />
           ) : (
             <View style={styles.noPhoto}>
-              <Ionicons name={p.icon} size={56} color={p.tint} />
+              <Ionicons name={placeIcon(p.icon)} size={56} color={tone.tint} />
             </View>
           )}
           <Pressable
@@ -50,9 +71,9 @@ export default function LieuScreen() {
         </View>
 
         <View style={[styles.card, shadow.raised]}>
-          <View style={[styles.cat, { backgroundColor: p.bg }]}>
-            <Ionicons name={p.icon} size={12} color={p.text} />
-            <Text style={[styles.catText, { color: p.text }]}>{p.category}</Text>
+          <View style={[styles.cat, { backgroundColor: tone.bg }]}>
+            <Ionicons name={placeIcon(p.icon)} size={12} color={tone.text} />
+            <Text style={[styles.catText, { color: tone.text }]}>{p.category}</Text>
           </View>
           <Text style={styles.name}>{p.name}</Text>
           <Text style={styles.description}>{p.description}</Text>
@@ -60,7 +81,7 @@ export default function LieuScreen() {
 
         <View style={styles.body}>
           <View style={[styles.infoCard, shadow.card]}>
-            <Info icon="location-outline" label="Emplacement" value={p.area} />
+            <Info icon="location-outline" label="Emplacement" value={[p.area, p.campusLabel].filter(Boolean).join(' · ') || 'Sur le campus'} />
             {p.hours && (
               <>
                 <View style={styles.divider} />
@@ -69,7 +90,7 @@ export default function LieuScreen() {
             )}
           </View>
 
-          <PrimaryButton label="Itinéraire à pied" onPress={() => openDirections(p.coords, p.name)} />
+          <PrimaryButton label="Itinéraire à pied" onPress={() => openDirections(p.location, p.name)} />
           <Text style={styles.note}>S’ouvre dans Plans ou Google Maps</Text>
         </View>
       </ScrollView>
@@ -81,7 +102,7 @@ export default function LieuScreen() {
  * Full-width photos that slide on their own every 3 seconds and can be swiped (pauses while touched).
  * Same pattern as the home ad carousel: in the normal layout, explicit page size.
  */
-function Gallery({ photos, name }: { photos: (number | string)[]; name: string }) {
+function Gallery({ photos, name }: { photos: string[]; name: string }) {
   const { width } = useWindowDimensions();
   const ref = useRef<ScrollViewInstance>(null);
   const [index, setIndex] = useState(0);
@@ -132,7 +153,7 @@ function Gallery({ photos, name }: { photos: (number | string)[]; name: string }
         {photos.map((src, i) => (
           <Image
             key={i}
-            source={src}
+            source={{ uri: src }}
             style={{ width, height: HERO_HEIGHT }}
             contentFit="cover"
             transition={200}

@@ -12,12 +12,20 @@ import { useAuth } from '@/context/AuthContext';
 const icons: Record<string, [keyof typeof Ionicons.glyphMap, keyof typeof Ionicons.glyphMap]> = {
   menus: ['restaurant-outline', 'restaurant'],
   alertes: ['megaphone-outline', 'megaphone'],
+  bannieres: ['images-outline', 'images'],
+  evenements: ['sparkles-outline', 'sparkles'],
+  commerces: ['storefront-outline', 'storefront'],
+  lieux: ['map-outline', 'map'],
   'mon-compte': ['person-outline', 'person'],
 };
-const TITLES: Record<string, string> = { menus: 'Menus du jour', alertes: 'Communication', 'mon-compte': 'Compte' };
+const TITLES: Record<string, string> = { menus: 'Menus du jour', alertes: 'Communication', bannieres: 'Bannières', evenements: 'Événements', commerces: 'Commerces', lieux: 'Lieux', 'mon-compte': 'Compte' };
 
 export default function StaffTabLayout() {
-  const { space } = useAuth();
+  const { space, user } = useAuth();
+  // Paid banners are reviewed by the communication team (not the academic team).
+  const reviewsBanners = space === 'alerts' && !!user?.roles.some((r) => r === 'admin' || r === 'content_editor');
+  // Students' events are approved by the admins, who also create the restaurants and shops.
+  const reviewsEvents = space === 'alerts' && !!user?.roles.includes('admin');
   const insets = useSafeAreaInsets();
   const bottom = Math.max(insets.bottom, 10);
   return (
@@ -41,6 +49,10 @@ export default function StaffTabLayout() {
       {/* Only the current space's screen: the other spaces are under "Mes espaces". */}
       <Tabs.Screen name="menus" options={{ title: TITLES.menus, href: space === 'resto' ? undefined : null }} />
       <Tabs.Screen name="alertes" options={{ title: TITLES.alertes, href: space === 'alerts' ? undefined : null }} />
+      <Tabs.Screen name="bannieres" options={{ title: TITLES.bannieres, href: reviewsBanners ? undefined : null }} />
+      <Tabs.Screen name="evenements" options={{ title: TITLES.evenements, href: reviewsEvents ? undefined : null }} />
+      <Tabs.Screen name="lieux" options={{ title: TITLES.lieux, href: reviewsBanners ? undefined : null }} />
+      <Tabs.Screen name="commerces" options={{ title: TITLES.commerces, href: reviewsEvents ? undefined : null }} />
       <Tabs.Screen name="mon-compte" options={{ title: TITLES['mon-compte'] }} />
     </Tabs>
   );

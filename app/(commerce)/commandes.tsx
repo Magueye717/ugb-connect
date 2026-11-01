@@ -1,0 +1,221 @@
+import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { EmptyState } from '@/components/states';
+import { Segmented, StatusChip } from '@/components/ui';
+import { formatFcfa } from '@/constants/data';
+import { colors, radii, shadow, typo } from '@/constants/theme';
+import { useAuth } from '@/context/AuthContext';
+import { useNotifications } from '@/context/NotificationsContext';
+import { commerceApi, nextStep, ORDER_STATUS_LABEL, type BusinessDto, type OrderDto } from '@/features/commerce/api';
+import { ApiError } from '@/lib/api';
+
+/** How often the list is read again while it's on screen (the push also announces each new order). */
+const REFRESH_MS = 20_000;
+const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
+const time = (iso: string) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+/** Incoming orders: the new ones first, one tap to move each to its next step. */
+export default function Commandes() {
+  const { business } = useAuth();
+  const { unreadCount } = useNotifications();
+  const [scope, setScope] = useState<'active' | 'done'>('active');
+  const [orders, setOrders] = useState<OrderDto[] | null>(null);
+  const [profile, setProfile] = useState<BusinessDto | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const orgId = business?.orgId;
+
+  const load = useCallback(async () => {
+    if (!orgId) return;
+    const [list, me] = await Promise.allSettled([commerceApi.queue(orgId, scope), commerceApi.mine(orgId)]);
+    if (list.status === 'fulfilled') setOrders(list.value.items);
+    else setOrders((o) => o ?? []);
+    if (me.status === 'fulfilled') setProfile(me.value);
+  }, [orgId, scope]);
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+      const timer = setInterval(load, REFRESH_MS);
+      return () => clearInterval(timer);
+    }, [load]),
+  );
+
+  if (!business || !orgId) return null;
+  const canManage = business.roles.some((r) => r === 'owner' || r === 'manager');
+
+  const advance = async (o: OrderDto) => {
+    const next = nextStep(o);
+    if (!next) return;
+    setBusy(o.id);
+    try {
+      await commerceApi.step(orgId, o.id, next.step);
+      await load();
+    } catch (err) {
+      fail('Action impossible')(err);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const pause = (accepting: boolean) =>
+    commerceApi.updateMine(orgId, { acceptingOrders: accepting }).then(setProfile, fail('Changement impossible'));
+
+  const newCount = orders?.filter((o) => o.status === 'placed').length ?? 0;
+
+  return (
+    <SafeAreaView style={styles.safe} edges={['top']}>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => (setRefreshing(true), load().finally(() => setRefreshing(false)))} />}>
+        <View style={styles.titleRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.h1}>Commandes</Text>
+            <Text style={styles.sub}>{business.name}</Text>
+          </View>
+          <Pressable style={styles.bell} onPress={() => router.push('/notifications')} accessibilityRole="button" accessibilityLabel={unreadCount ? `Notifications, ${unreadCount} non lues` : 'Notifications'}>
+            <Ionicons name={unreadCount ? 'notifications' : 'notifications-outline'} size={20} color={colors.navy} />
+            {unreadCount > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+              </View>
+            )}
+          </Pressable>
+          {/* Orders picked up at the counter: scan the client's QR or type their code. */}
+          <Pressable style={styles.scan} onPress={() => router.push('/remise')} accessibilityRole="button" accessibilityLabel="Remettre une commande">
+            <Ionicons name="qr-code-outline" size={18} color="#fff" />
+            <Text style={styles.scanText}>Remettre</Text>
+          </Pressable>
+        </View>
+
+        {profile && (
+          <View style={[styles.card, shadow.card, styles.row]}>
+            <View style={[styles.dot, { backgroundColor: profile.open ? colors.success : colors.muted }]} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardTitle}>{profile.acceptingOrders ? 'Commandes ouvertes' : 'Commandes en pause'}</Text>
+              <Text style={styles.muted}>{profile.statusLabel} · {profile.hours}</Text>
+            </View>
+            {canManage && <Switch value={profile.acceptingOrders} onValueChange={pause} trackColor={{ true: colors.success }} accessibilityLabel="Accepter les commandes" />}
+          </View>
+        )}
+
+        <Segmented
+          options={[
+            { value: 'active', label: newCount ? `En cours · ${newCount} nouvelle${newCount > 1 ? 's' : ''}` : 'En cours' },
+            { value: 'done', label: 'Terminées' },
+          ]}
+          value={scope}
+          onChange={(v) => {
+            setScope(v);
+            setOrders(null);
+          }}
+        />
+
+        {!orders && <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />}
+        {orders?.length === 0 && (
+          <EmptyState
+            icon={scope === 'active' ? 'receipt-outline' : 'time-outline'}
+            title={scope === 'active' ? 'Aucune commande en cours' : 'Rien ces deux derniers jours'}
+            text={scope === 'active' ? 'Les nouvelles commandes apparaissent ici, avec une notification.' : undefined}
+          />
+        )}
+
+        {orders?.map((o) => {
+          const s = ORDER_STATUS_LABEL[o.status];
+          const next = nextStep(o);
+          return (
+            <Pressable
+              key={o.id}
+              style={({ pressed }) => [styles.card, shadow.card, o.status === 'placed' && styles.cardNew, pressed && { opacity: 0.9 }]}
+              onPress={() => router.push(`/commande-recue/${o.id}`)}
+              accessibilityRole="button">
+              <View style={styles.head}>
+                <OrderThumb order={o} kind={business.kind} />
+                <View style={{ flex: 1, gap: 3 }}>
+                  <View style={styles.row}>
+                    <Text style={styles.code}>{o.code}</Text>
+                    <Text style={styles.muted}>{time(o.createdAt)}</Text>
+                    <View style={{ flex: 1 }} />
+                    <StatusChip label={s.label} tone={s.tone} />
+                  </View>
+                  <Text style={styles.lines} numberOfLines={2}>
+                    {o.lines.map((l) => `${l.qty} × ${l.name}`).join(', ')}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.row}>
+                <Ionicons name={o.mode === 'delivery' ? 'bicycle-outline' : 'walk-outline'} size={15} color={colors.muted2} />
+                <Text style={[styles.muted, { flex: 1 }]} numberOfLines={1}>
+                  {o.mode === 'delivery' ? o.address : 'À emporter'} · {o.customer?.name}
+                </Text>
+                <Text style={styles.total}>{formatFcfa(o.total)}</Text>
+              </View>
+              {o.note && <Text style={styles.note}>« {o.note} »</Text>}
+              {next && (
+                <Pressable style={[styles.next, o.status === 'placed' && { backgroundColor: colors.success }]} onPress={() => advance(o)} disabled={busy === o.id} accessibilityRole="button">
+                  {busy === o.id ? <ActivityIndicator color="#fff" /> : <Ionicons name={next.icon} size={18} color="#fff" />}
+                  <Text style={styles.nextText}>{next.label}</Text>
+                </Pressable>
+              )}
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+/** The order's picture: its first item with a photo, a small "+2" when there are more lines; an icon otherwise. */
+function OrderThumb({ order, kind }: { order: OrderDto; kind: 'restaurant' | 'shop' }) {
+  const photo = order.lines.find((l) => l.photo)?.photo;
+  const more = order.lines.length - 1;
+  return (
+    <View style={styles.thumb}>
+      {photo ? (
+        <Image source={photo} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} />
+      ) : (
+        <Ionicons name={kind === 'restaurant' ? 'restaurant-outline' : 'bag-handle-outline'} size={26} color={colors.primary} />
+      )}
+      {more > 0 && (
+        <View style={styles.more}>
+          <Text style={styles.moreText}>+{more}</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: colors.bg },
+  body: { padding: 20, gap: 12, paddingBottom: 32 },
+  h1: { ...typo.h2, color: colors.navy },
+  sub: { ...typo.small, color: colors.muted2 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  head: { flexDirection: 'row', gap: 12 },
+  thumb: { width: 64, height: 64, borderRadius: radii.md, overflow: 'hidden', backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  more: { position: 'absolute', right: 4, bottom: 4, minWidth: 24, height: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: 'rgba(15,27,76,0.85)', alignItems: 'center', justifyContent: 'center' },
+  moreText: { fontSize: 11, fontWeight: '800', color: '#fff' },
+  bell: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center', ...shadow.card },
+  badge: { position: 'absolute', top: -2, right: -2, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, backgroundColor: colors.danger, borderWidth: 2, borderColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
+  badgeText: { fontSize: 10, fontWeight: '800', color: '#fff' },
+  scan: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 40, paddingHorizontal: 14, borderRadius: radii.pill, backgroundColor: colors.navy },
+  scanText: { ...typo.smallStrong, color: '#fff' },
+  card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14, gap: 8 },
+  cardNew: { borderWidth: 2, borderColor: colors.success },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dot: { width: 10, height: 10, borderRadius: 5 },
+  cardTitle: { ...typo.bodyStrong, color: colors.navy },
+  muted: { ...typo.caption, color: colors.muted2 },
+  code: { ...typo.title, color: colors.navy, letterSpacing: 1 },
+  lines: { ...typo.body, color: colors.text },
+  total: { ...typo.bodyStrong, color: colors.primary },
+  note: { ...typo.small, color: colors.warningText, fontStyle: 'italic' },
+  next: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 46, borderRadius: radii.pill, backgroundColor: colors.primary, marginTop: 4 },
+  nextText: { ...typo.bodyStrong, color: '#fff' },
+});

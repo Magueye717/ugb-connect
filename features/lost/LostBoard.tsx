@@ -2,19 +2,21 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Field, Segmented, StatusChip } from '@/components/ui';
-import { lostCategory, type LostItem, type LostStatus } from '@/constants/data';
+import { lostCategory, lostTone } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useLost } from '@/context/LostContext';
+import { declaredAgo, type LostItemDto, type LostStatus } from '@/features/lost/api';
 import { matches } from '@/lib/search';
+import { useNow } from '@/lib/useNow';
 
 type Tab = LostStatus | 'mine';
 const TAB_LABELS: Record<Tab, string> = { found: 'Trouvés', lost: 'Perdus', mine: 'Mes objets' };
 
 /** Where the item stands, in one word. */
-function chip(o: LostItem): { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' } {
+function chip(o: LostItemDto): { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' } {
   if (o.returned) return { label: 'Rendu ✓', tone: 'neutral' };
   if (o.status === 'lost') return { label: 'Recherché', tone: 'danger' };
   return o.holder === 'office' ? { label: 'Au bureau', tone: 'warning' } : { label: 'Chez l’étudiant', tone: 'success' };
@@ -23,12 +25,20 @@ function chip(o: LostItem): { label: string; tone: 'success' | 'warning' | 'dang
 /** Screen content without header or safe area: used by a tab and by its standalone page. */
 export function LostBoard() {
   const [tab, setTab] = useState<Tab>('found');
-  const { items } = useLost();
+  const { items: loaded, refresh } = useLost();
+  const items = loaded ?? [];
+  const now = useNow();
+  const [refreshing, setRefreshing] = useState(false);
+  const pull = () => {
+    setRefreshing(true);
+    refresh().finally(() => setRefreshing(false));
+  };
   // Open cases first; returned items stay visible, at the end.
   const [query, setQuery] = useState('');
   // A card can be found by the name on it: type your first name to find your student card.
-  const search = (o: LostItem) => matches(query, [o.name, o.details, o.where, o.spot, lostCategory(o.category).label, o.owner]);
-  const inTab = (o: LostItem, t: Tab) => (t === 'mine' ? !!o.mine : o.status === t);
+  const search = (o: LostItemDto) => matches(query, [o.name, o.details, o.where, o.spot, lostCategory(o.category).label, o.owner]);
+  // Mine: what I declared, and my student card someone found.
+  const inTab = (o: LostItemDto, t: Tab) => (t === 'mine' ? o.mine || o.isOwner : o.status === t);
   const list = items
     .filter((o) => inTab(o, tab) && search(o))
     .sort((a, b) => Number(!!a.returned) - Number(!!b.returned));
@@ -40,7 +50,7 @@ export function LostBoard() {
 
   return (
     <>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={pull} />}>
         <View style={styles.banner}>
           <Text style={styles.bannerTitle}>Perdu ou trouvé quelque chose ?</Text>
           <Text style={styles.bannerSub}>Déclare-le en 30 secondes</Text>
@@ -100,7 +110,8 @@ export function LostBoard() {
           </Text>
         )}
 
-        {list.length === 0 && (
+        {!loaded && <ActivityIndicator color={colors.primary} style={{ marginTop: 20 }} />}
+        {loaded && list.length === 0 && (
           <View style={styles.emptyBox}>
             <Text style={styles.empty}>
               {query.trim()
@@ -125,19 +136,21 @@ export function LostBoard() {
         )}
 
         <View style={styles.grid}>
-          {list.map((o) => (
+          {list.map((o) => {
+            const tone = lostTone(o.category);
+            return (
             <Pressable
               key={o.id}
               style={({ pressed }) => [styles.card, shadow.card, o.returned && { opacity: 0.55 }, pressed && { transform: [{ scale: 0.98 }] }]}
               onPress={() => router.push(`/objet/${o.id}`)}
               accessibilityRole="button"
-              accessibilityLabel={`${o.name}, ${o.where}, ${o.when}`}>
+              accessibilityLabel={`${o.name}, ${o.where}, ${declaredAgo(o.createdAt, now)}`}>
               {/* Cards are never shown in photo: only an icon and a masked name. */}
-              <View style={[styles.visual, { backgroundColor: o.bg }]}>
+              <View style={[styles.visual, { backgroundColor: tone.bg }]}>
                 {o.kind === 'object' && o.photo ? (
-                  <Image source={o.photo} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} />
+                  <Image source={{ uri: o.photo }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} />
                 ) : (
-                  <Ionicons name={lostCategory(o.category).icon} size={30} color={o.tint} />
+                  <Ionicons name={lostCategory(o.category).icon} size={30} color={tone.tint} />
                 )}
                 {o.kind !== 'object' && (
                   <View style={styles.private}>
@@ -149,20 +162,27 @@ export function LostBoard() {
               <Text style={styles.name} numberOfLines={1}>
                 {o.name}
               </Text>
-              {o.owner && (
+              {o.isOwner ? (
                 <Text style={styles.owner} numberOfLines={1}>
-                  {o.ownerNotified ? `✓ ${o.owner} prévenu(e)` : `Au nom de ${o.owner}`}
+                  Ta carte !
                 </Text>
+              ) : (
+                o.owner && (
+                  <Text style={styles.owner} numberOfLines={1}>
+                    {o.ownerNotified ? `✓ ${o.owner} prévenu(e)` : `Au nom de ${o.owner}`}
+                  </Text>
+                )
               )}
               <View style={styles.where}>
                 <Ionicons name="location-outline" size={12} color={colors.muted2} />
                 <Text style={styles.whereText}>
-                  {o.where} · {o.when}
+                  {o.where} · {declaredAgo(o.createdAt, now)}
                 </Text>
               </View>
               <StatusChip {...chip(o)} />
             </Pressable>
-          ))}
+            );
+          })}
         </View>
       </ScrollView>
     </>

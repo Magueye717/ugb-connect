@@ -1,4 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -14,11 +16,12 @@ import {
   type ScrollViewInstance,
 } from 'react-native';
 
-import { adBanners, formatFcfa, schedule, weekDays } from '@/constants/data';
+import { formatFcfa, schedule, weekDays } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useCampus } from '@/context/CampusContext';
 import { useCaravans } from '@/context/CaravansContext';
+import { type LiveBannerDto } from '@/features/banners/api';
 import { currentMeal, type AlertDto, type DishStatus } from '@/features/restos/api';
 import { useTaxi } from '@/context/TaxiContext';
 
@@ -91,36 +94,58 @@ export function OriginPrompt() {
   );
 }
 
-function openAd(ad: (typeof adBanners)[number]) {
-  if (ad.href) router.push(ad.href as never);
-  else if (ad.url) Linking.openURL(ad.url);
+/** Where a banner's button leads: the event page, a screen of the app, a website, WhatsApp or a call. */
+export function openBanner(b: LiveBannerDto) {
+  // The event page starts on the picture the banner showed (its cover, or the one drawn at random).
+  if (b.event) return router.push({ pathname: '/evenement/[id]', params: { id: b.event.id, cover: b.image } });
+  if (b.cta) openCta(b.cta);
 }
 
+/** An ad's button: a screen of the app, a website, WhatsApp or a call. */
+export function openCta(cta: { target: string; value: string }) {
+  const digits = cta.value.replace(/\D/g, '').replace(/^221/, '');
+  if (cta.target === 'app') router.push(cta.value as never);
+  else if (cta.target === 'url') Linking.openURL(cta.value).catch(() => undefined);
+  else if (cta.target === 'whatsapp') Linking.openURL(`https://wa.me/221${digits}`).catch(() => undefined);
+  else Linking.openURL(`tel:+221${digits}`).catch(() => undefined);
+}
+
+const MONTHS_SHORT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+/** "Sam. 07 nov. · 20h00" */
+export const eventWhen = (iso: string) => {
+  const d = new Date(iso);
+  return `${DAYS[d.getDay()]} ${String(d.getDate()).padStart(2, '0')} ${MONTHS_SHORT[d.getMonth()]} · ${String(d.getHours()).padStart(2, '0')}h${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+/**
+ * The home carousel: paid banners. An ad says it's sponsored, with a short title, a short text, its picture and
+ * its button; an event shows its date, place and price, and opens its page.
+ */
 export function AdCarousel() {
+  const { banners } = useCampus();
   const { width } = useWindowDimensions();
   const slideWidth = width - BODY_PADDING * 2;
   const ref = useRef<ScrollViewInstance>(null);
   const [index, setIndex] = useState(0);
-  const multiple = adBanners.length > 1;
+  const multiple = banners.length > 1;
 
   // Restarts whenever the index changes, so a manual swipe resets the timer.
-  // Only runs when there is more than one ad to rotate.
   useEffect(() => {
     if (!multiple) return;
     const t = setTimeout(() => {
-      const next = (index + 1) % adBanners.length;
+      const next = (index + 1) % banners.length;
       ref.current?.scrollTo({ x: next * slideWidth, animated: true });
       setIndex(next);
     }, AUTO_SCROLL_MS);
     return () => clearTimeout(t);
-  }, [index, slideWidth, multiple]);
+  }, [index, slideWidth, multiple, banners.length]);
 
   const onScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     setIndex(Math.round(e.nativeEvent.contentOffset.x / slideWidth));
   };
 
-  // No sponsor right now: leave no gap on the home screen.
-  if (adBanners.length === 0) return null;
+  // No banner right now: leave no gap on the home screen.
+  if (banners.length === 0) return null;
 
   return (
     <View style={{ gap: 10 }}>
@@ -132,33 +157,45 @@ export function AdCarousel() {
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={onScrollEnd}
         style={styles.bannerTrack}>
-        {adBanners.map((ad) => (
-          <Pressable
-            key={ad.id}
-            disabled={!ad.href && !ad.url}
-            onPress={() => openAd(ad)}
-            style={[styles.banner, { width: slideWidth, backgroundColor: ad.bg }]}>
-            <View style={styles.decoLarge} />
-            <View style={styles.decoSmall} />
-            <View style={styles.tag}>
-              <Text style={styles.tagText}>SPONSORISÉ</Text>
-            </View>
-            <View style={{ paddingRight: 96 }}>
-              <Text style={styles.bannerTitle}>{ad.title}</Text>
-              <Text style={styles.bannerSub}>{ad.subtitle}</Text>
-            </View>
-            {(ad.href || ad.url) && (
-              <View style={styles.bannerBtn}>
-                <Text style={[styles.bannerBtnText, { color: ad.bg }]}>{ad.cta}</Text>
+        {banners.map((b) => {
+          const action = b.event ? 'Voir l’événement' : b.cta?.label;
+          return (
+            <Pressable
+              key={b.id}
+              disabled={!b.event && !b.cta}
+              onPress={() => openBanner(b)}
+              accessibilityRole={b.event || b.cta ? 'button' : undefined}
+              accessibilityLabel={`${b.event ? 'Événement' : 'Sponsorisé'} : ${b.title}`}
+              style={[styles.banner, { width: slideWidth }]}>
+              <Image source={{ uri: b.image }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} />
+              {/* Darker at the bottom: the text stays readable on any picture. */}
+              <LinearGradient colors={['rgba(10,16,40,0.05)', 'rgba(10,16,40,0.78)']} style={StyleSheet.absoluteFill} />
+              <View style={styles.tag}>
+                <Text style={styles.tagText}>{b.event ? `ÉVÉNEMENT · ${b.event.categoryLabel.toUpperCase()}` : 'SPONSORISÉ'}</Text>
               </View>
-            )}
-          </Pressable>
-        ))}
+              <View style={{ paddingRight: action ? 110 : 0 }}>
+                <Text style={styles.bannerTitle} numberOfLines={2}>
+                  {b.title}
+                </Text>
+                <Text style={styles.bannerSub} numberOfLines={1}>
+                  {b.event ? `${eventWhen(b.event.startsAt)} · ${b.event.priceLabel}` : b.description}
+                </Text>
+              </View>
+              {action && (
+                <View style={styles.bannerBtn}>
+                  <Text style={styles.bannerBtnText} numberOfLines={1}>
+                    {action}
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+          );
+        })}
       </ScrollView>
       {multiple && (
         <View style={styles.dots}>
-          {adBanners.map((ad, i) => (
-            <View key={ad.id} style={[styles.dotItem, i === index && styles.dotOn]} />
+          {banners.map((b, i) => (
+            <View key={b.id} style={[styles.dotItem, i === index && styles.dotOn]} />
           ))}
         </View>
       )}
@@ -269,6 +306,57 @@ const toMinutes = (hhmm: string) => {
 };
 
 const dayName = (short: string) => short.charAt(0) + short.slice(1).toLowerCase() + '.';
+
+/**
+ * Events on the home screen, like the caravans: the next one for this student (the organizer chose who sees it: UFR,
+ * campus, village, region), one tap to book, and the others.
+ */
+export function EventCard() {
+  const now = useNow();
+  const { events } = useCampus();
+  const upcoming = events.filter((e) => e.salesOpen && Date.parse(e.endsAt) > now);
+  const next = upcoming[0];
+  if (!next) return null;
+  const startsIn = Date.parse(next.startsAt) - now;
+  const others = upcoming.length - 1;
+
+  return (
+    <View style={[styles.infoCard, shadow.card]}>
+      <View style={styles.rowBetween}>
+        <View style={styles.label}>
+          <Ionicons name="sparkles-outline" size={12} color={colors.primary} />
+          <Text style={styles.labelText}>PROCHAIN ÉVÉNEMENT</Text>
+        </View>
+        <Text style={[styles.timeLeft, startsIn > 0 && startsIn < URGENT_MS && { color: colors.orangeText }]}>{startsIn > 0 ? formatTimeLeft(startsIn) : 'En cours'}</Text>
+      </View>
+
+      <Pressable style={styles.eventRow} onPress={() => router.push(`/evenement/${next.id}`)} accessibilityRole="button">
+        <Image source={{ uri: next.images[0] }} style={styles.eventThumb} contentFit="cover" />
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={styles.eventTitle} numberOfLines={1}>
+            {next.title}
+          </Text>
+          <Text style={styles.detail} numberOfLines={1}>
+            {eventWhen(next.startsAt)} · {next.venue.name}
+          </Text>
+          <Text style={styles.seats}>{next.minPrice ? `Dès ${formatFcfa(next.minPrice)}` : 'Gratuit'}</Text>
+        </View>
+        <View style={styles.cta}>
+          <Text style={styles.ctaText}>Réserver</Text>
+        </View>
+      </Pressable>
+
+      {others > 0 && (
+        <Pressable style={styles.more} onPress={() => router.push('/evenements')}>
+          <Text style={styles.moreText}>
+            {others} autre{others > 1 ? 's' : ''} événement{others > 1 ? 's' : ''} pour toi
+          </Text>
+          <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+        </Pressable>
+      )}
+    </View>
+  );
+}
 
 // First course that hasn't ended today, otherwise the first course of the next school day.
 function findNextCourse(now: number) {
@@ -514,7 +602,7 @@ export function RestoCard() {
         );
       })}
 
-      <Pressable style={styles.more} onPress={() => router.push({ pathname: '/(tabs)/resto', params: { vue: 'restos' } })}>
+      <Pressable style={styles.more} onPress={() => router.push('/(tabs)/resto')}>
         <Text style={styles.moreText}>Voir les restos privés</Text>
         <Ionicons name="chevron-forward" size={14} color={colors.primary} />
       </Pressable>
@@ -549,50 +637,34 @@ const styles = StyleSheet.create({
 
   bannerTrack: { borderRadius: radii.lg },
   banner: {
-    height: 140,
+    height: 172,
     borderRadius: radii.lg,
-    padding: 18,
+    padding: 16,
     justifyContent: 'space-between',
     overflow: 'hidden',
-  },
-  decoLarge: {
-    position: 'absolute',
-    right: -30,
-    top: -30,
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-  },
-  decoSmall: {
-    position: 'absolute',
-    right: 60,
-    bottom: -40,
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: colors.navy,
   },
   tag: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(255,255,255,0.24)',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: radii.pill,
   },
   tagText: { ...typo.label, color: '#fff', letterSpacing: 0.3 },
   bannerTitle: { ...typo.h3, color: '#fff', lineHeight: 23 },
-  bannerSub: { ...typo.caption, color: 'rgba(255,255,255,0.9)', marginTop: 4 },
+  bannerSub: { ...typo.caption, color: 'rgba(255,255,255,0.92)', marginTop: 4 },
   bannerBtn: {
     position: 'absolute',
-    right: 16,
+    right: 14,
     bottom: 16,
+    maxWidth: 140,
     backgroundColor: '#fff',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: radii.pill,
   },
-  bannerBtnText: { ...typo.captionStrong },
+  bannerBtnText: { ...typo.captionStrong, color: colors.navy },
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 6 },
   dotItem: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#C9D0E2' },
   dotOn: { width: 18, backgroundColor: colors.primary },
@@ -613,6 +685,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   detail: { ...typo.caption, color: colors.muted2 },
+  eventRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  eventThumb: { width: 52, height: 52, borderRadius: radii.sm, backgroundColor: colors.border },
+  eventTitle: { ...typo.title, color: colors.navy },
   seats: { fontSize: 12, fontWeight: '600', color: colors.successText },
   more: {
     flexDirection: 'row',

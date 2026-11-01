@@ -78,9 +78,9 @@ export function PrimaryButton({
   );
 }
 
-export function OutlineButton({ label, onPress }: { label: string; onPress: () => void }) {
+export function OutlineButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.outline, pressed && styles.pressed]}>
+    <Pressable onPress={onPress} disabled={disabled} style={({ pressed }) => [styles.outline, pressed && styles.pressed, disabled && { opacity: 0.4 }]}>
       <Text style={styles.outlineLabel}>{label}</Text>
     </Pressable>
   );

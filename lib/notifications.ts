@@ -3,7 +3,7 @@ import * as Notifications from 'expo-notifications';
 import { AndroidImportance, AndroidNotificationVisibility } from 'expo-notifications';
 import { router } from 'expo-router';
 import { useEffect } from 'react';
-import { Platform } from 'react-native';
+import { Platform, Vibration } from 'react-native';
 
 import { mealTimes } from '@/constants/data';
 import { api } from '@/lib/api';
@@ -12,6 +12,8 @@ import { api } from '@/lib/api';
 export type NotificationData = { url?: string };
 
 const CHANNEL_ID = 'campus';
+// A shop's new orders: its own channel, louder and longer (the backend picks it for `commerce.order_placed`).
+const ORDERS_CHANNEL_ID = 'commandes';
 
 // Show notifications as banners even while the app is open.
 Notifications.setNotificationHandler({
@@ -23,15 +25,31 @@ Notifications.setNotificationHandler({
   }),
 });
 
+let lastBuzz = 0;
+
+/**
+ * Vibrates for a notification that arrives while the app is open (push or live bell update). Once per burst: the
+ * push and the live update of the same event arrive together.
+ */
+export function buzz() {
+  if (Platform.OS === 'web') return;
+  const now = Date.now();
+  if (now - lastBuzz < 2500) return;
+  lastBuzz = now;
+  // iOS ignores patterns: one standard vibration.
+  Vibration.vibrate(Platform.OS === 'android' ? [0, 250, 150, 250] : 400);
+}
+
 let setupDone = false;
 // Set once the Android channel exists; otherwise Android falls back to its default channel.
 let channelId: string | undefined;
 
 /**
- * Creates the Android channel, asks for permission once, then schedules the daily meal reminders.
+ * Creates the Android channels, asks for permission once, registers this phone for push (every account: a shop owner
+ * gets their orders with the app closed), then schedules the daily meal reminders for students.
  * Safe to call on every launch: it only prompts when the user hasn't answered yet.
  */
-export async function setupNotifications() {
+export async function setupNotifications({ meals }: { meals: boolean }) {
   if (setupDone) return;
   setupDone = true;
   // Notifications are a bonus: a failure here must never break the home screen.
@@ -43,8 +61,9 @@ export async function setupNotifications() {
     if (!granted) ({ granted } = await Notifications.requestPermissionsAsync());
     if (!granted) return;
 
-    await scheduleMealReminders();
     await registerPushToken();
+    if (meals) await scheduleMealReminders();
+    else await Promise.all(['meal-lunch', 'meal-dinner'].map((id) => Notifications.cancelScheduledNotificationAsync(id).catch(() => undefined)));
   } catch (e) {
     if (__DEV__) console.warn('Notifications setup failed', e);
   }
@@ -65,6 +84,17 @@ async function createAndroidChannel() {
       lockscreenVisibility: AndroidNotificationVisibility.PUBLIC,
     });
     channelId = CHANNEL_ID;
+    await Notifications.setNotificationChannelAsync(ORDERS_CHANNEL_ID, {
+      name: 'Commandes reçues',
+      description: 'Les nouvelles commandes de ton restaurant ou de ta boutique',
+      importance: AndroidImportance.MAX,
+      vibrationPattern: [0, 400, 200, 400, 200, 400],
+      lightColor: '#F97316',
+      showBadge: true,
+      enableVibrate: true,
+      enableLights: true,
+      lockscreenVisibility: AndroidNotificationVisibility.PUBLIC,
+    });
   } catch (e) {
     if (__DEV__) console.warn('Android notification channel not created, using the default one', e);
   }
@@ -207,9 +237,12 @@ export function useNotificationRouting(signedIn: boolean) {
 
     Notifications.getLastNotificationResponseAsync().then((r) => active && open(r));
     const sub = Notifications.addNotificationResponseReceivedListener(open);
+    // Arrived while the app is open: shown as a banner (handler above), and the phone vibrates.
+    const received = Notifications.addNotificationReceivedListener(() => buzz());
     return () => {
       active = false;
       sub.remove();
+      received.remove();
     };
   }, [signedIn]);
 }

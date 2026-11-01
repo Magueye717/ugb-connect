@@ -1,72 +1,47 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
-import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton, Field, PrimaryButton, Segmented } from '@/components/ui';
-import { findPrivateResto, formatFcfa, paymentMethods, restoStatus } from '@/constants/data';
+import { formatFcfa, paymentMethods } from '@/constants/data';
 import { PaymentLogo } from '@/components/PaymentLogo';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
 import { useOrders } from '@/context/OrdersContext';
-import { useNow } from '@/lib/useNow';
+import { commerceApi, type BusinessDetail, type OrderMode } from '@/features/commerce/api';
+import { payInBrowser, type PaymentMethod } from '@/features/payments/checkout';
+import { ApiError } from '@/lib/api';
 
-type Mode = 'delivery' | 'pickup';
+const METHOD: Record<string, PaymentMethod> = { wave: 'wave', om: 'orange_money' };
 
-// Mobile money plus cash, paid when the order is handed over.
-const PAYMENTS = [...paymentMethods, { id: 'cash', name: 'Espèces', detail: 'Payer en main propre', short: 'F', bg: colors.green }];
-
+/** The basket: one business, delivery or pickup, paid now with Wave or Orange Money; then the order's tracking. */
 export default function Panier() {
   const cart = useCart();
-  const orders = useOrders();
-  const now = useNow();
-  const { resto } = findPrivateResto(cart.restoId);
-  const status = restoStatus(resto.services, now);
-
-  const canDeliver = resto.deliveryFee !== null;
-  const [mode, setMode] = useState<Mode>(canDeliver ? 'delivery' : 'pickup');
+  const { upsert } = useOrders();
   const { user } = useAuth();
+  const [b, setB] = useState<BusinessDetail | null>(null);
+  const [mode, setMode] = useState<OrderMode | null>(null);
   // Pre-filled with the room given at sign-up; still editable (delivery to a friend, the BU…).
   const [address, setAddress] = useState(user?.village && user.room ? `${user.village}, chambre ${user.room}` : '');
   const [note, setNote] = useState('');
-  const [payment, setPayment] = useState(PAYMENTS[0].id);
+  const [payment, setPayment] = useState(paymentMethods[0].id);
+  const [paying, setPaying] = useState(false);
+  const businessId = cart.business?.id;
 
-  const lines = [...resto.menus, ...resto.drinks]
-    .filter((i) => cart.items[i.id])
-    .map((i) => ({ ...i, qty: cart.items[i.id] }));
-  const subtotal = lines.reduce((sum, l) => sum + l.qty * l.price, 0);
-  const delivery = mode === 'delivery';
-  // Fee set by the restaurant, shown before the student chooses.
-  const fee = delivery ? (resto.deliveryFee ?? 0) : 0;
-  const feeLabel = resto.deliveryFee ? `Livraison · ${formatFcfa(resto.deliveryFee)}` : 'Livraison gratuite';
-  const total = subtotal + fee;
+  // Prices and stock as they are now.
+  useFocusEffect(
+    useCallback(() => {
+      if (businessId) commerceApi.get(businessId).then(setB, () => undefined);
+    }, [businessId]),
+  );
 
-  const missingAddress = delivery && !address.trim();
-  const blocker = !status.open ? status.label : missingAddress ? 'Indique où te livrer' : null;
+  const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/(tabs)/resto' }));
 
-  const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/(tabs)/resto', params: { vue: 'restos' } }));
-
-  const order = () => {
-    // A real order with its own tracking screen, instead of a message that disappears.
-    const id = orders.place({
-      restoId: resto.id,
-      lines: lines.map((l) => ({ id: l.id, name: l.name, qty: l.qty, price: l.price })),
-      subtotal,
-      fee,
-      total,
-      mode,
-      address: delivery ? address.trim() : undefined,
-      note: note.trim() || undefined,
-      paymentId: payment,
-    });
-    cart.clear();
-    router.replace(`/commande/${id}`);
-  };
-
-  if (!cart.count) {
+  if (!cart.count || !cart.business) {
     return (
       <SafeAreaView style={styles.safe}>
         <Header onBack={back} />
@@ -75,12 +50,55 @@ export default function Panier() {
             <Ionicons name="bag-handle-outline" size={32} color={colors.primary} />
           </View>
           <Text style={styles.emptyTitle}>Ton panier est vide</Text>
-          <Text style={styles.emptyText}>Choisis un restaurant et ajoute des plats ou des boissons.</Text>
-          <PrimaryButton label="Voir les restaurants" onPress={() => router.dismissTo({ pathname: '/(tabs)/resto', params: { vue: 'restos' } })} style={{ alignSelf: 'stretch' }} />
+          <Text style={styles.emptyText}>Choisis un restaurant ou une boutique et ajoute des articles.</Text>
+          <PrimaryButton label="Voir les restaurants" onPress={() => router.dismissTo({ pathname: '/(tabs)/resto' })} style={{ alignSelf: 'stretch' }} />
         </View>
       </SafeAreaView>
     );
   }
+  if (!b) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <Header onBack={back} />
+        <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
+      </SafeAreaView>
+    );
+  }
+
+  const canDeliver = b.deliveryFee !== null;
+  const chosen: OrderMode = mode ?? (canDeliver ? 'delivery' : 'pickup');
+  const lines = b.items.filter((i) => cart.items[i.id]).map((i) => ({ ...i, qty: cart.items[i.id]! }));
+  const gone = Object.keys(cart.items).filter((itemId) => !b.items.some((i) => i.id === itemId));
+  const subtotal = lines.reduce((sum, l) => sum + l.qty * l.price, 0);
+  const delivery = chosen === 'delivery';
+  const fee = delivery ? (b.deliveryFee ?? 0) : 0;
+  const feeLabel = b.deliveryFee ? `Livraison · ${formatFcfa(b.deliveryFee)}` : 'Livraison gratuite';
+  const total = subtotal + fee;
+  const blocker = !b.open ? b.statusLabel : gone.length ? 'Retire les articles indisponibles' : delivery && !address.trim() ? 'Indique où te livrer' : null;
+  const setQty = (itemId: string, qty: number) => cart.setQty({ id: b.id, name: b.name }, itemId, qty);
+
+  const order = async () => {
+    setPaying(true);
+    try {
+      const { order: placed, payment: pay } = await commerceApi.order(b.id, {
+        lines: lines.map((l) => ({ itemId: l.id, qty: l.qty })),
+        mode: chosen,
+        address: delivery ? address.trim() : null,
+        note: note.trim() || null,
+        method: METHOD[payment] ?? 'wave',
+      });
+      upsert(placed);
+      cart.clear();
+      const paid = await payInBrowser(pay);
+      upsert(await commerceApi.myOrder(placed.id));
+      router.replace(`/commande/${placed.id}`);
+      if (paid.status !== 'succeeded') Alert.alert('Paiement en attente', 'Ta commande part au commerce dès que le paiement est confirmé. Tu peux le reprendre depuis le suivi.');
+    } catch (err) {
+      Alert.alert('Commande impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
+    } finally {
+      setPaying(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -88,20 +106,16 @@ export default function Panier() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={[styles.card, styles.resto, shadow.card]}>
-            <View style={[styles.restoPhoto, { backgroundColor: resto.bg }]}>
-              {resto.photo ? (
-                <Image source={resto.photo} style={StyleSheet.absoluteFill} contentFit="cover" />
-              ) : (
-                <Ionicons name={resto.icon} size={22} color={resto.tint} />
-              )}
+            <View style={[styles.restoPhoto, { backgroundColor: colors.primarySoft }]}>
+              {b.photo ? <Image source={{ uri: b.photo }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name={b.kind === 'shop' ? 'storefront' : 'restaurant'} size={22} color={colors.primary} />}
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.restoName} numberOfLines={1}>
-                {resto.name}
+                {b.name}
               </Text>
               <View style={styles.status}>
-                <View style={[styles.dot, { backgroundColor: status.open ? colors.success : colors.muted }]} />
-                <Text style={[styles.statusText, { color: status.open ? colors.successText : colors.muted2 }]}>{status.label}</Text>
+                <View style={[styles.dot, { backgroundColor: b.open ? colors.success : colors.muted }]} />
+                <Text style={[styles.statusText, { color: b.open ? colors.successText : colors.muted2 }]}>{b.statusLabel}</Text>
               </View>
             </View>
           </View>
@@ -110,12 +124,8 @@ export default function Panier() {
           <View style={[styles.card, shadow.card, { paddingVertical: 4 }]}>
             {lines.map((l, i) => (
               <View key={l.id} style={[styles.line, i > 0 && styles.lineDivider]}>
-                <View style={[styles.thumb, { backgroundColor: resto.bg }]}>
-                  {l.photo ? (
-                    <Image source={l.photo} style={StyleSheet.absoluteFill} contentFit="cover" />
-                  ) : (
-                    <Ionicons name="fast-food" size={18} color={resto.tint} />
-                  )}
+                <View style={[styles.thumb, { backgroundColor: colors.primarySoft }]}>
+                  {l.photo ? <Image source={{ uri: l.photo }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name={b.kind === 'shop' ? 'pricetag' : 'fast-food'} size={18} color={colors.primary} />}
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.lineName} numberOfLines={1}>
@@ -124,17 +134,14 @@ export default function Panier() {
                   <Text style={styles.linePrice}>{formatFcfa(l.qty * l.price)}</Text>
                 </View>
                 <View style={styles.stepper}>
-                  <Pressable
-                    onPress={() => cart.setQty(resto.id, l.id, l.qty - 1)}
-                    style={styles.stepMinus}
-                    hitSlop={8}
-                    accessibilityLabel={l.qty === 1 ? `Retirer ${l.name} du panier` : `Retirer un ${l.name}`}>
+                  <Pressable onPress={() => setQty(l.id, l.qty - 1)} style={styles.stepMinus} hitSlop={8} accessibilityLabel={l.qty === 1 ? `Retirer ${l.name} du panier` : `Retirer un ${l.name}`}>
                     <Ionicons name={l.qty === 1 ? 'trash-outline' : 'remove'} size={15} color={l.qty === 1 ? colors.danger : colors.navy} />
                   </Pressable>
                   <Text style={styles.qty}>{l.qty}</Text>
                   <Pressable
-                    onPress={() => cart.setQty(resto.id, l.id, l.qty + 1)}
-                    style={styles.stepPlus}
+                    onPress={() => setQty(l.id, l.qty + 1)}
+                    disabled={l.stock !== null && l.qty >= l.stock}
+                    style={[styles.stepPlus, l.stock !== null && l.qty >= l.stock && { opacity: 0.4 }]}
                     hitSlop={8}
                     accessibilityLabel={`Ajouter un ${l.name}`}>
                     <Ionicons name="add" size={15} color="#fff" />
@@ -142,7 +149,15 @@ export default function Panier() {
                 </View>
               </View>
             ))}
-            <Pressable style={[styles.line, styles.lineDivider]} onPress={back} accessibilityRole="button">
+            {gone.length > 0 && (
+              <Pressable style={[styles.line, styles.lineDivider]} onPress={() => gone.forEach((itemId) => setQty(itemId, 0))} accessibilityRole="button">
+                <Ionicons name="alert-circle-outline" size={20} color={colors.dangerText} />
+                <Text style={[styles.addMore, { color: colors.dangerText, flex: 1 }]}>
+                  {gone.length} article{gone.length > 1 ? 's' : ''} plus disponible{gone.length > 1 ? 's' : ''} · retirer
+                </Text>
+              </Pressable>
+            )}
+            <Pressable style={[styles.line, styles.lineDivider]} onPress={() => router.navigate(`/resto/${b.id}`)} accessibilityRole="button">
               <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
               <Text style={styles.addMore}>Ajouter des articles</Text>
             </Pressable>
@@ -150,62 +165,49 @@ export default function Panier() {
 
           <Text style={styles.section}>Récupération</Text>
           {canDeliver ? (
-            <Segmented<Mode>
+            <Segmented<OrderMode>
               options={[
                 { value: 'delivery', label: feeLabel },
                 { value: 'pickup', label: 'À emporter' },
               ]}
-              value={mode}
+              value={chosen}
               onChange={setMode}
             />
           ) : (
             <View style={styles.info}>
               <Ionicons name="walk-outline" size={16} color={colors.muted2} />
-              <Text style={styles.infoText}>À emporter uniquement · {resto.location}</Text>
+              <Text style={styles.infoText}>À emporter uniquement · {b.address}</Text>
             </View>
           )}
           {delivery ? (
-            <Field
-              icon="location-outline"
-              placeholder="Ex. Village E, pavillon C, chambre 12"
-              value={address}
-              onChangeText={setAddress}
-              autoCapitalize="sentences"
-              accessibilityLabel="Adresse de livraison"
-            />
+            <Field icon="location-outline" placeholder="Ex. Village E, pavillon C, chambre 12" value={address} onChangeText={setAddress} autoCapitalize="sentences" accessibilityLabel="Adresse de livraison" maxLength={120} />
           ) : (
             canDeliver && (
               <View style={styles.info}>
                 <Ionicons name="storefront-outline" size={16} color={colors.muted2} />
-                <Text style={styles.infoText}>À récupérer sur place · {resto.location}</Text>
+                <Text style={styles.infoText}>À récupérer sur place · {b.address}</Text>
               </View>
             )
           )}
           <Field
             icon="chatbubble-ellipses-outline"
-            placeholder="Note pour le restaurant (ex. sans piment)"
+            placeholder={b.kind === 'restaurant' ? 'Note pour le restaurant (ex. sans piment)' : 'Note pour la boutique'}
             value={note}
             onChangeText={setNote}
             autoCapitalize="sentences"
-            accessibilityLabel="Note pour le restaurant"
+            maxLength={200}
+            accessibilityLabel="Note"
           />
 
           <Text style={styles.section}>Paiement</Text>
-          {PAYMENTS.map((m) => {
+          {paymentMethods.map((m) => {
             const on = m.id === payment;
             return (
-              <Pressable
-                key={m.id}
-                onPress={() => setPayment(m.id)}
-                style={[styles.card, styles.payment, on && styles.paymentOn]}
-                accessibilityRole="radio"
-                accessibilityState={{ checked: on }}>
+              <Pressable key={m.id} onPress={() => setPayment(m.id)} style={[styles.card, styles.payment, on && styles.paymentOn]} accessibilityRole="radio" accessibilityState={{ checked: on }}>
                 <PaymentLogo method={m} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.payName}>{m.name}</Text>
-                  <Text style={styles.muted}>
-                    {m.id === 'cash' ? (delivery ? 'À la livraison' : 'Au retrait') : m.detail}
-                  </Text>
+                  <Text style={styles.muted}>Remboursé si la commande est refusée</Text>
                 </View>
                 {on ? <Ionicons name="checkmark-circle" size={22} color={colors.primary} /> : <View style={styles.radio} />}
               </Pressable>
@@ -222,7 +224,7 @@ export default function Panier() {
             </View>
           </View>
 
-          <PrimaryButton label={blocker ?? `Commander · ${formatFcfa(total)}`} onPress={order} disabled={!!blocker} />
+          <PrimaryButton label={blocker ?? `Payer ${formatFcfa(total)} et commander`} onPress={order} disabled={!!blocker || paying} loading={paying} />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

@@ -46,11 +46,12 @@ export default function NotificationsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const { markAllRead } = useNotifications();
+  // In a shop's space: its orders only, no categories to filter.
+  const { markAllRead, scope } = useNotifications();
 
   const load = useCallback(async () => {
     try {
-      const q = filter === 'Tout' ? '' : `?category=${CATEGORY[filter]}`;
+      const q = scope ? `?scope=${scope}` : filter === 'Tout' ? '' : `?category=${CATEGORY[filter]}`;
       setItems((await api<{ items: Item[] }>('GET', `/notifications${q}`, { auth: true })).items);
       setNow(Date.now());
       setError(null);
@@ -59,7 +60,7 @@ export default function NotificationsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, [filter, scope]);
 
   // On opening, on coming back, and when the filter changes.
   useFocusEffect(
@@ -82,13 +83,15 @@ export default function NotificationsScreen() {
       <View style={styles.head}>
         <BackButton onPress={() => router.back()} />
         <View style={{ flex: 1 }}>
-          <Text style={styles.h1}>Notifications</Text>
+          <Text style={styles.h1}>{scope ? 'Notifications commandes' : 'Notifications'}</Text>
           <Text style={styles.sub}>{fresh ? `${fresh} nouvelle${fresh > 1 ? 's' : ''}` : 'Tout est lu'}</Text>
         </View>
       </View>
-      <View style={{ marginTop: 14 }}>
-        <FilterChips options={notificationFilters} value={filter} onChange={setFilter} />
-      </View>
+      {!scope && (
+        <View style={{ marginTop: 14 }}>
+          <FilterChips options={notificationFilters} value={filter} onChange={setFilter} />
+        </View>
+      )}
 
       <ScrollView
         contentContainerStyle={styles.body}
@@ -132,7 +135,8 @@ export default function NotificationsScreen() {
         {!loading && !error && items.length === 0 && (
           <EmptyState
             icon="notifications-outline"
-            title={filter === 'Tout' ? 'Aucune notification pour l’instant' : 'Rien dans cette catégorie'}
+            title={scope ? 'Aucune commande notifiée' : filter === 'Tout' ? 'Aucune notification pour l’instant' : 'Rien dans cette catégorie'}
+            text={scope ? 'Chaque nouvelle commande et chaque annulation arrive ici.' : undefined}
             action={filter === 'Tout' ? undefined : { label: 'Tout voir', onPress: () => setFilter('Tout') }}
           />
         )}

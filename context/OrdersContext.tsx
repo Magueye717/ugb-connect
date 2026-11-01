@@ -1,55 +1,56 @@
-import { createContext, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { AppState } from 'react-native';
 
-export type OrderStatus = 'received' | 'preparing' | 'ready' | 'done';
-
-export type Order = {
-  id: string;
-  restoId: string;
-  lines: { id: string; name: string; qty: number; price: number }[];
-  subtotal: number;
-  fee: number;
-  total: number;
-  mode: 'delivery' | 'pickup';
-  address?: string;
-  note?: string;
-  paymentId: string;
-  createdAt: number;
-  status: OrderStatus;
-};
+import { useAuth } from '@/context/AuthContext';
+import { commerceApi, type OrderDto } from '@/features/commerce/api';
 
 type OrdersValue = {
-  orders: Order[];
-  /** Returns the new order id. */
-  place: (o: Omit<Order, 'id' | 'createdAt' | 'status'>) => string;
+  /** My restaurant and shop orders, newest first (unpaid ones that expired are left out). */
+  orders: OrderDto[];
+  refresh: () => Promise<void>;
+  /** Puts a new or changed order in the list at once. */
+  upsert: (o: OrderDto) => void;
 };
 
 const OrdersContext = createContext<OrdersValue | null>(null);
 
-// Mock: the status moves on by itself so the tracking can be seen. With a backend, the restaurant drives it.
-const DEMO_STEPS: [OrderStatus, number][] = [
-  ['preparing', 8_000],
-  ['ready', 25_000],
-  ['done', 45_000],
-];
+/** While an order is moving, read again this often (the push tells each step too). */
+const ACTIVE_REFRESH_MS = 20_000;
+const ACTIVE = ['pending_payment', 'placed', 'accepted', 'ready'];
 
 export function OrdersProvider({ children }: { children: ReactNode }) {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const { status, user } = useAuth();
+  const enabled = status === 'signedIn' && !!user?.studentId;
+  const [orders, setOrders] = useState<OrderDto[]>([]);
 
-  const value = useMemo<OrdersValue>(
-    () => ({
-      orders,
-      place: (o) => {
-        const id = `C${Date.now().toString(36).toUpperCase().slice(-5)}`;
-        setOrders((list) => [{ ...o, id, createdAt: Date.now(), status: 'received' }, ...list]);
-        for (const [status, after] of DEMO_STEPS) {
-          timers.current.push(setTimeout(() => setOrders((list) => list.map((x) => (x.id === id ? { ...x, status } : x))), after));
-        }
-        return id;
-      },
-    }),
-    [orders],
-  );
+  const refresh = useCallback(async () => {
+    if (!enabled) return;
+    try {
+      setOrders((await commerceApi.myOrders()).items);
+    } catch {
+      // Offline: keep what's shown.
+    }
+  }, [enabled]);
+
+  useEffect(() => {
+    if (!enabled) {
+      setOrders([]);
+      return;
+    }
+    refresh();
+    const sub = AppState.addEventListener('change', (s) => s === 'active' && refresh());
+    return () => sub.remove();
+  }, [enabled, refresh]);
+
+  const moving = orders.some((o) => ACTIVE.includes(o.status));
+  useEffect(() => {
+    if (!moving) return;
+    const timer = setInterval(() => AppState.currentState === 'active' && refresh(), ACTIVE_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [moving, refresh]);
+
+  const upsert = useCallback((o: OrderDto) => setOrders((list) => [o, ...list.filter((x) => x.id !== o.id)]), []);
+  const value = useMemo(() => ({ orders, refresh, upsert }), [orders, refresh, upsert]);
   return <OrdersContext.Provider value={value}>{children}</OrdersContext.Provider>;
 }
 
@@ -57,18 +58,4 @@ export function useOrders() {
   const ctx = useContext(OrdersContext);
   if (!ctx) throw new Error('useOrders must be used inside OrdersProvider');
   return ctx;
-}
-
-/** Wording per step, depending on delivery or pickup. */
-export function orderSteps(mode: Order['mode']) {
-  return [
-    { key: 'received' as const, title: 'Commande reçue', detail: 'Le restaurant a ta commande.' },
-    { key: 'preparing' as const, title: 'En préparation', detail: 'Ton repas est en cuisine.' },
-    mode === 'delivery'
-      ? { key: 'ready' as const, title: 'En route', detail: 'Le livreur arrive vers toi.' }
-      : { key: 'ready' as const, title: 'Prête à récupérer', detail: 'Passe la chercher au restaurant.' },
-    mode === 'delivery'
-      ? { key: 'done' as const, title: 'Livrée', detail: 'Bon appétit !' }
-      : { key: 'done' as const, title: 'Récupérée', detail: 'Bon appétit !' },
-  ];
 }

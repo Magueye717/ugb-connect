@@ -1,25 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useEffect } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AdCarousel, AlertStrip, CaravanCard, Headlines, OriginPrompt, RestoCard, TaxiCard } from '@/components/home';
+import { AdCarousel, AlertStrip, CaravanCard, EventCard, Headlines, OriginPrompt, RestoCard, TaxiCard } from '@/components/home';
 import { InProgress } from '@/components/InProgress';
 import { colors, radii, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { bellLabel, useNotifications } from '@/context/NotificationsContext';
-import { setupNotifications } from '@/lib/notifications';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { unreadCount } = useNotifications();
   const name = user?.firstName ?? 'Awa';
-
-  useEffect(() => {
-    setupNotifications();
-  }, []);
 
   return (
     <View style={styles.root}>
@@ -49,6 +43,7 @@ export default function HomeScreen() {
         {/* What the student has going on comes first; the tabs cover the rest (no services grid). */}
         <InProgress />
         <CaravanCard />
+        <EventCard />
         <TaxiCard />
         <RestoCard />
 

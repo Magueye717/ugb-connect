@@ -7,17 +7,17 @@ import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleShee
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton, Field, PrimaryButton } from '@/components/ui';
-import { lostCategories, lostCategory, lostOffice, lostPlaces, lostSafetyTip, type LostStatus } from '@/constants/data';
+import { lostCategories, lostCategory, lostOffice, lostSafetyTip } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useLost } from '@/context/LostContext';
+import { lostApi, WHEN_LABEL, type CardType, type LostStatus, type LostWhen } from '@/features/lost/api';
+import { PlacePicker } from '@/features/lost/PlacePicker';
+import { ApiError } from '@/lib/api';
+import { uploadImage } from '@/lib/upload';
 
-const WHEN = ['Aujourd’hui', 'Hier', 'Cette semaine'];
-const TONES = [
-  { tint: colors.primary, bg: colors.primarySoft },
-  { tint: colors.orange, bg: '#FFE8D4' },
-  { tint: colors.green, bg: '#E5F8EC' },
-  { tint: colors.purple, bg: '#EEE8FF' },
-];
+const WHEN = Object.keys(WHEN_LABEL) as LostWhen[];
+/** A found card goes through the scanner, which knows the type of card. */
+const SCAN_AS: Record<string, CardType> = { 'student-card': 'student', 'id-card': 'national_id', 'bank-card': 'bank' };
 
 // Declare a found or lost item, step by step. The form adapts to the type: cards never get a photo,
 // a found object always does, and the hints match the object.
@@ -25,7 +25,8 @@ export default function Declarer() {
   const { mode } = useLocalSearchParams<{ mode?: LostStatus }>();
   const status: LostStatus = mode === 'lost' ? 'lost' : 'found';
   const found = status === 'found';
-  const { declare } = useLost();
+  const { upsert } = useLost();
+  const [sending, setSending] = useState(false);
 
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
@@ -35,13 +36,13 @@ export default function Declarer() {
   const [owner, setOwner] = useState('');
   const [where, setWhere] = useState<string | null>(null);
   const [spot, setSpot] = useState('');
-  const [when, setWhen] = useState(WHEN[0]);
+  const [when, setWhen] = useState<LostWhen>('today');
   const [holder, setHolder] = useState<'office' | 'finder'>('office');
 
   const back = () => (router.canGoBack() ? router.back() : router.replace('/services/objets'));
   const cat = categoryId ? lostCategory(categoryId) : null;
   const isObject = cat?.kind === 'object';
-  const scanFirst = found && cat?.kind === 'student-card';
+  const scanFirst = found && !!cat && cat.kind !== 'object';
 
   const pick = async (source: 'camera' | 'library') => {
     const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], allowsEditing: true, quality: 0.6 };
@@ -65,25 +66,32 @@ export default function Declarer() {
         ? 'Indique le lieu'
         : null;
 
-  const submit = () => {
+  const submit = async () => {
     if (!cat || !where) return;
-    const tone = TONES[lostCategories.indexOf(cat) % TONES.length];
-    const id = declare({
-      category: cat.id,
-      kind: cat.kind,
-      name: title,
-      details: details.trim() || undefined,
-      secret: found && secret.trim() ? secret.trim() : undefined,
-      where,
-      spot: spot.trim() || undefined,
-      when,
-      status,
-      holder: found ? holder : undefined,
-      photo: isObject ? (photo ?? undefined) : undefined,
-      owner: cat.kind === 'id-card' && owner.trim() ? owner.trim() : undefined,
-      ...tone,
-    });
-    router.replace(`/objet/${id}`);
+    setSending(true);
+    try {
+      // The photo goes first (checked and re-encoded by the server), then the item with its id.
+      const image = isObject && photo ? await uploadImage({ uri: photo }, 'lost') : null;
+      const item = await lostApi.declare({
+        status,
+        category: cat.id,
+        name: isObject ? title : undefined,
+        details: details.trim() || null,
+        secret: found && secret.trim() ? secret.trim() : null,
+        where,
+        spot: spot.trim() || null,
+        when,
+        holder: found ? holder : null,
+        imageId: image?.id ?? null,
+        ownerName: cat.kind === 'id-card' && owner.trim() ? owner.trim() : null,
+      });
+      upsert(item);
+      router.replace(`/objet/${item.id}`);
+    } catch (err) {
+      Alert.alert('Publication impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
+    } finally {
+      setSending(false);
+    }
   };
 
   let step = 0;
@@ -130,13 +138,13 @@ export default function Declarer() {
           </Step>
 
           {scanFirst ? (
-            // A found student card goes through the scanner: its owner is warned directly.
+            // A found card goes through the scanner: its owner is found by name (or number) and warned directly.
             <View style={[styles.card, shadow.card, styles.row]}>
               <Ionicons name="scan-outline" size={24} color={colors.primary} />
               <View style={{ flex: 1, gap: 8 }}>
                 <Text style={styles.cardTitle}>Scanne la carte pour prévenir son propriétaire</Text>
-                <Text style={styles.muted}>Pas de photo : la carte montre son nom, son visage et son numéro.</Text>
-                <PrimaryButton label="Scanner la carte" onPress={() => router.replace('/objet/scanner')} />
+                <Text style={styles.muted}>On lit le nom sur la carte et on prévient la personne dans l’app. La photo n’est jamais publiée.</Text>
+                <PrimaryButton label="Scanner la carte" onPress={() => router.replace({ pathname: '/objet/scanner', params: { type: SCAN_AS[cat.id] ?? 'student' } })} />
               </View>
             </View>
           ) : (
@@ -195,9 +203,9 @@ export default function Declarer() {
                 </Step>
 
                 <Step n={next()} title={found ? 'Où et quand l’as-tu trouvé ?' : 'Où et quand l’as-tu perdu ?'}>
-                  <Chips options={lostPlaces} value={where} onChange={setWhere} />
+                  <PlacePicker value={where} onChange={setWhere} />
                   <Field icon="navigate-outline" placeholder="Précise (facultatif) : 2e étage, près de la fenêtre…" value={spot} onChangeText={setSpot} autoCapitalize="sentences" maxLength={60} />
-                  <Chips options={WHEN} value={when} onChange={setWhen} />
+                  <Chips options={WHEN.map((w) => WHEN_LABEL[w])} value={WHEN_LABEL[when]} onChange={(label) => setWhen(WHEN.find((w) => WHEN_LABEL[w] === label) ?? 'today')} />
                 </Step>
 
                 {found && (
@@ -238,12 +246,12 @@ export default function Declarer() {
                       </Text>
                     )}
                     <Text style={styles.muted} numberOfLines={1}>
-                      {where ?? 'Lieu ?'} · {when}
+                      {where ?? 'Lieu ?'} · {WHEN_LABEL[when]}
                     </Text>
                   </View>
                 </View>
 
-                <PrimaryButton label={missing ?? (found ? 'Publier l’objet trouvé' : 'Publier la perte')} disabled={!!missing} onPress={submit} />
+                <PrimaryButton label={missing ?? (found ? 'Publier l’objet trouvé' : 'Publier la perte')} disabled={!!missing || sending} loading={sending} onPress={submit} />
               </>
             )
           )}

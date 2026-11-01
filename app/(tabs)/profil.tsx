@@ -25,7 +25,7 @@ export default function ProfilScreen() {
       rows: [
         { icon: 'person-outline', label: 'Informations personnelles' },
         { icon: 'school-outline', label: 'Mon UFR et ma région', href: '/mes-etudes', todo: !user?.ufrCode || !user.region },
-        { icon: 'card-outline', label: 'Carte étudiant' },
+        { icon: 'card-outline', label: 'Ma carte étudiant', href: '/ma-carte', todo: !user?.identity?.birthDate },
       ],
     },
     {
@@ -34,6 +34,8 @@ export default function ProfilScreen() {
         { icon: 'ticket-outline', label: 'Billets caravane', href: { pathname: '/(tabs)/caravanes', params: { vue: 'caravanes' } } },
         { icon: 'cube-outline', label: 'Mes objets perdus', href: { pathname: '/(tabs)/lieux', params: { vue: 'objets' } } },
         { icon: 'bag-handle-outline', label: 'Mon panier', href: '/panier' },
+        { icon: 'sparkles-outline', label: 'Mes événements', href: '/mes-evenements' },
+        { icon: 'megaphone-outline', label: 'Mes publicités', href: '/mes-publicites' },
       ],
     },
     {

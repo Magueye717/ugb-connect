@@ -9,7 +9,7 @@ import { Field, Segmented } from '@/components/ui';
 import { formatFcfa, type Caravan, type CaravanDirection } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCaravans } from '@/context/CaravansContext';
-import { byDeparture, dayLabel, hourLabel } from '@/features/caravans/api';
+import { byDeparture, dayLabel, hourLabel, isCaravanTicket } from '@/features/caravans/api';
 import { ApiError } from '@/lib/api';
 import { matches } from '@/lib/search';
 
@@ -35,7 +35,7 @@ export function CaravanBoard() {
     .filter((c) => c.direction === direction)
     .map((c) => ({ c, via: q ? findStop(c, q) : null }))
     .filter(({ c, via }) => !q || via || matches(q, [c.from, c.to, c.organizer.name]));
-  const active = tickets.filter((t) => t.status === 'active' && Date.parse(t.event.startsAt) > Date.now() - 12 * 3_600_000);
+  const active = tickets.filter(isCaravanTicket).filter((t) => t.status === 'active' && Date.parse(t.event.startsAt) > Date.now() - 12 * 3_600_000);
   // One card per departure: my seat and my companions' tickets together ("2 billets").
   const trips = byDeparture(active);
 
@@ -81,7 +81,10 @@ export function CaravanBoard() {
               <View style={{ flex: 1 }}>
                 <Text style={styles.ticketRoute}>{x.forCompanion ? `${x.from.name} t’a réservé une place` : `${x.from.name} t’offre son billet`}</Text>
                 <Text style={styles.ticketMeta}>
-                  {x.event?.title} · {x.event ? `${dayLabel(Date.parse(x.event.startsAt))} · ${hourLabel(Date.parse(x.details.pickup.at))}` : ''} · Place {x.seat}
+                  {/* A caravan seat (its pickup time and seat) or an event ticket (its start and type). */}
+                  {x.event?.title}
+                  {x.event ? ` · ${dayLabel(Date.parse(x.event.startsAt))} · ${hourLabel(Date.parse('pickup' in x.details ? x.details.pickup.at : x.event.startsAt))}` : ''}
+                  {x.seat ? ` · Place ${x.seat}` : 'typeName' in x.details ? ` · Billet ${x.details.typeName}` : ''}
                 </Text>
               </View>
             </View>

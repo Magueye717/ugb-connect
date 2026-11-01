@@ -1,9 +1,9 @@
 import { TabScreen } from '@/components/TabScreen';
-import { BoursesBoard } from '@/features/campus/BoursesBoard';
+import { MarketBoard } from '@/features/commerce/BusinessBoard';
 import { LostBoard } from '@/features/lost/LostBoard';
 import { PlacesBoard } from '@/features/places/PlacesBoard';
 
-// Campus: places to know, lost and found, and grants.
+// Campus: places to know, lost and found, and the shops (order online).
 export default function CampusScreen() {
   return (
     <TabScreen
@@ -11,7 +11,7 @@ export default function CampusScreen() {
       views={[
         { key: 'lieux', label: 'Lieux', subtitle: 'Les endroits à connaître', render: () => <PlacesBoard /> },
         { key: 'objets', label: 'Objets perdus', subtitle: 'Perdus et trouvés sur le campus', render: () => <LostBoard /> },
-        { key: 'bourses', label: 'Bourses', subtitle: 'Paiements et calendrier', render: () => <BoursesBoard /> },
+        { key: 'boutiques', label: 'Boutiques', subtitle: 'Le marché des boutiques du campus', render: () => <MarketBoard /> },
       ]}
     />
   );

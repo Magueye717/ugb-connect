@@ -2,14 +2,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, type Href } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { findPrivateResto } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCart } from '@/context/CartContext';
 import { useLost } from '@/context/LostContext';
-import { orderSteps, useOrders } from '@/context/OrdersContext';
+import { useOrders } from '@/context/OrdersContext';
+import { orderSteps } from '@/features/commerce/api';
 import { useTaxi } from '@/context/TaxiContext';
 import { useCaravans } from '@/context/CaravansContext';
-import { byDeparture, dayLabel, hourLabel } from '@/features/caravans/api';
+import { byDeparture, dayLabel, hourLabel, isCaravanTicket, isEventTicket } from '@/features/caravans/api';
 import { useNow } from '@/lib/useNow';
 
 type Item = {
@@ -39,13 +39,22 @@ export function InProgress() {
   const items: Item[] = [];
   // Food orders first: they move fastest.
   for (const o of orders) {
-    if (o.status === 'done') continue;
-    const step = orderSteps(o.mode).find((x) => x.key === o.status)!;
-    items.push({ key: o.id, icon: 'receipt-outline', title: `Commande · ${findPrivateResto(o.restoId).resto.name}`, detail: step.title, href: `/commande/${o.id}` });
+    if (!['pending_payment', 'placed', 'accepted', 'ready'].includes(o.status)) continue;
+    const step = o.status === 'pending_payment' ? { title: 'Paiement à terminer' } : orderSteps(o.mode).find((x) => x.key === o.status)!;
+    items.push({ key: o.id, icon: 'receipt-outline', title: `Commande · ${o.business.name}`, detail: `${step.title} · ${o.code}`, href: `/commande/${o.id}` });
   }
   // One line per departure, even with a companion's ticket too.
   const upcoming = tickets.filter((t) => t.status === 'active' && Date.parse(t.event.startsAt) >= now);
-  for (const group of byDeparture(upcoming)) {
+  // Events: one line per event, however many tickets.
+  const seenEvents = new Set<string>();
+  for (const t of upcoming.filter(isEventTicket)) {
+    if (seenEvents.has(t.details.eventId)) continue;
+    seenEvents.add(t.details.eventId);
+    const n = upcoming.filter((x) => isEventTicket(x) && x.details.eventId === t.details.eventId).length;
+    const at = Date.parse(t.event.startsAt);
+    items.push({ key: t.id, icon: 'sparkles-outline', title: t.event.title, detail: `${dayLabel(at)} · ${hourLabel(at)} · ${t.details.venue.name}${n > 1 ? ` · ${n} billets` : ''}`, href: `/billet/${t.id}` });
+  }
+  for (const group of byDeparture(upcoming.filter(isCaravanTicket))) {
     const t = group[0]!;
     const at = Date.parse(t.event.startsAt);
     const pickup = Date.parse(t.details.pickup.at);
@@ -72,18 +81,22 @@ export function InProgress() {
           : undefined,
     });
   }
-  if (cart.count && cart.restoId) {
+  if (cart.count && cart.business) {
     items.push({
       key: 'cart',
       icon: 'bag-handle-outline',
-      title: `Panier · ${findPrivateResto(cart.restoId).resto.name}`,
+      title: `Panier · ${cart.business.name}`,
       detail: `${cart.count} article${cart.count > 1 ? 's' : ''} · à finaliser`,
       href: '/panier',
     });
   }
-  for (const i of lost.items) {
-    if (i.returned || !lost.messages.some((m) => m.itemId === i.id)) continue;
-    items.push({ key: i.id, icon: 'chatbubbles-outline', title: i.name, detail: 'Discussion objet perdu en cours', href: `/objet/discussion/${i.id}` });
+  // Open items with a conversation going: mine (someone wrote), or one I wrote about.
+  for (const i of lost.items ?? []) {
+    if (i.returned) continue;
+    if (i.myClaimId) items.push({ key: i.id, icon: 'chatbubbles-outline', title: i.name, detail: 'Discussion objet perdu en cours', href: `/objet/discussion/${i.myClaimId}` });
+    else if (i.mine && i.conversationsCount > 0) {
+      items.push({ key: i.id, icon: 'chatbubbles-outline', title: i.name, detail: `${i.conversationsCount} discussion${i.conversationsCount > 1 ? 's' : ''} en cours`, href: `/objet/${i.id}` });
+    }
   }
 
   if (!items.length) return null;

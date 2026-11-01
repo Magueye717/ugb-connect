@@ -15,6 +15,8 @@ export type PublicRestoDto = {
   slug: string;
   name: string;
   location: string;
+  /** GPS point, for directions. */
+  coords: { lat: number; lng: number } | null;
   services: Record<Meal, Service>;
   menus: Record<Meal, MenuDto | null>;
 };

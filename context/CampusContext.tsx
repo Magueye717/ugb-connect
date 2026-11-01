@@ -2,13 +2,19 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { AppState } from 'react-native';
 
 import { useAuth } from '@/context/AuthContext';
+import { bannersApi, type LiveBannerDto } from '@/features/banners/api';
+import { eventsApi, type EventDto } from '@/features/events/api';
 import { restosApi, type AlertDto, type RestosDayDto } from '@/features/restos/api';
 
 type CampusValue = {
   /** Today's menus of the university restaurants; null until loaded. */
   restos: RestosDayDto | null;
-  /** The home screen's alert strip: campus notices and dishes sold out right now. */
+  /** The home screen's alert strip and "À la une": what's for this student. */
   alerts: AlertDto[];
+  /** The home carousel: sponsored ads and promoted events running now. */
+  banners: LiveBannerDto[];
+  /** Events on sale for this student (their UFR, campus, village, region), soonest first. */
+  events: EventDto[];
   refresh: () => Promise<void>;
 };
 
@@ -25,19 +31,25 @@ export function CampusProvider({ children }: { children: ReactNode }) {
   const enabled = status === 'signedIn';
   const [restos, setRestos] = useState<RestosDayDto | null>(null);
   const [alerts, setAlerts] = useState<AlertDto[]>([]);
+  const [banners, setBanners] = useState<LiveBannerDto[]>([]);
+  const [events, setEvents] = useState<EventDto[]>([]);
 
   const refresh = useCallback(async () => {
     if (!enabled) return;
-    const [day, list] = await Promise.allSettled([restosApi.day(), restosApi.alerts()]);
+    const [day, list, ads, evs] = await Promise.allSettled([restosApi.day(), restosApi.alerts(), bannersApi.live(), eventsApi.list()]);
     // Offline: keep what's shown.
     if (day.status === 'fulfilled') setRestos(day.value);
     if (list.status === 'fulfilled') setAlerts(list.value.items);
+    if (ads.status === 'fulfilled') setBanners(ads.value.items);
+    if (evs.status === 'fulfilled') setEvents(evs.value.items);
   }, [enabled]);
 
   useEffect(() => {
     if (!enabled) {
       setRestos(null);
       setAlerts([]);
+      setBanners([]);
+      setEvents([]);
       return;
     }
     refresh();
@@ -49,7 +61,7 @@ export function CampusProvider({ children }: { children: ReactNode }) {
     };
   }, [enabled, refresh]);
 
-  const value = useMemo(() => ({ restos, alerts, refresh }), [restos, alerts, refresh]);
+  const value = useMemo(() => ({ restos, alerts, banners, events, refresh }), [restos, alerts, banners, events, refresh]);
   return <CampusContext.Provider value={value}>{children}</CampusContext.Provider>;
 }
 

@@ -1,34 +1,61 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { LivePulse, PopOnChange } from '@/components/motion';
 import { EmptyState } from '@/components/states';
-import { BackButton, OutlineButton } from '@/components/ui';
-import { findPrivateResto, formatFcfa, paymentMethods } from '@/constants/data';
+import { BackButton, OutlineButton, PrimaryButton } from '@/components/ui';
+import { formatFcfa } from '@/constants/data';
 import { colors, motion, radii, shadow, typo } from '@/constants/theme';
-import { orderSteps, useOrders } from '@/context/OrdersContext';
+import { useOrders } from '@/context/OrdersContext';
+import { commerceApi, orderSteps, type OrderDto } from '@/features/commerce/api';
+import { payInBrowser } from '@/features/payments/checkout';
+import { ApiError } from '@/lib/api';
 import { haptics } from '@/lib/haptics';
 
-const STATUS_ICON = { received: 'receipt-outline', preparing: 'flame', ready: 'bicycle', done: 'checkmark-circle' } as const;
+const STATUS_ICON = { placed: 'receipt-outline', accepted: 'flame', ready: 'bicycle', completed: 'checkmark-circle' } as const;
+const ENDED: Record<string, { icon: keyof typeof Ionicons.glyphMap; title: string }> = {
+  refused: { icon: 'close-circle', title: 'Commande refusée' },
+  cancelled: { icon: 'close-circle', title: 'Commande annulée' },
+  expired: { icon: 'time-outline', title: 'Paiement non terminé' },
+};
 
-// Order tracking: where the order stands, what's in it, and how to reach the restaurant.
+// Order tracking: where the order stands, what's in it, and how to reach the business. Read again while it moves.
 export default function CommandeScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { orders } = useOrders();
-  const order = orders.find((o) => o.id === id);
+  const { orders, upsert } = useOrders();
+  const [fetched, setFetched] = useState<OrderDto | null>(null);
+  const [missing, setMissing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const known = orders.find((o) => o.id === id);
+  // The list refreshes while an order moves; this screen also reads it when shown (a push may have opened it).
+  const order = known && fetched ? (Date.parse(known.history.at(-1)?.at ?? '0') >= Date.parse(fetched.history.at(-1)?.at ?? '0') ? known : fetched) : (known ?? fetched);
   const home = () => router.dismissTo('/(tabs)');
   const back = () => (router.canGoBack() ? router.back() : home());
 
-  // Felt as well as seen: a tick at each step, a success buzz when it's ready or delivered.
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) return;
+      commerceApi.myOrder(id).then(
+        (o) => {
+          setFetched(o);
+          upsert(o);
+        },
+        (err) => err instanceof ApiError && err.status === 404 && setMissing(true),
+      );
+    }, [id, upsert]),
+  );
+
+  // Felt as well as seen: a tick at each step, a success buzz when it's ready or done.
   const status = order?.status;
   const prev = useRef(status);
   useEffect(() => {
     if (status && prev.current && status !== prev.current) {
-      if (status === 'ready' || status === 'done') haptics.success();
+      if (status === 'ready' || status === 'completed') haptics.success();
       else haptics.select();
     }
     prev.current = status;
@@ -38,111 +65,154 @@ export default function CommandeScreen() {
     return (
       <SafeAreaView style={styles.safe}>
         <Header onBack={back} />
-        <EmptyState icon="receipt-outline" title="Commande introuvable" text="Elle a peut-être déjà été livrée." />
+        {missing ? <EmptyState icon="receipt-outline" title="Commande introuvable" /> : <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />}
       </SafeAreaView>
     );
   }
 
-  const { resto } = findPrivateResto(order.restoId);
   const steps = orderSteps(order.mode);
   const current = steps.findIndex((s) => s.key === order.status);
   const step = steps[current];
-  const done = order.status === 'done';
-  const payment = paymentMethods.find((p) => p.id === order.paymentId)?.name ?? 'Espèces';
-  const cash = order.paymentId === 'cash';
+  const done = order.status === 'completed';
+  const ended = ENDED[order.status];
+  const pending = order.status === 'pending_payment';
+
+  const run = async (action: () => Promise<OrderDto>, title: string) => {
+    setBusy(true);
+    try {
+      const o = await action();
+      setFetched(o);
+      upsert(o);
+    } catch (err) {
+      Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const resume = () =>
+    order.payment &&
+    run(async () => {
+      await payInBrowser(order.payment!);
+      return commerceApi.myOrder(order.id);
+    }, 'Paiement impossible');
+  const cancel = () =>
+    Alert.alert('Annuler la commande ?', `Tu es remboursé de ${formatFcfa(order.total)} sur ton numéro.`, [
+      { text: 'Garder', style: 'cancel' },
+      { text: 'Annuler la commande', style: 'destructive', onPress: () => run(() => commerceApi.cancel(order.id), 'Annulation impossible') },
+    ]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <Header onBack={back} code={order.id} />
+      <Header onBack={back} code={order.code} />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-        <View style={[styles.hero, done && { backgroundColor: colors.success }]} accessibilityLiveRegion="polite">
+        <View style={[styles.hero, done && { backgroundColor: colors.success }, (ended || pending) && { backgroundColor: ended ? colors.muted2 : colors.warning }]} accessibilityLiveRegion="polite">
           <View style={styles.heroIcon}>
             <PopOnChange id={order.status}>
-              <Ionicons name={order.mode === 'pickup' && order.status === 'ready' ? 'storefront' : STATUS_ICON[order.status]} size={28} color="#fff" />
+              <Ionicons
+                name={ended ? ended.icon : pending ? 'card-outline' : order.mode === 'pickup' && order.status === 'ready' ? 'storefront' : STATUS_ICON[order.status as keyof typeof STATUS_ICON]}
+                size={28}
+                color="#fff"
+              />
             </PopOnChange>
           </View>
-          <Text style={styles.heroTitle}>{step.title}</Text>
+          <Text style={styles.heroTitle}>{ended ? ended.title : pending ? 'Paiement à terminer' : step?.title}</Text>
           <Text style={styles.heroText}>
-            {resto.name} · {step.detail}
+            {order.business.name} ·{' '}
+            {order.status === 'refused'
+              ? `${order.refusal ?? ''} Tu es remboursé.`
+              : order.status === 'cancelled'
+                ? 'Tu es remboursé sur ton numéro.'
+                : ended
+                  ? 'Rien n’a été débité.'
+                  : pending
+                    ? 'La commande part au commerce dès le paiement.'
+                    : step?.detail}
           </Text>
+          {order.mode === 'pickup' && !ended && !pending && (
+            // At the counter: the business scans it (or types the code) to hand the order over.
+            <View style={styles.codeBox}>
+              <View style={styles.qr}>
+                <QRCode value={`UGBCMD:${order.code}`} size={132} color={colors.navy} backgroundColor="#fff" ecl="M" />
+              </View>
+              <Text style={styles.codeLabel}>Montre ce code au comptoir</Text>
+              <Text style={styles.codeValue}>{order.code}</Text>
+            </View>
+          )}
         </View>
 
-        {!done && !cash && order.status === 'received' && (
-          <View style={styles.note}>
-            <Ionicons name="phone-portrait-outline" size={18} color={colors.warningText} />
-            <Text style={styles.noteText}>
-              Valide le paiement de {formatFcfa(order.total)} sur {payment} : le restaurant commence dès réception.
-            </Text>
+        {pending && order.payment && <PrimaryButton label={`Payer ${formatFcfa(order.total)}`} loading={busy} onPress={resume} />}
+
+        {!ended && !pending && (
+          <View style={[styles.card, shadow.card]}>
+            {steps.map((s, i) => {
+              const reached = i <= current;
+              const now = i === current && !done;
+              return (
+                <View key={s.key} style={styles.step}>
+                  <View style={styles.rail}>
+                    <View>
+                      {now && <LivePulse color={colors.accent} size={22} />}
+                      <View style={[styles.dot, reached && styles.dotOn, now && styles.dotNow]}>{reached && <Ionicons name="checkmark" size={12} color="#fff" />}</View>
+                    </View>
+                    {i < steps.length - 1 && (
+                      <View style={styles.line}>
+                        <LineFill on={i < current} />
+                      </View>
+                    )}
+                  </View>
+                  <View style={{ flex: 1, paddingBottom: i < steps.length - 1 ? 18 : 0 }}>
+                    <Text style={[styles.stepTitle, !reached && { color: colors.muted2 }]}>{s.title}</Text>
+                    {now && <Text style={styles.stepDetail}>{s.detail}</Text>}
+                  </View>
+                </View>
+              );
+            })}
           </View>
         )}
-
-        <View style={[styles.card, shadow.card]}>
-          {steps.map((s, i) => {
-            const reached = i <= current;
-            const now = i === current && !done;
-            return (
-              <View key={s.key} style={styles.step}>
-                <View style={styles.rail}>
-                  <View>
-                    {now && <LivePulse color={colors.accent} size={22} />}
-                    <View style={[styles.dot, reached && styles.dotOn, now && styles.dotNow]}>
-                      {reached && <Ionicons name="checkmark" size={12} color="#fff" />}
-                    </View>
-                  </View>
-                  {i < steps.length - 1 && (
-                    <View style={styles.line}>
-                      <LineFill on={i < current} />
-                    </View>
-                  )}
-                </View>
-                <View style={{ flex: 1, paddingBottom: i < steps.length - 1 ? 18 : 0 }}>
-                  <Text style={[styles.stepTitle, !reached && { color: colors.muted2 }]}>{s.title}</Text>
-                  {now && <Text style={styles.stepDetail}>{s.detail}</Text>}
-                </View>
-              </View>
-            );
-          })}
-        </View>
 
         <View style={[styles.card, shadow.card, { gap: 12 }]}>
           <View style={styles.rowBetween}>
             <View style={{ flex: 1 }}>
               <Text style={styles.label}>{order.mode === 'delivery' ? 'Livraison' : 'À récupérer'}</Text>
-              <Text style={styles.value}>{order.mode === 'delivery' ? order.address : resto.location}</Text>
+              <Text style={styles.value}>{order.mode === 'delivery' ? order.address : order.business.address}</Text>
             </View>
             <Pressable
               style={styles.call}
-              onPress={() => Linking.openURL(`tel:${resto.phone.replace(/\s/g, '')}`)}
+              onPress={() => Linking.openURL(`tel:+221${order.business.phone.replace(/\s/g, '')}`)}
               accessibilityRole="button"
-              accessibilityLabel={`Appeler ${resto.name}`}>
+              accessibilityLabel={`Appeler ${order.business.name}`}>
               <Ionicons name="call-outline" size={18} color={colors.primary} />
             </Pressable>
           </View>
           {order.note && <Text style={styles.muted}>Note : {order.note}</Text>}
           <View style={styles.divider} />
           {order.lines.map((l) => (
-            <View key={l.id} style={styles.rowBetween}>
+            <View key={l.itemId} style={styles.rowBetween}>
               <Text style={styles.item}>
                 {l.qty} × {l.name}
               </Text>
               <Text style={styles.itemPrice}>{formatFcfa(l.qty * l.price)}</Text>
             </View>
           ))}
-          {order.fee > 0 && (
+          {order.deliveryFee > 0 && (
             <View style={styles.rowBetween}>
               <Text style={styles.muted}>Livraison</Text>
-              <Text style={styles.muted}>{formatFcfa(order.fee)}</Text>
+              <Text style={styles.muted}>{formatFcfa(order.deliveryFee)}</Text>
             </View>
           )}
           <View style={styles.divider} />
           <View style={styles.rowBetween}>
-            <Text style={styles.total}>Total · {payment}</Text>
+            <Text style={styles.total}>{order.refunded ? 'Total · remboursé' : 'Total payé'}</Text>
             <Text style={styles.totalValue}>{formatFcfa(order.total)}</Text>
           </View>
         </View>
 
+        {order.status === 'placed' && (
+          <Pressable onPress={cancel} disabled={busy} style={styles.cancel} accessibilityRole="button">
+            <Text style={styles.cancelText}>Annuler la commande</Text>
+          </Pressable>
+        )}
         <OutlineButton label="Retour à l’accueil" onPress={home} />
-        {!done && <Text style={styles.demo}>Démo : le statut avance tout seul en quelques secondes.</Text>}
       </ScrollView>
     </SafeAreaView>
   );
@@ -203,5 +273,10 @@ const styles = StyleSheet.create({
   itemPrice: { ...typo.bodyStrong, color: colors.text },
   total: { ...typo.title, color: colors.navy },
   totalValue: { ...typo.h3, color: colors.navy },
-  demo: { ...typo.caption, color: colors.muted2, textAlign: 'center' },
+  codeBox: { marginTop: 10, alignItems: 'center', gap: 4, paddingHorizontal: 18, paddingVertical: 12, borderRadius: radii.lg, backgroundColor: 'rgba(255,255,255,0.18)' },
+  qr: { padding: 10, borderRadius: radii.md, backgroundColor: '#fff', marginBottom: 6 },
+  codeLabel: { ...typo.caption, color: 'rgba(255,255,255,0.85)' },
+  codeValue: { fontSize: 24, fontWeight: '900', letterSpacing: 3, color: '#fff' },
+  cancel: { alignSelf: 'center', minHeight: 44, justifyContent: 'center' },
+  cancelText: { ...typo.bodyStrong, color: colors.dangerText },
 });

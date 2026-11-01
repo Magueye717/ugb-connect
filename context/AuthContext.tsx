@@ -30,6 +30,10 @@ export type Profile = {
   filiere: string | null;
   niveau: string | null;
   email: string | null;
+  /** Platform roles (admin, content_editor…): what the work spaces show. */
+  roles: string[];
+  /** Birth date ("2002-03-12"), place of birth, nationality: optional, best read from the student card. */
+  identity: { birthDate: string | null; birthPlace: string | null; nationality: string | null; fromCard: boolean } | null;
 };
 
 /** The organization this account manages. `orgId` (= `id`) is what /org/{orgId} calls use. */
@@ -40,11 +44,15 @@ export type AccountOrganizer = CaravanOrganizer & { orgId: string; slug: string;
  * passengers, and platform roles open work spaces (restaurant stock levels, campus alerts). The first one is home;
  * the others are listed under "Mes espaces".
  */
-export type Space = 'student' | 'organizer' | 'resto' | 'alerts';
+export type Space = 'student' | 'organizer' | 'business' | 'resto' | 'alerts';
+
+/** The restaurant or shop this account works for (owner, manager or staff): orders, catalog, team. */
+export type AccountBusiness = { orgId: string; name: string; kind: 'restaurant' | 'shop'; roles: string[] };
 
 /** The first screen of a space. */
 export function spaceHome(space: Space | null) {
   if (space === 'organizer') return '/activites' as const;
+  if (space === 'business') return '/commandes' as const;
   if (space === 'resto') return '/menus' as const;
   if (space === 'alerts') return '/alertes' as const;
   if (space === 'student') return '/(tabs)' as const;
@@ -57,6 +65,8 @@ type AuthValue = {
   user: Profile | null;
   /** The company or association this account manages, if any. Set by an admin on the backend. */
   organizer: AccountOrganizer | null;
+  /** The restaurant or shop this account works for, if any. Created by an admin; the owner adds the team. */
+  business: AccountBusiness | null;
   /** Spaces this account may open, decided by the backend: a student who also organizes has both. */
   spaces: Space[];
   space: Space | null;
@@ -79,10 +89,10 @@ type MeResponse = {
   lastName: string;
   initials: string;
   phoneMasked: string;
-  student: { studentNumber: string; campus: string; onCampus: boolean; village: string | null; room: string | null; ufr: string | null; region: string | null; filiere: string | null; niveau: string | null } | null;
+  student: { studentNumber: string; campus: string; onCampus: boolean; village: string | null; room: string | null; ufr: string | null; region: string | null; filiere: string | null; niveau: string | null; identity?: { birthDate: string | null; birthPlace: string | null; nationality: string | null; fromCard: boolean } | null } | null;
   spaces: Space[];
   platformRoles: string[];
-  organizations: { id: string; name: string; category: string; level: string; roles: string[] }[];
+  organizations: { id: string; name: string; category: string; level: string; roles: string[]; capabilities: string[] }[];
   email: { address: string; verified: boolean } | null;
 };
 
@@ -118,11 +128,21 @@ function toProfile(me: MeResponse): Profile {
     filiere: s?.filiere ?? null,
     niveau: s?.niveau ?? null,
     email: me.email?.address ?? null,
+    roles: me.platformRoles,
+    identity: s?.identity ?? null,
   };
 }
 
+const isBusiness = (o: MeResponse['organizations'][number]) => o.capabilities.includes('restaurant') || o.capabilities.includes('shop');
+
+function toBusiness(me: MeResponse): AccountBusiness | null {
+  const o = me.organizations.find(isBusiness);
+  return o ? { orgId: o.id, name: o.name, kind: o.capabilities.includes('shop') ? 'shop' : 'restaurant', roles: o.roles } : null;
+}
+
 async function loadOrganizer(me: MeResponse): Promise<AccountOrganizer | null> {
-  const membership = me.organizations[0];
+  // Caravans and events: a restaurant or shop has its own space.
+  const membership = me.organizations.find((o) => !isBusiness(o));
   if (!membership) return null;
   const { organization: o, myRoles } = await api<OrgResponse>('GET', `/org/${membership.id}`, { auth: true });
   return {
@@ -142,12 +162,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthValue['status']>('restoring');
   const [user, setUser] = useState<Profile | null>(null);
   const [organizer, setOrganizer] = useState<AccountOrganizer | null>(null);
+  const [business, setBusiness] = useState<AccountBusiness | null>(null);
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [space, setSpace] = useState<Space | null>(null);
 
   const reset = useCallback(() => {
     setUser(null);
     setOrganizer(null);
+    setBusiness(null);
     setSpaces([]);
     setSpace(null);
     setStatus('signedOut');
@@ -159,6 +181,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const org = me.spaces.includes('organizer') ? await loadOrganizer(me) : null;
     setUser(toProfile(me));
     setOrganizer(org);
+    setBusiness(toBusiness(me));
     setSpaces(me.spaces);
     // Signing in opens the first space (a student stays a student); reloading keeps the one on screen.
     setSpace((current) => (current && me.spaces.includes(current) ? current : (me.spaces[0] ?? null)));
@@ -207,6 +230,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       status,
       user,
       organizer,
+      business,
       spaces,
       space,
       login: async (identifier, password) => completeSignIn(await signIn(identifier, password)),
@@ -229,7 +253,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         router.replace('/(auth)/login');
       },
     }),
-    [status, user, organizer, spaces, space, completeSignIn, reset, loadAccount],
+    [status, user, organizer, business, spaces, space, completeSignIn, reset, loadAccount],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -10,7 +10,7 @@ import { caravanState, formatDateTime, formatFcfa, paymentMethods, type Caravan,
 import { PaymentLogo } from '@/components/PaymentLogo';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCaravans, type BookingOutcome } from '@/context/CaravansContext';
-import { caravansApi, toCaravan, type PassengerDto, type SeatMap } from '@/features/caravans/api';
+import { caravansApi, isCaravanTicket, toCaravan, type PassengerDto, type SeatMap } from '@/features/caravans/api';
 import { CompanionSheet } from '@/features/caravans/CompanionSheet';
 import type { PaymentMethod } from '@/features/payments/checkout';
 import { ApiError } from '@/lib/api';
@@ -85,7 +85,7 @@ export default function CaravaneReservation() {
   const limitText = c.maxSeatsPerStudent === 1 ? 'Une seule place par étudiant sur ce départ.' : `${c.maxSeatsPerStudent} places maximum par étudiant sur ce départ.`;
   const mine = picks.find((p) => !p.passenger);
   // Companions' seats already paid on this departure (I may have cancelled my own seat and be booking again).
-  const paid = tickets.filter((t) => t.status === 'active' && t.passenger && t.details.departureId === c.id);
+  const paid = tickets.filter(isCaravanTicket).filter((t) => t.status === 'active' && t.passenger && t.details.departureId === c.id);
   const paidSeat = (n: number) => paid.find((t) => t.seat === n);
   const sheetPick = picks.find((p) => p.seat === sheet);
   const freeSeats = () => Array.from({ length: map?.capacity ?? c.totalSeats }, (_, i) => i + 1).filter((n) => !taken.has(n) && !picks.some((p) => p.seat === n));

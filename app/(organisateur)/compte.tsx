@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -37,6 +38,7 @@ export default function Compte() {
         <SpacesList />
 
         <View style={[styles.card, shadow.card, { paddingVertical: 4 }]}>
+          <Row icon="megaphone-outline" label="Promouvoir un événement (bannière)" onPress={() => router.push('/mes-publicites')} />
           <Row icon="people-outline" label="Mon équipe (chauffeurs, contrôleurs)" onPress={() => onWeb('Mon équipe')} />
           <Row icon="wallet-outline" label="Paiements reçus" onPress={() => onWeb('Paiements reçus')} />
           <Row icon="help-circle-outline" label="Aide organisateur" onPress={() => onWeb('Aide organisateur')} last />

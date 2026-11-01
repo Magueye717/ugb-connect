@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 import QRCode from 'react-native-qrcode-svg';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,7 +14,7 @@ import { formatDateTime, formatFcfa } from '@/constants/data';
 import { colors, motion, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useCaravans } from '@/context/CaravansContext';
-import { caravansApi, dayLabel, hourLabel, toOrganizer, type TicketDto } from '@/features/caravans/api';
+import { caravansApi, dayLabel, hourLabel, isCaravanTicket, isEventTicket, toOrganizer, type EventTicketDto, type TicketDto } from '@/features/caravans/api';
 import { methodLabel } from '@/features/payments/checkout';
 import { ApiError } from '@/lib/api';
 import { useNow } from '@/lib/useNow';
@@ -31,12 +32,10 @@ export default function Billet() {
   // `nouveau`: just paid, the ticket is handed over with a short animation (not on later visits).
   const { id, nouveau } = useLocalSearchParams<{ id: string; nouveau?: string }>();
   const fresh = nouveau === '1';
-  const { cancel, transfer, withdraw, tickets } = useCaravans();
+  const { cancel, tickets } = useCaravans();
   const { user } = useAuth();
-  const [transferOpen, setTransferOpen] = useState(false);
   const [ticket, setTicket] = useState<TicketDto | null>(() => tickets.find((t) => t.id === id) ?? null);
   const [missing, setMissing] = useState(false);
-  const now = useNow();
 
   // Fresh from the server each time it shows: the QR, the fee and the transfer state change over time.
   const load = useCallback(() => {
@@ -67,19 +66,21 @@ export default function Billet() {
     );
   }
 
+  // An event (party, conference…): its own layout, the same actions.
+  if (isEventTicket(ticket)) return <EventBillet ticket={ticket} fresh={fresh} onBack={back} load={load} />;
+
   const d = ticket.details;
   const pickupTime = hourLabel(Date.parse(d.pickup.at));
   const dropoffTime = hourLabel(Date.parse(d.dropoff.at));
   const missingSeats = Math.max(0, d.minPassengers - d.seatsBooked);
   const active = ticket.status === 'active';
   const quote = ticket.cancellationQuote;
-  const pending = ticket.transfer?.status === 'pending' ? ticket.transfer : null;
-  const canTransfer = active && !pending && !ticket.admittedAt && !!ticket.transferDeadline && Date.parse(ticket.transferDeadline) > now;
   const method = methodLabel[ticket.paidWith] ?? 'ton compte';
   const companion = ticket.passenger;
   const firstName = companion?.name.split(' ')[0] ?? '';
   // The other tickets I hold for this departure (my seat and my companion's): one tap from one to the other.
   const group = tickets
+    .filter(isCaravanTicket)
     .filter((t) => t.details.departureId === d.departureId && t.status === 'active')
     .sort((a, b) => (a.seat ?? 0) - (b.seat ?? 0));
 
@@ -240,21 +241,6 @@ export default function Billet() {
           </View>
         </Animated.View>
 
-        {pending && (
-          <View style={[styles.action, shadow.card]}>
-            <Ionicons name="hourglass-outline" size={18} color={colors.warning} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.actionTitle}>Transfert en attente</Text>
-              <Text style={styles.actionSub}>
-                {pending.to.name} ({pending.to.phoneMasked}) doit accepter avant le {formatDateTime(Date.parse(pending.expiresAt))}. Le billet reste à toi d’ici là.
-              </Text>
-            </View>
-            <Pressable onPress={() => withdraw(pending.id).then(load, fail('Action impossible'))} hitSlop={8} accessibilityRole="button">
-              <Text style={[styles.actionTitle, { color: colors.dangerText }]}>Annuler</Text>
-            </Pressable>
-          </View>
-        )}
-
         {active && companion && !ticket.admittedAt && (
           <Pressable style={[styles.action, shadow.card]} onPress={send} accessibilityRole="button">
             <Ionicons name="paper-plane-outline" size={18} color={colors.primary} />
@@ -266,45 +252,101 @@ export default function Billet() {
           </Pressable>
         )}
 
-        {active && quote?.allowed && (
-          <View style={{ gap: 10 }}>
-            {canTransfer && (
-              <Pressable style={[styles.action, shadow.card]} onPress={() => setTransferOpen(true)} accessibilityRole="button">
-                <Ionicons name="swap-horizontal" size={18} color={colors.primary} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.actionTitle}>{companion ? `Mettre le billet dans l’app de ${firstName}` : 'Transférer à un ami'}</Text>
-                  <Text style={styles.actionSub}>
-                    {companion ? `Si ${firstName} a un compte UGB Campus : son propre QR code, à son nom` : 'Ton ami accepte dans son app, la place devient la sienne'}
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={16} color={colors.muted} />
-              </Pressable>
-            )}
-            <Pressable style={[styles.action, shadow.card]} onPress={askCancel} accessibilityRole="button">
-              <Ionicons name="close-circle-outline" size={18} color={colors.danger} />
+        <TicketActions
+          ticket={ticket}
+          load={load}
+          onCancel={askCancel}
+          transferTitle={companion ? `Mettre le billet dans l’app de ${firstName}` : 'Transférer à un ami'}
+          transferText={companion ? `Si ${firstName} a un compte UGB Campus : son propre QR code, à son nom` : 'Ton ami accepte dans son app, la place devient la sienne'}
+          lateFee="à moins de 24 h du départ"
+          initialPhone={companion?.phone ?? ''}
+        />
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+/**
+ * What can be done with a ticket, whatever its kind: the transfer in flight (withdraw it), giving it to a friend,
+ * cancelling it (the kind decides the fee).
+ */
+function TicketActions({
+  ticket,
+  load,
+  onCancel,
+  transferTitle,
+  transferText,
+  lateFee,
+  initialPhone,
+}: {
+  ticket: TicketDto;
+  load: () => void;
+  onCancel: () => void;
+  transferTitle: string;
+  transferText: string;
+  /** "à moins de 24 h du départ" */
+  lateFee: string;
+  initialPhone: string;
+}) {
+  const { transfer, withdraw } = useCaravans();
+  const [open, setOpen] = useState(false);
+  const now = useNow();
+  const active = ticket.status === 'active';
+  const quote = ticket.cancellationQuote;
+  const pending = ticket.transfer?.status === 'pending' ? ticket.transfer : null;
+  const canTransfer = active && !pending && !ticket.admittedAt && !!ticket.transferDeadline && Date.parse(ticket.transferDeadline) > now;
+
+  return (
+    <>
+      {pending && (
+        <View style={[styles.action, shadow.card]}>
+          <Ionicons name="hourglass-outline" size={18} color={colors.warning} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.actionTitle}>Transfert en attente</Text>
+            <Text style={styles.actionSub}>
+              {pending.to.name} ({pending.to.phoneMasked}) doit accepter avant le {formatDateTime(Date.parse(pending.expiresAt))}. Le billet reste à toi d’ici là.
+            </Text>
+          </View>
+          <Pressable onPress={() => withdraw(pending.id).then(load, fail('Action impossible'))} hitSlop={8} accessibilityRole="button">
+            <Text style={[styles.actionTitle, { color: colors.dangerText }]}>Annuler</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {active && quote?.allowed && (
+        <View style={{ gap: 10 }}>
+          {canTransfer && (
+            <Pressable style={[styles.action, shadow.card]} onPress={() => setOpen(true)} accessibilityRole="button">
+              <Ionicons name="swap-horizontal" size={18} color={colors.primary} />
               <View style={{ flex: 1 }}>
-                <Text style={[styles.actionTitle, { color: colors.dangerText }]}>Annuler le billet</Text>
-                <Text style={styles.actionSub}>
-                  {quote.fee === 0 && quote.freeUntil
-                    ? `Gratuit jusqu’au ${formatDateTime(Date.parse(quote.freeUntil))}`
-                    : `${formatFcfa(quote.fee)} de frais à moins de 24 h du départ`}
-                </Text>
+                <Text style={styles.actionTitle}>{transferTitle}</Text>
+                <Text style={styles.actionSub}>{transferText}</Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color={colors.muted} />
             </Pressable>
-          </View>
-        )}
-      </ScrollView>
+          )}
+          <Pressable style={[styles.action, shadow.card]} onPress={onCancel} accessibilityRole="button">
+            <Ionicons name="close-circle-outline" size={18} color={colors.danger} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.actionTitle, { color: colors.dangerText }]}>Annuler le billet</Text>
+              <Text style={styles.actionSub}>
+                {quote.fee === 0 && quote.freeUntil ? `Gratuit jusqu’au ${formatDateTime(Date.parse(quote.freeUntil))}` : `${formatFcfa(quote.fee)} de frais ${lateFee}`}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+          </Pressable>
+        </View>
+      )}
 
       <TransferSheet
         key={ticket.id}
-        initialPhone={companion?.phone ?? ''}
-        visible={transferOpen}
-        onClose={() => setTransferOpen(false)}
+        initialPhone={initialPhone}
+        visible={open}
+        onClose={() => setOpen(false)}
         onConfirm={async (phone) => {
           try {
             await transfer(ticket.id, phone);
-            setTransferOpen(false);
+            setOpen(false);
             load();
             Alert.alert('Billet proposé', `Ton ami (${phone}) reçoit le billet dans son app et doit l’accepter.`);
           } catch (err) {
@@ -312,6 +354,123 @@ export default function Billet() {
           }
         }}
       />
+    </>
+  );
+}
+
+/** An event ticket: the cover, what and when, the type, the QR code for the entrance. */
+function EventBillet({ ticket, fresh, onBack, load }: { ticket: EventTicketDto; fresh: boolean; onBack: () => void; load: () => void }) {
+  const { cancel, tickets } = useCaravans();
+  const d = ticket.details;
+  const active = ticket.status === 'active';
+  const method = methodLabel[ticket.paidWith] ?? 'ton compte';
+  const at = Date.parse(d.startsAt);
+  // My other tickets for this event (bought for friends): one tap from one to the other.
+  const group = tickets.filter(isEventTicket).filter((t) => t.details.eventId === d.eventId && t.status === 'active');
+  const quote = ticket.cancellationQuote;
+
+  const askCancel = () => {
+    if (!quote) return;
+    if (!quote.allowed) return Alert.alert('Annulation impossible', quote.reason);
+    Alert.alert(
+      'Annuler ce billet ?',
+      quote.fee === 0
+        ? `Annulation gratuite : ${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}.`
+        : `Moins de 24 h avant l’événement : ${formatFcfa(quote.fee)} de frais. ${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}.`,
+      [
+        { text: 'Garder mon billet', style: 'cancel' },
+        { text: 'Annuler le billet', style: 'destructive', onPress: () => cancel(ticket.id).then(load, fail('Annulation impossible')) },
+      ],
+    );
+  };
+
+  const banner =
+    ticket.status === 'cancelled'
+      ? {
+          tone: 'neutral' as const,
+          icon: 'close-circle' as const,
+          text:
+            ticket.cancellation?.reason === 'holder_cancelled'
+              ? `Billet annulé · ${formatFcfa(ticket.cancellation.refundAmount)} remboursés sur ton numéro ${method}`
+              : `Événement annulé · ${formatFcfa(ticket.cancellation?.refundAmount ?? ticket.price)} remboursés`,
+        }
+      : ticket.status === 'transferred'
+        ? { tone: 'neutral' as const, icon: 'swap-horizontal' as const, text: `Billet offert à ${ticket.transfer?.to.name ?? 'un ami'} (${ticket.transfer?.to.phoneMasked ?? ''})` }
+        : ticket.admittedAt
+          ? { tone: 'success' as const, icon: 'checkmark-circle' as const, text: 'Tu es entré · profite bien !' }
+          : { tone: 'success' as const, icon: 'sparkles' as const, text: `${dayLabel(at)} à ${hourLabel(at)} · ${d.venue.name}` };
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <Header onBack={onBack} />
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        <StatusBanner {...banner} />
+
+        {group.length > 1 && (
+          <View style={styles.group}>
+            {group.map((t, i) => {
+              const on = t.id === ticket.id;
+              return (
+                <Pressable key={t.id} onPress={() => !on && router.replace(`/billet/${t.id}`)} style={[styles.groupChip, on && styles.groupChipOn]} accessibilityRole="tab" accessibilityState={{ selected: on }}>
+                  <Text style={[styles.groupText, on && styles.groupTextOn]} numberOfLines={1}>
+                    Billet {i + 1} · {t.details.typeName}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+
+        <Animated.View entering={fresh ? riseIn.delay(motion.fast) : undefined} style={[styles.ticket, shadow.raised, !active && { opacity: 0.6 }]}>
+          {d.image && <Image source={{ uri: d.image }} style={styles.cover} contentFit="cover" />}
+          <View style={styles.top}>
+            <OrganizerLine organizer={toOrganizer(ticket.event.organizer)} />
+            <Text style={styles.city}>{ticket.event.title}</Text>
+            <View style={styles.grid}>
+              <Cell label="Date" value={dayLabel(at)} />
+              <Cell label="Heure" value={hourLabel(at)} />
+              <Cell label="Billet" value={d.typeName} />
+            </View>
+            <View style={styles.stops}>
+              <StopLine icon="location-outline" label="Lieu" place={d.venue.name} time={d.venue.address ?? ''} />
+            </View>
+            {!ticket.purchaser.isMe && <Text style={styles.plate}>Offert par {ticket.purchaser.name}</Text>}
+          </View>
+
+          <View style={styles.tear}>
+            <View style={[styles.notch, { left: -12 }]} />
+            <View style={styles.dashes} />
+            <View style={[styles.notch, { right: -12 }]} />
+          </View>
+
+          <View style={styles.bottom}>
+            {active && ticket.qr ? (
+              <>
+                <Animated.View entering={fresh ? popIn.delay(motion.slow) : undefined}>
+                  <QRCode value={ticket.qr} size={190} color={colors.navy} backgroundColor={colors.card} ecl="M" />
+                </Animated.View>
+                <Text style={styles.code}>{ticket.code}</Text>
+                <Text style={styles.muted}>Montre ce QR code à l’entrée</Text>
+              </>
+            ) : (
+              <View style={styles.void}>
+                <Ionicons name="ban-outline" size={36} color={colors.muted} />
+                <Text style={styles.muted}>Ce billet n’est plus valable</Text>
+              </View>
+            )}
+          </View>
+        </Animated.View>
+
+        <TicketActions
+          ticket={ticket}
+          load={load}
+          onCancel={askCancel}
+          transferTitle="Offrir à un ami"
+          transferText="Ton ami accepte dans son app, le billet devient le sien avec son propre QR code"
+          lateFee="à moins de 24 h de l’événement"
+          initialPhone=""
+        />
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -427,7 +586,8 @@ const styles = StyleSheet.create({
   muted: { ...typo.caption, color: colors.muted2, textAlign: 'center' },
   banner: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 12, borderRadius: radii.md },
   bannerText: { flex: 1, fontSize: 13, fontWeight: '600', lineHeight: 18 },
-  ticket: { backgroundColor: colors.card, borderRadius: radii.xl },
+  ticket: { backgroundColor: colors.card, borderRadius: radii.xl, overflow: 'hidden' },
+  cover: { width: '100%', height: 140 },
   top: { padding: 18, gap: 12 },
   route: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   city: { ...typo.h2, color: colors.navy },

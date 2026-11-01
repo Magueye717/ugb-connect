@@ -4,7 +4,7 @@ const ACCENTS: Record<string, string> = { à: 'a', â: 'a', ä: 'a', é: 'e', è
 export const fold = (s: string) => s.toLowerCase().replace(/[àâäéèêëîïôöùûüç’]/g, (c) => ACCENTS[c]);
 
 /** True when the query is empty or found in one of the fields. */
-export function matches(query: string, fields: (string | undefined)[]) {
+export function matches(query: string, fields: (string | null | undefined)[]) {
   const q = fold(query.trim());
   return !q || fields.some((f) => !!f && fold(f).includes(q));
 }

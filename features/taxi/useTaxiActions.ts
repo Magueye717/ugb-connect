@@ -35,7 +35,7 @@ export function useTaxiActions() {
     if (outcome === 'joined') Alert.alert('Place réservée', `${price} payés. Remboursé si tu quittes avant ${hhmm(t.lockAt)}.`);
     else if (outcome === 'refunded') Alert.alert('Plus de place', `Le paiement est arrivé trop tard : ${price} te sont remboursés.`);
     else if (outcome === 'failed') Alert.alert('Paiement non effectué', 'Ta place a été libérée. Tu peux réessayer.');
-    else if (outcome === 'pending') Alert.alert('Paiement en attente', 'Ta place est gardée 10 min. Appuie sur « Payer ma place » pour terminer.');
+    else if (outcome === 'pending') Alert.alert('Paiement en attente', 'Ta place est gardée 10 min. Appuie sur « Payer » pour terminer.');
   };
 
   const join = (t: TaxiTrip) => {

@@ -2,6 +2,7 @@
 // has a `kind`, an `event` card, and kind-specific `details`. Errors are ApiError: `message` is French.
 import type { Caravan, CaravanOrganizer, CaravanStop } from '@/constants/data';
 import { paymentReturnUrl, type PaymentDto, type PaymentMethod } from '@/features/payments/checkout';
+import type { EventTicketDetails } from '@/features/events/api';
 import { api } from '@/lib/api';
 
 const auth = { auth: true } as const;
@@ -103,16 +104,14 @@ export type CaravanTicketDetails = {
   confirmBy: string;
 };
 
-export type TicketDto = {
+type TicketBase = {
   id: string;
-  kind: 'caravan_seat';
   code: string;
   status: 'active' | 'cancelled' | 'transferred';
   seat: number | null;
   price: number;
   paidWith: PaymentMethod;
   event: { id: string; kind: string; title: string; startsAt: string; status: string; organizer: OrgCardDto };
-  details: CaravanTicketDetails;
   /** Companion ticket: who travels on it (I booked it for them). */
   passenger: PassengerDto | null;
   purchaser: { name: string; isMe: boolean };
@@ -124,8 +123,17 @@ export type TicketDto = {
   transfer: TransferDto | null;
 };
 
+/** A seat on a caravan departure. */
+export type CaravanTicketDto = TicketBase & { kind: 'caravan_seat'; details: CaravanTicketDetails };
+/** Entry to an event (party, conference, outing). */
+export type EventTicketDto = TicketBase & { kind: 'event_entry'; details: EventTicketDetails };
+/** Tickets are generic: the `kind` says which `details` they carry. */
+export type TicketDto = CaravanTicketDto | EventTicketDto;
+export const isCaravanTicket = (t: TicketDto): t is CaravanTicketDto => t.kind === 'caravan_seat';
+export const isEventTicket = (t: TicketDto): t is EventTicketDto => t.kind === 'event_entry';
+
 /** `forCompanion`: the sender booked this seat for me as their companion. */
-export type IncomingTransferDto = TransferDto & { seat: number | null; event: TicketDto['event'] | null; details: CaravanTicketDetails; forCompanion: boolean };
+export type IncomingTransferDto = TransferDto & { seat: number | null; event: TicketDto['event'] | null; details: CaravanTicketDetails | EventTicketDetails; forCompanion: boolean };
 
 export type ManifestDto = {
   departure: OrgDepartureDto;
@@ -264,8 +272,8 @@ export function toCaravan(d: DepartureDto): Caravan {
 }
 
 /** Tickets of the same departure together (my seat and my companions'), my own first, then by seat. */
-export function byDeparture(tickets: TicketDto[]): TicketDto[][] {
-  const groups = new Map<string, TicketDto[]>();
+export function byDeparture(tickets: CaravanTicketDto[]): CaravanTicketDto[][] {
+  const groups = new Map<string, CaravanTicketDto[]>();
   for (const t of tickets) groups.set(t.details.departureId, [...(groups.get(t.details.departureId) ?? []), t]);
   return [...groups.values()].map((g) => g.sort((a, b) => Number(!!a.passenger) - Number(!!b.passenger) || (a.seat ?? 0) - (b.seat ?? 0)));
 }

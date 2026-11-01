@@ -27,9 +27,12 @@ export function TabScreen<K extends string>({ title, views }: { title: string; v
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScreenHeader title={title} subtitle={view.subtitle} />
-      <View style={styles.switch}>
-        <Segmented options={views.map((v) => ({ value: v.key, label: v.label }))} value={current} onChange={setCurrent} />
-      </View>
+      {/* One view: no switch. */}
+      {views.length > 1 && (
+        <View style={styles.switch}>
+          <Segmented options={views.map((v) => ({ value: v.key, label: v.label }))} value={current} onChange={setCurrent} />
+        </View>
+      )}
       {view.render()}
     </SafeAreaView>
   );

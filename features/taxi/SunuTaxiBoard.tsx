@@ -17,6 +17,9 @@ import { ApiError } from '@/lib/api';
 
 const LEAVE_IN = [15, 30, 60, 120]; // minutes
 const SEAT_OPTIONS = [2, 3, 4];
+/** "Non remboursable X min avant le départ": the organizer's choice, 0 = the default (10 min). */
+const LOCK_OPTIONS = [0, 5, 15, 20, 30, 45, 60];
+const DEFAULT_LOCK = 10;
 /** Same bounds as the backend (decision 2026-10-31). */
 const FARE_MIN = 500;
 const FARE_MAX = 20_000;
@@ -41,7 +44,7 @@ export function formatDeparture(at: number, now: number) {
 const leaveLabel = (m: number) => (m < 60 ? `${m} min` : `${m / 60} h`);
 
 // Sunu Taxi: a student proposes a trip, others pay their seat to join.
-// Seats are locked 30 min before departure so nobody is left paying for someone else.
+// Seats lock before departure (the organizer chooses when, 10 min by default) so nobody is left paying for someone else.
 /** Screen content without header or safe area: used by a tab and by its standalone page. */
 export function SunuTaxiBoard() {
   const taxi = useTaxi();
@@ -348,7 +351,9 @@ export function TripCard({
         <View style={styles.actions}>
           <Pressable style={[styles.action, { flex: 1 }]} onPress={onPay} accessibilityRole="button">
             <Ionicons name="wallet-outline" size={16} color="#fff" />
-            <Text style={styles.actionText}>Payer ma place · {formatFcfa(t.seatPrice)}</Text>
+            <Text style={styles.actionText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+              Payer · {formatFcfa(t.seatPrice)}
+            </Text>
           </Pressable>
           <Pressable style={[styles.action, styles.actionOutline, styles.actionSmall]} onPress={() => onLeave(false)}>
             <Text style={[styles.actionText, { color: colors.muted2 }]}>Libérer</Text>
@@ -461,12 +466,17 @@ function NewTripSheet({
   const [to, setTo] = useState('');
   const [leaveIn, setLeaveIn] = useState(30);
   const [seats, setSeats] = useState(4);
+  const [lock, setLock] = useState(0);
   const [fare, setFare] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fareValue = Number(fare.replace(/\D/g, ''));
   const fareError = fareValue > 0 && (fareValue < FARE_MIN || fareValue > FARE_MAX) ? `Entre ${formatFcfa(FARE_MIN)} et ${formatFcfa(FARE_MAX)}.` : null;
+  // Only delays shorter than the time before departure; one that no longer fits falls back to the default.
+  const lockOptions = LOCK_OPTIONS.filter((m) => m === 0 || m < leaveIn);
+  const lockMinutes = lockOptions.includes(lock) ? lock : 0;
+  const shownLock = lockMinutes || Math.min(DEFAULT_LOCK, Math.floor(leaveIn / 2));
   const valid = from.trim().length > 1 && to.trim().length > 1 && fareValue > 0 && !fareError;
 
   const submit = async () => {
@@ -474,7 +484,7 @@ function NewTripSheet({
     setError(null);
     try {
       // The departure is counted on the server's clock: a phone set to the wrong time still gets the right trip.
-      await onCreate({ from: from.trim(), to: to.trim(), leaveInMinutes: leaveIn, seats, fare: fareValue });
+      await onCreate({ from: from.trim(), to: to.trim(), leaveInMinutes: leaveIn, seats, fare: fareValue, ...(lockMinutes ? { lockMinutes } : {}) });
       setTo('');
       setFare('');
     } catch (err) {
@@ -501,6 +511,12 @@ function NewTripSheet({
             <LabeledField label="Départ dans">
               <Chips options={LEAVE_IN} value={leaveIn} onChange={setLeaveIn} label={leaveLabel} />
             </LabeledField>
+            <LabeledField label="Non remboursable avant le départ">
+              <Chips options={lockOptions} value={lockMinutes} onChange={setLock} label={(m) => (m ? `${m} min` : `Par défaut · ${DEFAULT_LOCK} min`)} />
+            </LabeledField>
+            <Text style={styles.hint}>
+              Un passager qui quitte le trajet moins de {shownLock} min avant le départ n’est pas remboursé : sa place reste payée.
+            </Text>
             <LabeledField label="Places dans le taxi (toi compris)">
               <Chips options={SEAT_OPTIONS} value={seats} onChange={setSeats} label={String} />
             </LabeledField>
@@ -597,6 +613,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 6,
     minHeight: 40,
+    // Room inside the pill: a long label shrinks rather than touch the edges.
+    paddingHorizontal: 12,
     borderRadius: radii.pill,
     backgroundColor: colors.accent,
     alignItems: 'center',
@@ -636,7 +654,7 @@ const styles = StyleSheet.create({
   chatBadgeText: { fontSize: 11, fontWeight: '800', color: '#fff' },
   chatCountText: { ...typo.label, color: '#fff' },
   lockText: { flex: 1, fontSize: 12, fontWeight: '600', color: colors.muted2 },
-  actionText: { ...typo.bodyStrong, color: '#fff' },
+  actionText: { ...typo.bodyStrong, color: '#fff', flexShrink: 1, textAlign: 'center' },
   avatar: {
     width: 34,
     height: 34,

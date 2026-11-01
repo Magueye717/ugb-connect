@@ -7,12 +7,14 @@ import { useAuth, type Space } from '@/context/AuthContext';
 type Info = { icon: keyof typeof Ionicons.glyphMap; title: string; text: string };
 
 /** How each space is named wherever spaces are listed or switched. */
-export function spaceInfo(space: Space, organizerName?: string): Info {
+export function spaceInfo(space: Space, organizerName?: string, businessName?: string): Info {
   switch (space) {
     case 'student':
       return { icon: 'school-outline', title: 'Espace étudiant', text: 'Caravanes, restos, taxi, campus' };
     case 'organizer':
       return { icon: 'bus-outline', title: organizerName ? `Espace ${organizerName}` : 'Espace organisateur', text: 'Départs, passagers, scanner' };
+    case 'business':
+      return { icon: 'storefront-outline', title: businessName ?? 'Mon commerce', text: 'Commandes, catalogue, équipe' };
     case 'resto':
       return { icon: 'restaurant-outline', title: 'Restos publics', text: 'Stocks des plats du jour, ruptures' };
     case 'alerts':
@@ -25,7 +27,7 @@ export function spaceInfo(space: Space, organizerName?: string): Info {
  * one marked. Hidden when there's only one.
  */
 export function SpacesList() {
-  const { spaces, space, organizer, openSpace } = useAuth();
+  const { spaces, space, organizer, business, openSpace } = useAuth();
   if (spaces.length < 2) return null;
 
   return (
@@ -33,7 +35,7 @@ export function SpacesList() {
       <Text style={styles.title}>Mes espaces</Text>
       <View style={[styles.group, shadow.card]}>
         {spaces.map((s, i) => {
-          const info = spaceInfo(s, organizer?.name);
+          const info = spaceInfo(s, organizer?.name, business?.name);
           const current = s === space;
           return (
             <Pressable

@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useRef, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -17,66 +18,106 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/ui';
-import { lostCategory, lostQuickReplies, lostSafetyTip, type LostMessage } from '@/constants/data';
+import { lostCategory, lostQuickReplies, lostSafetyTip, lostTone } from '@/constants/data';
 import { colors, radii, typo } from '@/constants/theme';
 import { useLost } from '@/context/LostContext';
+import { useConversation, type ChatMessage } from '@/features/chat/useConversation';
+import { lostApi, type ClaimDto } from '@/features/lost/api';
+import { ApiError } from '@/lib/api';
 
 const time = (at: number) => {
   const d = new Date(at);
   return `${d.getHours()}h${String(d.getMinutes()).padStart(2, '0')}`;
 };
+const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
 
-// Private conversation about one item between its owner and the finder. No phone numbers.
+// Private conversation about one item between its declarer and one other student (the shared chat of features/chat).
 export default function ObjetDiscussion() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const lost = useLost();
+  const { upsert } = useLost();
   const scroll = useRef<ScrollViewInstance>(null);
   const [text, setText] = useState('');
+  const [claim, setClaim] = useState<ClaimDto | null>(null);
+  const [missing, setMissing] = useState(false);
+  const chat = useConversation(claim?.conversationId);
+  const { markRead } = chat;
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) return;
+      lostApi.claimView(id).then(setClaim, (err) => (err instanceof ApiError && err.status === 404 ? setMissing(true) : undefined));
+    }, [id]),
+  );
+  // Read while it's on screen: the badges clear.
+  useEffect(() => {
+    markRead();
+  }, [markRead]);
 
   const back = () => (router.canGoBack() ? router.back() : router.replace('/services/objets'));
-  const item = lost.items.find((i) => i.id === id);
-  if (!item) {
+  if (!claim || missing || chat.revoked) {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.head}>
           <BackButton onPress={back} />
         </View>
+        {missing || chat.revoked ? <Text style={styles.empty}>Discussion introuvable.</Text> : <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />}
       </SafeAreaView>
     );
   }
 
-  const other = item.mine ? 'l’autre étudiant' : item.by;
-  const thread = lost.messages.filter((m) => m.itemId === item.id);
-  const closed = !!item.returned;
+  const { item } = claim;
   const cat = lostCategory(item.category);
+  const tone = lostTone(item.category);
+  const closed = item.returned || chat.conversation?.status === 'closed';
+  const canWrite = !closed && !!chat.conversation?.canWrite;
+  const canClose = item.mine || item.isOwner;
+  const me = chat.me;
 
-  const send = (value: string) => {
-    if (!value.trim() || closed) return;
-    lost.send(item.id, value);
-    setText('');
+  const send = (value: string, kind: 'text' | 'quick_reply' = 'text') => {
+    if (!value.trim() || !canWrite) return;
+    chat.send(value, kind);
+    if (kind === 'text') setText('');
   };
 
-  const report = (m: LostMessage) => {
-    if (m.author !== 'them') return;
-    Alert.alert(other, m.text, [
+  const moderate = (m: ChatMessage) => {
+    if (!m.author || m.author.key === me || m.pending) return;
+    Alert.alert(claim.with, m.body, [
       {
-        text: 'Signaler',
-        onPress: () => Alert.alert('Message signalé', 'L’équipe va lire la conversation. Merci de garder le campus sûr.'),
+        text: 'Signaler le message',
+        onPress: () => chat.report(m).then(() => Alert.alert('Message signalé', 'L’équipe va lire la conversation. Merci de garder le campus sûr.'), fail('Signalement non envoyé')),
+      },
+      {
+        text: `Bloquer ${claim.with}`,
+        style: 'destructive',
+        onPress: () => chat.blockAuthor(m).catch(fail('Blocage impossible')),
       },
       { text: 'Fermer', style: 'cancel' },
     ]);
   };
+
+  const markReturned = () =>
+    Alert.alert(item.status === 'found' ? 'Objet rendu ?' : 'Objet retrouvé ?', 'L’annonce et la discussion seront fermées.', [
+      { text: 'Pas encore', style: 'cancel' },
+      {
+        text: 'Oui, c’est réglé',
+        onPress: () =>
+          lostApi.returned(item.id).then((next) => {
+            upsert(next);
+            setClaim({ ...claim, item: next });
+          }, fail('Fermeture impossible')),
+      },
+    ]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <View style={styles.head}>
         <BackButton onPress={back} />
         <Pressable style={styles.item} onPress={() => router.navigate(`/objet/${item.id}`)} accessibilityRole="button">
-          <View style={[styles.thumb, { backgroundColor: item.bg }]}>
+          <View style={[styles.thumb, { backgroundColor: tone.bg }]}>
             {item.photo && item.kind === 'object' ? (
-              <Image source={item.photo} style={StyleSheet.absoluteFill} contentFit="cover" />
+              <Image source={{ uri: item.photo }} style={StyleSheet.absoluteFill} contentFit="cover" />
             ) : (
-              <Ionicons name={cat.icon} size={18} color={item.tint} />
+              <Ionicons name={cat.icon} size={18} color={tone.tint} />
             )}
           </View>
           <View style={{ flex: 1 }}>
@@ -84,7 +125,7 @@ export default function ObjetDiscussion() {
               {item.name}
             </Text>
             <Text style={styles.subtitle} numberOfLines={1}>
-              Avec {other}
+              Avec {claim.with}
             </Text>
           </View>
         </Pressable>
@@ -100,50 +141,55 @@ export default function ObjetDiscussion() {
             <Ionicons name="shield-checkmark-outline" size={14} color={colors.muted2} />
             <Text style={styles.safetyText}>{lostSafetyTip}</Text>
           </View>
+          {chat.hasMore && (
+            <Pressable onPress={() => chat.loadOlder().catch(() => undefined)} style={styles.older} accessibilityRole="button">
+              <Text style={styles.olderText}>Messages précédents</Text>
+            </Pressable>
+          )}
+          {chat.loading && <ActivityIndicator color={colors.primary} style={{ marginTop: 16 }} />}
 
-          {thread.map((m) =>
-            !m.author ? (
-              <View key={m.id} style={styles.system}>
-                <Text style={styles.systemText}>{m.text}</Text>
-              </View>
-            ) : (
+          {chat.messages.map((m) => {
+            if (!m.author) {
+              return (
+                <View key={m.id} style={styles.system}>
+                  <Text style={styles.systemText}>{m.body}</Text>
+                </View>
+              );
+            }
+            const mine = m.author.key === me;
+            return (
               <Pressable
                 key={m.id}
-                onLongPress={() => report(m)}
-                style={[styles.bubble, m.author === 'me' ? styles.mine : styles.theirs]}
-                accessibilityHint={m.author === 'them' ? 'Appui long pour signaler' : undefined}>
-                <Text style={[styles.text, m.author === 'me' && { color: '#fff' }]}>{m.text}</Text>
-                <Text style={[styles.time, m.author === 'me' && { color: 'rgba(255,255,255,0.75)' }]}>{time(m.at)}</Text>
+                onLongPress={() => moderate(m)}
+                onPress={m.pending === 'failed' ? () => chat.retry(m) : undefined}
+                style={[styles.bubble, mine ? styles.mine : styles.theirs, m.pending === 'sending' && { opacity: 0.6 }]}
+                accessibilityHint={mine ? undefined : 'Appui long pour signaler'}>
+                <Text style={[styles.text, mine && { color: '#fff' }]}>{m.body}</Text>
+                <Text style={[styles.time, mine && { color: 'rgba(255,255,255,0.75)' }]}>{m.pending === 'failed' ? 'Échec · toucher pour réessayer' : time(m.at)}</Text>
               </Pressable>
-            ),
-          )}
+            );
+          })}
         </ScrollView>
 
         {closed ? (
           <View style={styles.closed}>
             <Ionicons name="checkmark-circle" size={16} color={colors.success} />
-            <Text style={styles.closedText}>Objet rendu · discussion fermée</Text>
+            <Text style={styles.closedText}>{item.status === 'found' ? 'Objet rendu' : 'Objet retrouvé'} · discussion fermée</Text>
           </View>
         ) : (
           <View style={styles.composer}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quick} keyboardShouldPersistTaps="handled">
               {lostQuickReplies.map((q) => (
-                <Pressable key={q} style={styles.quickChip} onPress={() => send(q)} accessibilityRole="button">
+                <Pressable key={q} style={styles.quickChip} onPress={() => send(q, 'quick_reply')} accessibilityRole="button">
                   <Text style={styles.quickText}>{q}</Text>
                 </Pressable>
               ))}
-              <Pressable
-                style={[styles.quickChip, styles.doneChip]}
-                onPress={() =>
-                  Alert.alert('Objet rendu ?', 'La discussion sera fermée.', [
-                    { text: 'Pas encore', style: 'cancel' },
-                    { text: 'Oui, c’est réglé', onPress: () => lost.markReturned(item.id) },
-                  ])
-                }
-                accessibilityRole="button">
-                <Ionicons name="checkmark-done" size={14} color={colors.successText} />
-                <Text style={[styles.quickText, { color: colors.successText }]}>Objet rendu</Text>
-              </Pressable>
+              {canClose && (
+                <Pressable style={[styles.quickChip, styles.doneChip]} onPress={markReturned} accessibilityRole="button">
+                  <Ionicons name="checkmark-done" size={14} color={colors.successText} />
+                  <Text style={[styles.quickText, { color: colors.successText }]}>{item.status === 'found' && !item.isOwner ? 'Objet rendu' : 'Récupéré'}</Text>
+                </Pressable>
+              )}
             </ScrollView>
             <View style={styles.inputRow}>
               <TextInput
@@ -157,8 +203,8 @@ export default function ObjetDiscussion() {
                 accessibilityLabel="Écrire un message"
               />
               <Pressable
-                style={[styles.send, !text.trim() && { opacity: 0.4 }]}
-                disabled={!text.trim()}
+                style={[styles.send, (!text.trim() || !canWrite) && { opacity: 0.4 }]}
+                disabled={!text.trim() || !canWrite}
                 onPress={() => send(text)}
                 accessibilityRole="button"
                 accessibilityLabel="Envoyer">
@@ -174,6 +220,9 @@ export default function ObjetDiscussion() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
+  empty: { color: colors.muted2, textAlign: 'center', marginTop: 40 },
+  older: { alignSelf: 'center', padding: 8 },
+  olderText: { color: colors.primary, fontWeight: '700' },
   head: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 10 },
   item: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   thumb: { width: 40, height: 40, borderRadius: radii.sm, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },

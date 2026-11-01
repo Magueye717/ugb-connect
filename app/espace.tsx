@@ -14,7 +14,7 @@ import { spaceHome, useAuth, type Space } from '@/context/AuthContext';
  */
 export default function SwitchSpace() {
   const { vers } = useLocalSearchParams<{ vers?: Space }>();
-  const { space, spaces, setSpace, organizer } = useAuth();
+  const { space, spaces, setSpace, organizer, business } = useAuth();
   const target = vers && spaces.includes(vers) ? vers : space;
 
   useEffect(() => {
@@ -24,7 +24,7 @@ export default function SwitchSpace() {
   if (!target) return <Redirect href="/(auth)/welcome" />;
   if (target === space) return <Redirect href={spaceHome(target)} />;
 
-  const info = spaceInfo(target, organizer?.name);
+  const info = spaceInfo(target, organizer?.name, business?.name);
   return (
     <View style={styles.root}>
       <Ionicons name={info.icon} size={40} color="#fff" />

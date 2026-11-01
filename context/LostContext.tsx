@@ -1,65 +1,54 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { AppState } from 'react-native';
 
-import { lostItems, type LostItem, type LostMessage } from '@/constants/data';
 import { useAuth } from '@/context/AuthContext';
+import { lostApi, type LostItemDto } from '@/features/lost/api';
 
 type LostValue = {
-  items: LostItem[];
-  messages: LostMessage[];
-  /** "Awa D.": how my name appears to other students. */
-  me: string;
-  /** Returns the new item's id. */
-  declare: (item: Omit<LostItem, 'id' | 'by' | 'mine'>) => string;
-  /** "C'est à moi": opens the conversation with the finder, starting with my proof. */
-  claim: (itemId: string, proof: string) => void;
-  /** "Je l'ai trouvé" on a lost item: opens the conversation with its owner. */
-  reportFound: (itemId: string) => void;
-  send: (itemId: string, text: string) => void;
-  markReturned: (itemId: string) => void;
+  /** The board: open items, those returned this week, and all of mine; null until loaded. */
+  items: LostItemDto[] | null;
+  refresh: () => Promise<void>;
+  /** Puts a new or changed item in the list at once (before the next refresh). */
+  upsert: (item: LostItemDto) => void;
 };
 
 const LostContext = createContext<LostValue | null>(null);
 
-// Mock store for lost and found items and their conversations, until there's a backend.
+const REFRESH_MS = 60_000;
+
+/** Lost and found from the backend, refreshed every minute while the app is open (students only). */
 export function LostProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
-  const me = user ? `${user.firstName} ${user.lastName.charAt(0)}.` : 'Toi';
-  const [items, setItems] = useState<LostItem[]>(lostItems);
-  const [messages, setMessages] = useState<LostMessage[]>([]);
+  const { status, user } = useAuth();
+  const enabled = status === 'signedIn' && !!user?.studentId;
+  const [items, setItems] = useState<LostItemDto[] | null>(null);
 
-  const value = useMemo<LostValue>(() => {
-    const post = (itemId: string, text: string, author?: LostMessage['author']) =>
-      setMessages((ms) => [...ms, { id: `lm_${Date.now()}_${ms.length}`, itemId, author, text, at: Date.now() }]);
-    // Mock: the other student answers a moment later, so the conversation can be tried alone.
-    const replyLater = (itemId: string, text: string) => setTimeout(() => post(itemId, text, 'them'), 1500);
+  const refresh = useCallback(async () => {
+    if (!enabled) return;
+    try {
+      setItems((await lostApi.list()).items);
+    } catch {
+      // Offline: keep what's shown.
+      setItems((list) => list ?? []);
+    }
+  }, [enabled]);
 
-    return {
-      items,
-      messages,
-      me,
-      declare: (item) => {
-        const id = `o_${Date.now()}`;
-        setItems((list) => [{ ...item, id, by: me, mine: true }, ...list]);
-        return id;
-      },
-      claim: (itemId, proof) => {
-        post(itemId, `${me} pense que c’est à lui ou à elle.`);
-        post(itemId, `Détail pour prouver que c’est à moi : ${proof}`, 'me');
-        replyLater(itemId, 'Ça correspond, merci ! Quand es-tu disponible ?');
-      },
-      reportFound: (itemId) => {
-        post(itemId, `${me} pense avoir trouvé ton objet.`);
-        post(itemId, 'Bonjour, je crois que j’ai trouvé ton objet !', 'me');
-        replyLater(itemId, 'Super, merci beaucoup ! Il y a un détail pour vérifier ?');
-      },
-      send: (itemId, text) => post(itemId, text.trim(), 'me'),
-      markReturned: (itemId) => {
-        setItems((list) => list.map((i) => (i.id === itemId ? { ...i, returned: true } : i)));
-        post(itemId, 'Objet rendu à son propriétaire ✓ Discussion fermée.');
-      },
+  useEffect(() => {
+    if (!enabled) {
+      setItems(null);
+      return;
+    }
+    refresh();
+    const timer = setInterval(() => AppState.currentState === 'active' && refresh(), REFRESH_MS);
+    const sub = AppState.addEventListener('change', (s) => s === 'active' && refresh());
+    return () => {
+      clearInterval(timer);
+      sub.remove();
     };
-  }, [items, messages, me]);
+  }, [enabled, refresh]);
 
+  const upsert = useCallback((item: LostItemDto) => setItems((list) => [item, ...(list ?? []).filter((i) => i.id !== item.id)]), []);
+
+  const value = useMemo(() => ({ items, refresh, upsert }), [items, refresh, upsert]);
   return <LostContext.Provider value={value}>{children}</LostContext.Provider>;
 }
 
