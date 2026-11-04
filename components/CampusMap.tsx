@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polygon, Polyline, type Region } from 'react-native-maps';
 
+import { useLiftSpaceButton } from '@/components/SpaceSwitcher';
 import { radii, typo } from '@/constants/theme';
 import { openDirections } from '@/lib/maps';
 
@@ -21,7 +22,7 @@ export type MapPin = {
 };
 
 type LatLng = { lat: number; lng: number };
-type Campus = { outline: LatLng[]; bounds: { south: number; west: number; north: number; east: number }; attribution: string };
+type Campus = { outline: LatLng[]; bounds: { south: number; west: number; north: number; east: number }; start: { lat: number; lng: number; delta: number }; attribution: string };
 
 // Until the outline arrives (or offline): the UGB box (Sanar).
 const FALLBACK = { south: 16.0554, west: -16.4291, north: 16.0714, east: -16.4172 };
@@ -34,7 +35,7 @@ const WORLD = [
   { latitude: 15, longitude: -17.5 },
 ];
 // Names show once zoomed in enough to read them.
-const NAMES_BELOW = 0.009;
+const NAMES_BELOW = 0.006;
 
 const INK = '#0E131B';
 const PANEL = '#161C26';
@@ -47,7 +48,8 @@ const SAND = '#E2BE7E';
  */
 export function CampusMap({ pins, campus, onOpen, style }: { pins: MapPin[]; campus?: Campus | null; onOpen: (pin: MapPin) => void; style?: object }) {
   const ref = useRef<MapView>(null);
-  const [satellite, setSatellite] = useState(false);
+  // Satellite first: the buildings and their names (G1, G2…) are what students recognise.
+  const [satellite, setSatellite] = useState(true);
   const [selected, setSelected] = useState<MapPin | null>(null);
   const [named, setNamed] = useState(false);
   // Markers are pictures: redrawn only while their look changes, then frozen (smooth scrolling with 80 of them).
@@ -64,14 +66,19 @@ export function CampusMap({ pins, campus, onOpen, style }: { pins: MapPin[]; cam
   // Refit only when the set of pins changes, not on every render.
   const ids = pins.map((p) => p.id).join(',');
 
+  // Opens on the backend's start view (Village D, close up). It arrives after the map: go there once.
+  const started = useRef(false);
   useEffect(() => {
-    const map = ref.current;
-    if (!map) return;
-    // One result (a search): zoom on it. Otherwise the whole campus, with every pin inside.
-    if (pins.length === 1) map.animateToRegion({ latitude: pins[0]!.lat, longitude: pins[0]!.lng, latitudeDelta: 0.004, longitudeDelta: 0.004 }, 400);
-    else map.fitToCoordinates([...corners, ...pins.map((p) => ({ latitude: p.lat, longitude: p.lng }))], { edgePadding: PADDING, animated: true });
+    if (!campus || started.current) return;
+    started.current = true;
+    ref.current?.animateToRegion({ latitude: campus.start.lat, longitude: campus.start.lng, latitudeDelta: campus.start.delta, longitudeDelta: campus.start.delta }, 500);
+  }, [campus]);
+
+  // A search with one result: zoom on it. Filters and layers don't move the camera.
+  useEffect(() => {
+    if (pins.length === 1) ref.current?.animateToRegion({ latitude: pins[0]!.lat, longitude: pins[0]!.lng, latitudeDelta: 0.0025, longitudeDelta: 0.0025 }, 400);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the ids on purpose
-  }, [ids, corners]);
+  }, [ids]);
 
   const look = `${ids}|${named}|${satellite}`;
   const drawing = drawn !== look;
@@ -96,13 +103,19 @@ export function CampusMap({ pins, campus, onOpen, style }: { pins: MapPin[]; cam
   };
 
   const shown = selected && pins.find((p) => p.id === selected.id);
+  // The place's card is pinned at the bottom of the map: the space button rises above it.
+  useLiftSpaceButton(shown ? 190 : 0);
 
   return (
     <View style={[styles.wrap, style]}>
       <MapView
         ref={ref}
         style={StyleSheet.absoluteFill}
-        initialRegion={{ latitude: (box.north + box.south) / 2, longitude: (box.west + box.east) / 2, latitudeDelta: 0.018, longitudeDelta: 0.018 }}
+        initialRegion={
+          campus
+            ? { latitude: campus.start.lat, longitude: campus.start.lng, latitudeDelta: campus.start.delta, longitudeDelta: campus.start.delta }
+            : { latitude: (box.north + box.south) / 2, longitude: (box.west + box.east) / 2, latitudeDelta: 0.018, longitudeDelta: 0.018 }
+        }
         mapType={satellite ? 'hybrid' : 'standard'}
         userInterfaceStyle="dark"
         customMapStyle={DARK}
@@ -145,7 +158,7 @@ export function CampusMap({ pins, campus, onOpen, style }: { pins: MapPin[]; cam
                 <View style={styles.pinBox}>
                   <View style={styles.pinBand} />
                   <View style={[styles.pin, { backgroundColor: p.color }, on && styles.pinOn]}>
-                    <Ionicons name={p.icon} size={on ? 15 : 12} color="#fff" />
+                    <Ionicons name={p.icon} size={on ? 12 : 9} color="#fff" />
                   </View>
                   <Text style={[styles.pinName, !(named || on) && styles.hidden]} numberOfLines={2}>
                     {p.name}
@@ -194,9 +207,9 @@ export function CampusMap({ pins, campus, onOpen, style }: { pins: MapPin[]; cam
             </Pressable>
           </View>
           <View style={styles.cardActions}>
-            <Pressable style={[styles.action, styles.actionGo]} onPress={() => openDirections({ lat: shown.lat, lng: shown.lng }, shown.name)} accessibilityRole="button" accessibilityLabel={`Itinéraire vers ${shown.name}`}>
-              <Ionicons name="navigate" size={16} color={INK} />
-              <Text style={[styles.actionText, { color: INK }]}>Itinéraire</Text>
+            <Pressable style={[styles.action, styles.actionGo]} onPress={() => openDirections({ lat: shown.lat, lng: shown.lng }, shown.name)} accessibilityRole="button" accessibilityLabel={`Y aller : ${shown.name}`}>
+              <Ionicons name="location" size={16} color={INK} />
+              <Text style={[styles.actionText, { color: INK }]}>Y aller</Text>
             </Pressable>
             <Pressable style={styles.action} onPress={() => onOpen(shown)} accessibilityRole="button" accessibilityLabel={`Voir ${shown.name}`}>
               <Text style={styles.actionText}>{shown.kind === 'place' ? 'Voir le lieu' : 'Voir la carte'}</Text>
@@ -231,15 +244,15 @@ const shade = { textShadowColor: 'rgba(0,0,0,0.9)', textShadowOffset: { width: 0
 
 const styles = StyleSheet.create({
   wrap: { overflow: 'hidden', backgroundColor: INK, minHeight: 440 },
-  zone: { fontSize: 11, fontWeight: '800', letterSpacing: 1.2, color: SAND, paddingHorizontal: 2, ...shade },
-  zoneOn: { fontSize: 13, color: '#fff' },
-  dot: { width: 9, height: 9, borderRadius: 5, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.85)' },
-  dotOn: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, borderColor: '#fff' },
-  pinBox: { width: 110, alignItems: 'center' },
-  pinBand: { height: 26 },
-  pin: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.9)' },
-  pinOn: { width: 32, height: 32, borderRadius: 16, borderWidth: 2.5, borderColor: '#fff', marginVertical: -4 },
-  pinName: { height: 26, marginTop: 2, fontSize: 10.5, lineHeight: 12, fontWeight: '700', color: '#F3F5F8', textAlign: 'center', ...shade },
+  zone: { fontSize: 9, fontWeight: '800', letterSpacing: 1, color: SAND, paddingHorizontal: 2, ...shade },
+  zoneOn: { fontSize: 11, color: '#fff' },
+  dot: { width: 7, height: 7, borderRadius: 4, borderWidth: 1, borderColor: 'rgba(255,255,255,0.85)' },
+  dotOn: { width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: '#fff' },
+  pinBox: { width: 90, alignItems: 'center' },
+  pinBand: { height: 22 },
+  pin: { width: 17, height: 17, borderRadius: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.9)' },
+  pinOn: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#fff', marginVertical: -3.5 },
+  pinName: { height: 22, marginTop: 1, fontSize: 8.5, lineHeight: 10, fontWeight: '700', color: '#F3F5F8', textAlign: 'center', ...shade },
   hidden: { opacity: 0 },
   title: { position: 'absolute', top: 14, left: 14, right: 130 },
   titleText: { fontSize: 15, fontWeight: '800', color: '#fff', ...shade },

@@ -31,10 +31,10 @@ export const passwordRules = [
 ];
 
 export const validatePassword = (p: string) =>
-  passwordRules.every((r) => r.test(p)) ? null : 'Le mot de passe ne respecte pas les critères';
+  passwordRules.every((r) => r.test(p.trim())) ? null : 'Le mot de passe ne respecte pas les critères';
 
 export const validateConfirm = (password: string, confirm: string) =>
-  confirm && confirm === password ? null : 'Les mots de passe ne correspondent pas';
+  confirm.trim() && confirm.trim() === password.trim() ? null : 'Les mots de passe ne correspondent pas';
 
 // Same lists as the backend (GET /reference/student), kept here so sign-up works on a weak connection.
 export const CAMPUSES = [

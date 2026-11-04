@@ -2,10 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BackButton, Field, LabeledField, PrimaryButton } from '@/components/ui';
+import { BackButton, Field, LabeledField, PrimaryButton, TextButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { readMyCardPhoto, saveIdentity } from '@/features/lost/api';
@@ -27,13 +27,15 @@ const maskDate = (v: string) => {
 
 /**
  * The student's card in the app, and what it adds to the profile: birth date, place of birth, nationality. Optional
- * but recommended, best read from the card itself (OCR on the server, only their own card), then checked here.
+ * but recommended. Read from the card itself (OCR on the server): its student number must be the student's own. They
+ * check it, then save it once: afterwards it can't be changed.
  */
 export default function MaCarte() {
   const { user, reloadAccount } = useAuth();
   const id = user?.identity ?? null;
   const [editing, setEditing] = useState(false);
-  const [fromCard, setFromCard] = useState(false);
+  // Saved from the card: locked.
+  const locked = !!id?.fromCard;
   const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [birthDate, setBirthDate] = useState(toFr(id?.birthDate ?? null));
@@ -61,9 +63,8 @@ export default function MaCarte() {
       if (r.birthDate) setBirthDate(toFr(r.birthDate));
       if (r.birthPlace) setBirthPlace(r.birthPlace);
       if (r.nationality) setNationality(r.nationality);
-      setFromCard(true);
       setEditing(true);
-      if (!r.birthDate && !r.birthPlace && !r.nationality) Alert.alert('Rien de lisible', 'C’est bien ta carte, mais ces informations n’ont pas pu être lues. Complète-les toi-même ou réessaie avec une photo plus nette.');
+      if (!r.birthDate && !r.birthPlace && !r.nationality) Alert.alert('Rien de lisible', 'C’est bien ta carte, mais ces informations n’ont pas pu être lues. Complète-les ou réessaie avec une photo plus nette.');
     } catch (err) {
       Alert.alert('Lecture impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
     } finally {
@@ -75,10 +76,10 @@ export default function MaCarte() {
   const save = async () => {
     setSaving(true);
     try {
-      await saveIdentity({ birthDate: toIso(birthDate), birthPlace: birthPlace.trim() || null, nationality: nationality.trim() || null, fromCard });
+      await saveIdentity({ birthDate: toIso(birthDate), birthPlace: birthPlace.trim() || null, nationality: nationality.trim() || null, fromCard: true });
       await reloadAccount();
       setEditing(false);
-      Alert.alert('Profil complété', 'Tes informations sont enregistrées.');
+      Alert.alert('Profil complété', 'Tes informations sont enregistrées et vérifiées avec ta carte.');
     } catch (err) {
       Alert.alert('Enregistrement impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
     } finally {
@@ -121,37 +122,31 @@ export default function MaCarte() {
                 <Info icon="flag-outline" label="Nationalité" value={id?.nationality ?? null} />
               </View>
 
-              <View style={styles.tip}>
-                <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
-                <Text style={styles.tipText}>
-                  Facultatif mais conseillé : photographie ta carte étudiant, on remplit ces informations pour toi. Tu vérifies avant d’enregistrer, et la photo n’est pas gardée.
-                </Text>
-              </View>
-              <PrimaryButton label={reading ? 'Lecture de ta carte…' : 'Scanner ma carte étudiant'} loading={reading} disabled={reading} onPress={() => scan('camera')} />
-              <View style={styles.links}>
-                <Pressable onPress={() => scan('library')} disabled={reading} hitSlop={8}>
-                  <Text style={styles.link}>Choisir une photo</Text>
-                </Pressable>
-                <Text style={styles.dot}>·</Text>
-                <Pressable
-                  onPress={() => {
-                    setFromCard(false);
-                    setEditing(true);
-                  }}
-                  hitSlop={8}>
-                  <Text style={styles.link}>Saisir moi-même</Text>
-                </Pressable>
-              </View>
+              {locked ? (
+                <View style={[styles.notice, { backgroundColor: colors.successBg }]}>
+                  <Ionicons name="lock-closed" size={16} color={colors.successText} />
+                  <Text style={[styles.noticeText, { color: colors.successText }]}>Enregistré depuis ta carte étudiant : ces informations ne peuvent plus être modifiées.</Text>
+                </View>
+              ) : (
+                <>
+                  <View style={styles.tip}>
+                    <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
+                    <Text style={styles.tipText}>
+                      Facultatif mais conseillé : photographie ta carte étudiant. Son numéro doit être le tien ({user.studentId}) ; on remplit tes informations, tu vérifies, puis tu enregistres une fois pour toutes. La photo n’est pas gardée.
+                    </Text>
+                  </View>
+                  <PrimaryButton label={reading ? 'Lecture de ta carte…' : 'Scanner ma carte étudiant'} loading={reading} disabled={reading} onPress={() => scan('camera')} />
+                  <TextButton label="Choisir une photo de ma carte" icon="images-outline" style={{ alignSelf: 'center' }} disabled={reading} onPress={() => scan('library')} />
+                </>
+              )}
               {reading && <ActivityIndicator color={colors.primary} />}
             </>
           ) : (
             <>
-              {fromCard && (
-                <View style={[styles.notice, { backgroundColor: colors.successBg }]}>
-                  <Ionicons name="checkmark-circle" size={18} color={colors.successText} />
-                  <Text style={[styles.noticeText, { color: colors.successText }]}>Lu sur ta carte. Vérifie et corrige si besoin avant d’enregistrer.</Text>
-                </View>
-              )}
+              <View style={[styles.notice, { backgroundColor: colors.successBg }]}>
+                <Ionicons name="checkmark-circle" size={18} color={colors.successText} />
+                <Text style={[styles.noticeText, { color: colors.successText }]}>C’est bien ta carte. Vérifie et corrige si besoin : une fois enregistré, ce ne sera plus modifiable.</Text>
+              </View>
               <LabeledField label="Date de naissance">
                 <Field icon="calendar-outline" placeholder="JJ/MM/AAAA" keyboardType="number-pad" value={birthDate} onChangeText={(v) => setBirthDate(maskDate(v))} maxLength={10} />
               </LabeledField>
@@ -163,9 +158,7 @@ export default function MaCarte() {
                 <Field icon="flag-outline" placeholder="Ex. Sénégalaise" autoCapitalize="words" value={nationality} onChangeText={setNationality} maxLength={40} />
               </LabeledField>
               <PrimaryButton label="Enregistrer" loading={saving} disabled={saving || !dateOk || (!!birthDate && birthDate.length < 10)} onPress={save} />
-              <Pressable onPress={() => setEditing(false)} hitSlop={8} style={{ alignSelf: 'center' }}>
-                <Text style={styles.link}>Annuler</Text>
-              </Pressable>
+              <TextButton label="Annuler" style={{ alignSelf: 'center' }} onPress={() => setEditing(false)} />
             </>
           )}
         </ScrollView>
@@ -201,9 +194,6 @@ const styles = StyleSheet.create({
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   tip: { flexDirection: 'row', gap: 10, padding: 12, borderRadius: radii.md, backgroundColor: colors.primarySoft },
   tipText: { ...typo.small, flex: 1, color: colors.primary, lineHeight: 19 },
-  links: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10 },
-  link: { color: colors.primary, fontWeight: '700' },
-  dot: { color: colors.muted2 },
   notice: { flexDirection: 'row', gap: 10, padding: 12, borderRadius: radii.md },
   noticeText: { ...typo.small, flex: 1, lineHeight: 19 },
   warn: { ...typo.small, color: colors.dangerText, marginTop: -8 },

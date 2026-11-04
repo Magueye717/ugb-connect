@@ -2,14 +2,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
-import { BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInLeft, FadeInRight, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandLogo } from '@/components/BrandLogo';
 import { colors, radii, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-import { accountConflict, createAccount, getLinkedEmail, sendOtp } from '@/features/register/auth';
+import { checkAccount, createAccount, getLinkedEmail, sendOtp } from '@/features/register/auth';
 import { ApiError } from '@/lib/api';
 import {
   StepIdentification,
@@ -89,10 +89,25 @@ export default function RegisterScreen() {
         setStep(2);
         return;
       }
-      const conflict = await accountConflict(identity.studentId, identity.phone);
+      const { conflict, existingAccount } = await checkAccount(identity.studentId, identity.phone);
       if (conflict) {
         setIdentError({ exists: conflict });
         return;
+      }
+      // Given a role in a team (a shop, an organizer…) with this number: sign-up adds the student space to that account.
+      if (existingAccount) {
+        const go = await new Promise<boolean>((resolve) =>
+          Alert.alert(
+            'Ce numéro a déjà un compte',
+            'Tu fais partie d’une équipe sur UGB Campus. Ton profil étudiant s’ajoute à ce compte : tes rôles restent, et le mot de passe que tu vas choisir remplace l’ancien.',
+            [
+              { text: 'Annuler', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Continuer', onPress: () => resolve(true) },
+            ],
+            { cancelable: true, onDismiss: () => resolve(false) },
+          ),
+        );
+        if (!go) return;
       }
       const [email, challenge] = await Promise.all([getLinkedEmail(identity.studentId), sendOtp(identity.phone, 'register')]);
       setLinkedEmail(email);

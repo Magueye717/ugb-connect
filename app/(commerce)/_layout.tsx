@@ -3,7 +3,9 @@ import { Tabs } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { SpaceSwitcher } from '@/components/SpaceSwitcher';
 import { colors } from '@/constants/theme';
+import { isOwner, useAuth } from '@/context/AuthContext';
 
 // A restaurant's or a shop's space: the orders first (they ring), then the catalog, the business, the team.
 const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
@@ -23,33 +25,39 @@ const activeIcons: Record<string, keyof typeof Ionicons.glyphMap> = {
 };
 
 export default function CommerceTabLayout() {
+  const { business } = useAuth();
   // Android edge-to-edge: the system navigation bar sits over the app, so the tab bar grows by its height.
   const insets = useSafeAreaInsets();
   const bottom = Math.max(insets.bottom, 10);
   return (
-    <Tabs
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarShowLabel: true,
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.tabInactive,
-        tabBarStyle: [styles.bar, { height: 62 + bottom, paddingBottom: bottom }],
-        tabBarLabel: ({ focused, color }) => Label(TITLES[route.name] ?? route.name, focused, String(color)),
-        tabBarLabelStyle: styles.label,
-        tabBarIcon: ({ focused, color }) => {
-          const name = focused ? activeIcons[route.name] : icons[route.name];
-          return (
-            <View style={[styles.iconWrap, focused && styles.iconOn]}>
-              <Ionicons name={name ?? 'ellipse-outline'} size={22} color={String(color)} />
-            </View>
-          );
-        },
-      })}>
-      <Tabs.Screen name="commandes" options={{ title: 'Commandes' }} />
-      <Tabs.Screen name="catalogue" options={{ title: 'Catalogue' }} />
-      <Tabs.Screen name="commerce" options={{ title: 'Commerce' }} />
-      <Tabs.Screen name="equipe" options={{ title: 'Équipe' }} />
-    </Tabs>
+    // The space button floats over every tab (only with several spaces).
+    <View style={{ flex: 1 }}>
+      <Tabs
+        screenOptions={({ route }) => ({
+          headerShown: false,
+          tabBarShowLabel: true,
+          tabBarActiveTintColor: colors.primary,
+          tabBarInactiveTintColor: colors.tabInactive,
+          tabBarStyle: [styles.bar, { height: 62 + bottom, paddingBottom: bottom }],
+          tabBarLabel: ({ focused, color }) => Label(TITLES[route.name] ?? route.name, focused, String(color)),
+          tabBarLabelStyle: styles.label,
+          tabBarIcon: ({ focused, color }) => {
+            const name = focused ? activeIcons[route.name] : icons[route.name];
+            return (
+              <View style={[styles.iconWrap, focused && styles.iconOn]}>
+                <Ionicons name={name ?? 'ellipse-outline'} size={22} color={String(color)} />
+              </View>
+            );
+          },
+        })}>
+        <Tabs.Screen name="commandes" options={{ title: 'Commandes' }} />
+        <Tabs.Screen name="catalogue" options={{ title: 'Catalogue' }} />
+        <Tabs.Screen name="commerce" options={{ title: 'Commerce' }} />
+        {/* The team is the owner's: members never see this tab. */}
+        <Tabs.Screen name="equipe" options={{ title: 'Équipe', href: isOwner(business?.roles) ? undefined : null }} />
+      </Tabs>
+      <SpaceSwitcher />
+    </View>
   );
 }
 

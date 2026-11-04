@@ -42,7 +42,10 @@ export default function CaravaneReservation() {
   // A single choice is made for the student.
   const pickup = pickedUp ?? (c?.pickups.length === 1 ? c.pickups[0]! : null);
   const dropoff = droppedOff ?? (c?.dropoffs.length === 1 ? c.dropoffs[0]! : null);
-  const [payment, setPayment] = useState(paymentMethods[0].id);
+  const [picked, setPayment] = useState(paymentMethods[0].id);
+  // Only the providers this trip accepts; the choice falls back to the first of them.
+  const accepted = paymentMethods.filter((m) => !c || c.paymentMethods.includes(METHOD[m.id] ?? 'wave'));
+  const payment = accepted.some((m) => m.id === picked) ? picked : (accepted[0]?.id ?? picked);
   const [paying, setPaying] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -350,7 +353,7 @@ export default function CaravaneReservation() {
                     </Pressable>
                     <Pressable style={styles.seatAction} onPress={() => openMap(existing ? 'add' : 'mine')} accessibilityRole="button">
                       <Ionicons name="grid-outline" size={16} color={colors.primary} />
-                      <Text style={styles.seatActionText}>Voir le plan</Text>
+                      <Text style={styles.seatActionText}>Voir les places</Text>
                     </Pressable>
                   </View>
                 </>
@@ -480,7 +483,7 @@ export default function CaravaneReservation() {
           />
 
           <Text style={styles.section}>Moyen de paiement</Text>
-          {paymentMethods.map((m) => {
+          {accepted.map((m) => {
             const on = m.id === payment;
             return (
               <Pressable key={m.id} onPress={() => setPayment(m.id)} style={[styles.card, styles.payment, on && styles.paymentOn]}>
@@ -675,7 +678,7 @@ const styles = StyleSheet.create({
   body: { padding: 20, gap: 12, paddingBottom: 32 },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14 },
   sectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
-  section: { ...typo.title, color: colors.navy, marginTop: 4 },
+  section: { ...typo.section, color: colors.navy, marginTop: 4 },
   free: { ...typo.captionStrong, color: colors.success },
   legend: { flexDirection: 'row', gap: 14 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },

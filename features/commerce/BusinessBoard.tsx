@@ -1,15 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useLiftSpaceButton } from '@/components/SpaceSwitcher';
 import { EmptyState } from '@/components/states';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCart } from '@/context/CartContext';
-import { openDirections } from '@/lib/maps';
 import { matches } from '@/lib/search';
 import { commerceApi, type BusinessDto, type ListedBusiness, type MarketItem } from './api';
 import { distanceLabel, metres, useMyPosition } from './distance';
@@ -162,12 +162,6 @@ function RestaurantCard({ b, distance }: { b: ListedBusiness; distance: number |
             <Fact icon={b.deliveryFee !== null ? 'bicycle-outline' : 'walk-outline'} text={b.deliveryFee === null ? 'Retrait' : b.deliveryFee ? `${b.deliveryFee} F` : 'Gratuite'} fixed />
             <Fact icon="location-outline" text={distance !== null ? distanceLabel(distance) : (b.campusLabel ?? 'Campus')} />
           </View>
-          {b.location && (
-            // Directions from here, without opening the restaurant: an icon that never gets pushed out.
-            <Pressable style={styles.go} onPress={() => openDirections(b.location!, b.name)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Itinéraire vers ${b.name}`}>
-              <Ionicons name="navigate" size={14} color="#fff" />
-            </Pressable>
-          )}
         </View>
       </View>
     </Pressable>
@@ -204,7 +198,12 @@ export function MarketBoard() {
   const cart = useCart();
   const [data, setData] = useState<{ businesses: BusinessDto[]; items: MarketItem[] } | null>(null);
   const [query, setQuery] = useState('');
-  const [shopId, setShopId] = useState<string | null>(null);
+  // `?boutique=<id>`: opened on one shop (a student checking their own, as clients see it).
+  const { boutique } = useLocalSearchParams<{ boutique?: string }>();
+  const [shopId, setShopId] = useState<string | null>(boutique ?? null);
+  useEffect(() => {
+    if (boutique) setShopId(boutique);
+  }, [boutique]);
   const [aisle, setAisle] = useState<string | null>(null);
   const [sort, setSort] = useState<MarketSort>('relevance');
   const [sorting, setSorting] = useState(false);
@@ -216,6 +215,10 @@ export function MarketBoard() {
       load();
     }, [load]),
   );
+
+  // The cart bar is pinned at the bottom: the space button rises above it.
+  const cartShown = !!data && cart.count > 0 && !!cart.business && data.businesses.some((b) => b.id === cart.business!.id);
+  useLiftSpaceButton(cartShown ? 64 + insets.bottom : 0);
 
   if (!data) return <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />;
   const shops = new Map(data.businesses.map((b) => [b.id, b]));
@@ -243,7 +246,7 @@ export function MarketBoard() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.shops}>
           <ShopBubble label="Toutes" on={!shopId} onPress={() => (setShopId(null), setAisle(null))} />
           {shopsShown.map((b) => (
-            <ShopBubble key={b.id} label={b.name} photo={b.photo} open={b.open} on={shopId === b.id} onPress={() => (setShopId(shopId === b.id ? null : b.id), setAisle(null))} />
+            <ShopBubble key={b.id} label={b.name} photo={b.photo} open={b.open} student={b.byStudent} on={shopId === b.id} onPress={() => (setShopId(shopId === b.id ? null : b.id), setAisle(null))} />
           ))}
         </ScrollView>
 
@@ -306,13 +309,18 @@ export function MarketBoard() {
   );
 }
 
-function ShopBubble({ label, photo, open, on, onPress }: { label: string; photo?: string | null; open?: boolean; on: boolean; onPress: () => void }) {
+function ShopBubble({ label, photo, open, student, on, onPress }: { label: string; photo?: string | null; open?: boolean; student?: boolean; on: boolean; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} style={styles.bubble} accessibilityRole="radio" accessibilityState={{ checked: on }} accessibilityLabel={label}>
       <View style={[styles.bubbleImg, on && styles.bubbleOn]}>
         {photo ? <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name={photo === undefined ? 'grid' : 'storefront'} size={22} color={on ? colors.primary : colors.navy} />}
         {open !== undefined && <View style={[styles.bubbleDot, { backgroundColor: open ? colors.success : colors.muted }]} />}
       </View>
+      {student && (
+        <View style={styles.studentTag}>
+          <Text style={styles.studentTagText}>Étudiant</Text>
+        </View>
+      )}
       <Text style={[styles.bubbleText, on && { color: colors.primary, fontWeight: '700' }]} numberOfLines={2}>
         {label}
       </Text>
@@ -397,6 +405,8 @@ function SortSheet<K extends string>({ visible, options, value, onChange, onClos
 }
 
 const styles = StyleSheet.create({
+  studentTag: { marginTop: -6, paddingHorizontal: 6, paddingVertical: 1, borderRadius: radii.pill, backgroundColor: colors.purpleText },
+  studentTagText: { fontSize: 9, fontWeight: '800', color: '#fff' },
   chips: { flexDirection: 'row', gap: 8, paddingRight: 8 },
   chip: { height: 36, paddingHorizontal: 16, borderRadius: radii.pill, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },
   chipOn: { backgroundColor: '#111318', ...shadow.card },
@@ -420,7 +430,6 @@ const styles = StyleSheet.create({
   facts: { flex: 1, flexDirection: 'row', gap: 4, overflow: 'hidden' },
   fact: { flexDirection: 'row', alignItems: 'center', gap: 3, height: 23, paddingHorizontal: 6, borderRadius: radii.pill, backgroundColor: TILE, flexShrink: 1 },
   factsRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
-  go: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   factText: { fontSize: 10.5, fontWeight: '500', color: colors.navy, flexShrink: 1 },
   board: { padding: 20, paddingTop: 16, paddingBottom: 32 },
   // Market

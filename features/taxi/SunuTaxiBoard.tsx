@@ -592,7 +592,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
   },
   heroBtnText: { ...typo.smallStrong, color: colors.primary },
-  section: { ...typo.h3, color: colors.navy, marginTop: 8 },
+  section: { ...typo.section, color: colors.navy, marginTop: 8 },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14, gap: 12 },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   organizer: { flexDirection: 'row', alignItems: 'center', gap: 10 },

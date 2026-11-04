@@ -436,7 +436,7 @@ const styles = StyleSheet.create({
   newBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.accent, borderRadius: radii.pill, paddingHorizontal: 14, minHeight: 40 },
   newText: { color: '#fff', fontWeight: '700' },
   hint: { ...typo.caption, color: colors.muted2, lineHeight: 17 },
-  section: { ...typo.title, color: colors.navy, marginTop: 6 },
+  section: { ...typo.section, color: colors.navy, marginTop: 6 },
   card: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, backgroundColor: colors.card, borderRadius: radii.md, padding: 14 },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   status: { borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 2 },

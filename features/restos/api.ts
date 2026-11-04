@@ -82,7 +82,16 @@ export const restosApi = {
 };
 
 /** Campus staff: stock levels during the service (restaurant staff), alerts (communication team). */
+/** A restaurant as its staff and the super admin see it (no menus). */
+export type StaffRestoDto = Omit<PublicRestoDto, 'menus'> & { campus: string | null; sortOrder: number; status: string };
+export type DishInput = { id?: string; name: string; detail?: string };
+
 export const staffApi = {
+  /** The super admin: every restaurant. A menu publisher: the ones assigned to them. */
+  restos: () => api<{ items: StaffRestoDto[] }>('GET', '/admin/public-restos', auth),
+  /** Lunch and dinner are published separately (dinner is often known later in the day). */
+  putMenu: (restoId: string, date: string, meal: Meal, dishes: DishInput[]) => api<MenuDto>('PUT', `/admin/public-restos/${restoId}/menus/${date}/${meal}`, { ...auth, body: { dishes } }),
+  deleteMenu: (restoId: string, date: string, meal: Meal) => api<void>('DELETE', `/admin/public-restos/${restoId}/menus/${date}/${meal}`, auth),
   /** `notify` (with a rupture): a push to everyone with the app, on top of the home screen alert. */
   setDishStatus: (restoId: string, date: string, meal: Meal, dishId: string, status: DishStatus, notify = false) =>
     api<MenuDto>('PATCH', `/admin/public-restos/${restoId}/menus/${date}/${meal}/dishes/${dishId}`, { ...auth, body: { status, notify } }),

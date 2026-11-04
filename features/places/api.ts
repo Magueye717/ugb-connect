@@ -45,7 +45,7 @@ export type PlaceInput = {
 
 export type LatLng = { lat: number; lng: number };
 /** The campus outline from OpenStreetMap: the map draws it and stays inside its box. */
-export type CampusOutline = { outline: LatLng[]; bounds: { south: number; west: number; north: number; east: number }; attribution: string };
+export type CampusOutline = { outline: LatLng[]; bounds: { south: number; west: number; north: number; east: number }; start: LatLng & { delta: number }; attribution: string };
 
 export const placesApi = {
   list: () => api<{ items: PlaceDto[] }>('GET', '/places', auth),

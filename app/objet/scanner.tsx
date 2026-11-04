@@ -6,7 +6,7 @@ import { useRef, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BackButton, Field, LabeledField, OutlineButton, PrimaryButton } from '@/components/ui';
+import { BackButton, Field, LabeledField, OutlineButton, PrimaryButton, TextButton } from '@/components/ui';
 import { lostOffice } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useLost } from '@/context/LostContext';
@@ -172,9 +172,7 @@ export default function ScanCard() {
               </View>
               <Text style={styles.hint}>Cadre la carte à plat, avec de la lumière. La photo sert juste à lire le nom (et le numéro d’une carte étudiant) : elle n’est pas gardée.</Text>
               <PrimaryButton label="Photographier la carte" disabled={!permission?.granted || reading} loading={reading} onPress={shoot} />
-              <Pressable onPress={fromGallery} disabled={reading} hitSlop={8} style={{ alignSelf: 'center' }}>
-                <Text style={styles.link}>Choisir une photo dans la galerie</Text>
-              </Pressable>
+              <TextButton label="Choisir une photo dans la galerie" onPress={fromGallery} disabled={reading} style={{ alignSelf: 'center' }} />
 
               <View style={styles.or}>
                 <View style={styles.orLine} />
@@ -230,9 +228,7 @@ export default function ScanCard() {
                 </Pressable>
               ))}
               <OfficeOption title="Personne ne correspond ?" onPress={() => setOwner(null)} />
-              <Pressable onPress={restart} hitSlop={8} style={{ alignSelf: 'center' }}>
-                <Text style={styles.link}>Reprendre la photo ou chercher autrement</Text>
-              </Pressable>
+              <TextButton label="Reprendre la photo ou chercher autrement" onPress={restart} style={{ alignSelf: 'center' }} />
             </>
           )}
 
@@ -262,9 +258,7 @@ export default function ScanCard() {
                   </Text>
                 </View>
               )}
-              <Pressable onPress={restart} hitSlop={8} style={{ alignSelf: 'center' }}>
-                <Text style={styles.link}>Ce n’est pas la bonne personne</Text>
-              </Pressable>
+              <TextButton label="Ce n’est pas la bonne personne" onPress={restart} style={{ alignSelf: 'center' }} />
 
               <Text style={styles.section}>Où l’as-tu trouvée ?</Text>
               <PlacePicker value={where} onChange={setWhere} />
@@ -350,9 +344,7 @@ function NoMatch({
         <PrimaryButton label="Chercher ce nom" disabled={name.trim().length < 2 || searching} loading={searching} onPress={() => onSearch(name)} />
         <OfficeOption title="Ou dépose-la au bureau" onPress={onOffice} />
       </View>
-      <Pressable onPress={onRestart} hitSlop={8}>
-        <Text style={styles.link}>Reprendre la photo</Text>
-      </Pressable>
+      <TextButton label="Reprendre la photo" onPress={onRestart} />
     </View>
   );
 }
@@ -422,7 +414,6 @@ const styles = StyleSheet.create({
   permissionBtnText: { color: colors.navy, fontWeight: '700' },
   hint: { ...typo.small, color: colors.muted2, textAlign: 'center', lineHeight: 18 },
   hintLeft: { ...typo.small, color: colors.muted2, lineHeight: 18, marginTop: -6 },
-  link: { color: colors.primary, fontWeight: '700' },
   or: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 4 },
   orLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   orText: { ...typo.caption, color: colors.muted2 },
@@ -452,7 +443,7 @@ const styles = StyleSheet.create({
   emptyBadge: { position: 'absolute', right: -4, bottom: -2, width: 28, height: 28, borderRadius: 14, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: colors.bg },
   emptyTitle: { ...typo.h3, color: colors.navy, textAlign: 'center' },
   emptyText: { ...typo.body, color: colors.muted2, textAlign: 'center', lineHeight: 21 },
-  section: { ...typo.title, color: colors.navy, marginTop: 4 },
+  section: { ...typo.section, color: colors.navy, marginTop: 4 },
   choice: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.card, borderRadius: radii.md, padding: 14, borderWidth: 1.5, borderColor: 'transparent' },
   choiceOn: { borderColor: colors.primary },
   choiceTitle: { ...typo.bodyStrong, color: colors.navy },

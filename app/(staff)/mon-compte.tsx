@@ -2,14 +2,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AvatarPicker } from '@/components/AvatarPicker';
 import { SpacesList, spaceInfo } from '@/components/SpacesList';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 
 /** Account screen of a work space (restaurants, alerts): what's done here, the account's other spaces, sign out. */
 export default function StaffCompte() {
-  const { user, space, logout } = useAuth();
-  const here = space ? spaceInfo(space) : null;
+  const { user, current, logout } = useAuth();
+  const here = current ? spaceInfo(current) : null;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -17,9 +18,7 @@ export default function StaffCompte() {
         <Text style={styles.h1}>Compte</Text>
 
         <View style={[styles.card, shadow.card, styles.hero]}>
-          <View style={styles.avatar}>
-            <Text style={styles.initials}>{user?.initials}</Text>
-          </View>
+          <AvatarPicker size={56} />
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={styles.name}>
               {user?.firstName} {user?.lastName}
@@ -36,12 +35,6 @@ export default function StaffCompte() {
                 <Text style={styles.rowTitle}>{here.title}</Text> · {here.text}
               </Text>
             </View>
-            {space === 'resto' && (
-              <View style={styles.job}>
-                <Ionicons name="desktop-outline" size={18} color={colors.muted2} />
-                <Text style={[styles.jobText, { color: colors.muted2 }]}>Menus de la semaine et restaurants : sur la plateforme d’administration.</Text>
-              </View>
-            )}
           </View>
         )}
 
@@ -62,8 +55,6 @@ const styles = StyleSheet.create({
   h1: { ...typo.h1, color: colors.navy },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14 },
   hero: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  initials: { ...typo.h3, color: '#fff' },
   name: { ...typo.h3, color: colors.navy },
   muted: { ...typo.caption, color: colors.muted2 },
   rowTitle: { ...typo.bodyStrong, color: colors.navy },

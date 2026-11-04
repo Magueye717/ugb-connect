@@ -12,7 +12,7 @@ import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
 import { useOrders } from '@/context/OrdersContext';
-import { commerceApi, type BusinessDetail, type OrderMode } from '@/features/commerce/api';
+import { type BusinessDetail, commerceApi, type CommerceReference, type DeliveryZone, type OrderMode } from '@/features/commerce/api';
 import { payInBrowser, type PaymentMethod } from '@/features/payments/checkout';
 import { ApiError } from '@/lib/api';
 
@@ -25,6 +25,8 @@ export default function Panier() {
   const { user } = useAuth();
   const [b, setB] = useState<BusinessDetail | null>(null);
   const [mode, setMode] = useState<OrderMode | null>(null);
+  const [zone, setZone] = useState<DeliveryZone | null>(null);
+  const [zones, setZones] = useState<CommerceReference['zones']>([]);
   // Pre-filled with the room given at sign-up; still editable (delivery to a friend, the BU…).
   const [address, setAddress] = useState(user?.village && user.room ? `${user.village}, chambre ${user.room}` : '');
   const [note, setNote] = useState('');
@@ -36,6 +38,7 @@ export default function Panier() {
   useFocusEffect(
     useCallback(() => {
       if (businessId) commerceApi.get(businessId).then(setB, () => undefined);
+      commerceApi.reference().then((r) => setZones(r.zones), () => undefined);
     }, [businessId]),
   );
 
@@ -65,14 +68,18 @@ export default function Panier() {
     );
   }
 
-  const canDeliver = b.deliveryFee !== null;
+  // The zones this business delivers to, each at its price; mine (my campus) first by default.
+  const offered = zones.filter((z) => b.deliveryFees[z.value] !== null);
+  const canDeliver = offered.length > 0;
+  const where = zone ?? offered.find((z) => z.value === (user?.village ? user.campusCode : 'outside'))?.value ?? offered[0]?.value ?? null;
+  const priceOf = (z: DeliveryZone) => (b.deliveryFees[z] ? formatFcfa(b.deliveryFees[z]!) : 'gratuite');
   const chosen: OrderMode = mode ?? (canDeliver ? 'delivery' : 'pickup');
   const lines = b.items.filter((i) => cart.items[i.id]).map((i) => ({ ...i, qty: cart.items[i.id]! }));
   const gone = Object.keys(cart.items).filter((itemId) => !b.items.some((i) => i.id === itemId));
   const subtotal = lines.reduce((sum, l) => sum + l.qty * l.price, 0);
   const delivery = chosen === 'delivery';
-  const fee = delivery ? (b.deliveryFee ?? 0) : 0;
-  const feeLabel = b.deliveryFee ? `Livraison · ${formatFcfa(b.deliveryFee)}` : 'Livraison gratuite';
+  const fee = delivery && where ? (b.deliveryFees[where] ?? 0) : 0;
+  const feeLabel = b.deliveryFee ? `Livraison · dès ${formatFcfa(b.deliveryFee)}` : 'Livraison gratuite';
   const total = subtotal + fee;
   const blocker = !b.open ? b.statusLabel : gone.length ? 'Retire les articles indisponibles' : delivery && !address.trim() ? 'Indique où te livrer' : null;
   const setQty = (itemId: string, qty: number) => cart.setQty({ id: b.id, name: b.name }, itemId, qty);
@@ -83,6 +90,7 @@ export default function Panier() {
       const { order: placed, payment: pay } = await commerceApi.order(b.id, {
         lines: lines.map((l) => ({ itemId: l.id, qty: l.qty })),
         mode: chosen,
+        zone: delivery ? where : null,
         address: delivery ? address.trim() : null,
         note: note.trim() || null,
         method: METHOD[payment] ?? 'wave',
@@ -179,6 +187,19 @@ export default function Panier() {
               <Text style={styles.infoText}>À emporter uniquement · {b.address}</Text>
             </View>
           )}
+          {delivery && offered.length > 0 && (
+            <View style={styles.zones} accessibilityRole="radiogroup">
+              {offered.map((z) => {
+                const on = where === z.value;
+                return (
+                  <Pressable key={z.value} onPress={() => setZone(z.value)} style={[styles.zone, on && styles.zoneOn]} accessibilityRole="radio" accessibilityState={{ checked: on }}>
+                    <Text style={[styles.zoneName, on && { color: '#fff' }]}>{z.label}</Text>
+                    <Text style={[styles.zonePrice, on && { color: 'rgba(255,255,255,0.85)' }]}>{priceOf(z.value)}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
           {delivery ? (
             <Field icon="location-outline" placeholder="Ex. Village E, pavillon C, chambre 12" value={address} onChangeText={setAddress} autoCapitalize="sentences" accessibilityLabel="Adresse de livraison" maxLength={120} />
           ) : (
@@ -251,12 +272,17 @@ function RecapRow({ k, v }: { k: string; v: string }) {
 }
 
 const styles = StyleSheet.create({
+  zones: { flexDirection: 'row', gap: 8 },
+  zone: { flex: 1, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 6, borderRadius: radii.md, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.card, gap: 2 },
+  zoneOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  zoneName: { ...typo.smallStrong, color: colors.navy, textAlign: 'center' },
+  zonePrice: { ...typo.caption, color: colors.muted2 },
   safe: { flex: 1, backgroundColor: colors.bg },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 8 },
   h1: { ...typo.h3, color: colors.navy },
   body: { padding: 20, gap: 12, paddingBottom: 40 },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14 },
-  section: { ...typo.title, color: colors.navy, marginTop: 6 },
+  section: { ...typo.section, color: colors.navy, marginTop: 6 },
   muted: { ...typo.caption, color: colors.muted2, marginTop: 1 },
   resto: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   restoPhoto: { width: 52, height: 52, borderRadius: radii.sm, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },

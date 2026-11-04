@@ -624,7 +624,7 @@ const styles = StyleSheet.create({
   },
   alertTitle: { ...typo.bodyStrong, color: colors.navy },
   newsHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
-  newsSection: { ...typo.h2, color: colors.navy },
+  newsSection: { ...typo.section, color: colors.navy },
   news: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14, flexDirection: 'row', gap: 12, alignItems: 'center' },
   newsIcon: { width: 40, height: 40, borderRadius: radii.sm, alignItems: 'center', justifyContent: 'center' },
   newsTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
@@ -652,7 +652,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
   },
   tagText: { ...typo.label, color: '#fff', letterSpacing: 0.3 },
-  bannerTitle: { ...typo.h3, color: '#fff', lineHeight: 23 },
+  bannerTitle: { ...typo.h3, color: '#fff', lineHeight: 22 },
   bannerSub: { ...typo.caption, color: 'rgba(255,255,255,0.92)', marginTop: 4 },
   bannerBtn: {
     position: 'absolute',

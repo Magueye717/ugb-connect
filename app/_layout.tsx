@@ -42,12 +42,16 @@ function Screens() {
         <Stack.Screen name="publicite" />
         {/* The bell: every account gets its own notifications (a shop its orders, a student their tickets…). */}
         <Stack.Screen name="notifications" />
+        <Stack.Screen name="aide" />
       </Stack.Protected>
       <Stack.Protected guard={space === 'student'} redirectTo={home}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="a-la-une" />
         <Stack.Screen name="mes-etudes" />
         <Stack.Screen name="ma-carte" />
+        <Stack.Screen name="infos" />
+        <Stack.Screen name="mes-billets" />
+        <Stack.Screen name="ma-boutique" />
         <Stack.Screen name="evenement/[id]" />
         <Stack.Screen name="evenements" />
         <Stack.Screen name="mes-evenements/index" />
@@ -79,8 +83,12 @@ function Screens() {
         <Stack.Screen name="commande-recue/[id]" />
         <Stack.Screen name="remise" />
       </Stack.Protected>
-      <Stack.Protected guard={space === 'resto' || space === 'alerts'} redirectTo={home}>
+      <Stack.Protected guard={space === 'admin' || space === 'resto' || space === 'alerts' || space === 'directory'} redirectTo={home}>
         <Stack.Screen name="(staff)" />
+      </Stack.Protected>
+      {/* Référencement: a restaurant's or a shop's profile and catalog (the backend checks the editor's kind). */}
+      <Stack.Protected guard={space === 'directory'} redirectTo={home}>
+        <Stack.Screen name="fiche-commerce/[id]" />
       </Stack.Protected>
     </Stack>
   );

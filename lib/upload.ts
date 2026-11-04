@@ -12,7 +12,7 @@ export type UploadedImage = { id: string; url: string; width: number; height: nu
  * expo-file-system's File (React Native's old `{ uri, name, type }` object isn't understood and fails the request).
  * The server reads the real format from the bytes, so the file name and type sent don't matter.
  */
-export async function uploadImage(asset: { uri: string }, purpose: 'banner' | 'event' | 'lost' | 'business' | 'place'): Promise<UploadedImage> {
+export async function uploadImage(asset: { uri: string }, purpose: 'banner' | 'event' | 'lost' | 'business' | 'place' | 'avatar'): Promise<UploadedImage> {
   const token = await session.accessToken();
   if (!token) throw new ApiError(401, 'UNAUTHENTICATED', 'Connecte-toi pour continuer.');
   const form = new FormData();

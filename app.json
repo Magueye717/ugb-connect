@@ -59,8 +59,8 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "La caméra sert à photographier un objet trouvé ou perdu.",
-          "photosPermission": "Tes photos servent à illustrer un objet trouvé ou perdu."
+          "cameraPermission": "La caméra sert à photographier un objet perdu ou trouvé, ta carte étudiant, un plat, un article ou un lieu.",
+          "photosPermission": "Tes photos illustrent un objet perdu ou trouvé, ta boutique, un plat, un article ou un lieu."
         }
       ],
       "expo-secure-store",

@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { eventWhen } from '@/components/home';
 import { PaymentLogo } from '@/components/PaymentLogo';
-import { BackButton, Field, LabeledField, PrimaryButton, StatusChip } from '@/components/ui';
+import { BackButton, Field, LabeledField, PrimaryButton, StatusChip, TextButton } from '@/components/ui';
 import { formatFcfa, paymentMethods } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
@@ -160,9 +160,7 @@ function EventState({ event: e, onChanged }: { event: OrgEventDto; onChanged: (e
       {e.status === 'published' && (
         <>
           <PrimaryButton label="Mettre en bannière sur l’accueil" onPress={() => router.push({ pathname: '/publicite', params: { eventId: e.id } })} />
-          <Pressable onPress={cancel} hitSlop={8} style={{ alignSelf: 'center' }}>
-            <Text style={[styles.link, { color: colors.dangerText }]}>Annuler l’événement</Text>
-          </Pressable>
+          <TextButton label="Annuler l’événement" onPress={cancel} style={{ alignSelf: 'center' }} tone="danger" />
         </>
       )}
       {e.reviewLog.length > 0 && (
@@ -576,9 +574,7 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
           <View style={styles.row}>
             <Text style={[styles.label, { flex: 1 }]}>Type {i + 1}</Text>
             {tickets.length > 1 && (
-              <Pressable onPress={() => setTickets((list) => list.filter((_, j) => j !== i))} hitSlop={8}>
-                <Text style={[styles.link, { color: colors.dangerText }]}>Retirer</Text>
-              </Pressable>
+              <TextButton label="Retirer" tone="danger" icon="trash-outline" onPress={() => setTickets((list) => list.filter((_, j) => j !== i))} />
             )}
           </View>
           <Field placeholder="Standard, VIP…" value={t.name} onChangeText={(v) => setTicket(i, { name: v })} maxLength={40} />
@@ -597,10 +593,7 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
         </View>
       ))}
       {tickets.length < 6 && (
-        <Pressable onPress={() => setTickets((list) => [...list, { name: '', price: '0', capacity: '50' }])} style={styles.addRow}>
-          <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
-          <Text style={styles.link}>Ajouter un type de billet</Text>
-        </Pressable>
+        <TextButton label="Ajouter un type de billet" icon="add-circle-outline" onPress={() => setTickets((list) => [...list, { name: '', price: '0', capacity: '50' }])} />
       )}
       <View style={styles.row}>
         <Text style={[styles.label, { flex: 1 }]}>Billets max par étudiant</Text>
@@ -629,9 +622,7 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
 
       <Text style={styles.muted}>1. L’équipe UGB Campus vérifie ton événement. 2. Une fois validé, tu choisis qui le voit (campus, village, UFR, région) et tu paies la publication, selon le nombre de places. 3. La billetterie ouvre. L’argent des billets t’est versé après l’événement, sur ton numéro.</Text>
       <PrimaryButton label="Envoyer pour validation" disabled={!ready} loading={saving === 'submit'} onPress={() => save(true)} />
-      <Pressable onPress={() => save(false)} disabled={!ready} style={{ alignSelf: 'center', opacity: ready ? 1 : 0.4 }} hitSlop={8}>
-        <Text style={styles.link}>{saving === 'draft' ? 'Enregistrement…' : 'Enregistrer le brouillon'}</Text>
-      </Pressable>
+      <TextButton label={saving === 'draft' ? 'Enregistrement…' : 'Enregistrer le brouillon'} icon="save-outline" disabled={!ready} style={{ alignSelf: 'center' }} onPress={() => save(false)} />
     </ScrollView>
   );
 }
@@ -641,12 +632,11 @@ const styles = StyleSheet.create({
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 8 },
   h1: { ...typo.h3, color: colors.navy },
   body: { padding: 20, gap: 12, paddingBottom: 48 },
-  section: { ...typo.title, color: colors.navy, marginTop: 6 },
+  section: { ...typo.section, color: colors.navy, marginTop: 6 },
   label: { ...typo.smallStrong, color: colors.navy },
   warn: { ...typo.small, color: colors.dangerText, marginTop: -4 },
   title: { ...typo.h2, color: colors.navy },
   muted: { ...typo.caption, color: colors.muted2, lineHeight: 17 },
-  link: { color: colors.orangeText, fontWeight: '700' },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14 },
   cover: { width: '100%', height: 180, borderRadius: radii.lg, backgroundColor: colors.border },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -671,6 +661,5 @@ const styles = StyleSheet.create({
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 36, paddingHorizontal: 12, borderRadius: radii.pill, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.card },
   chipOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   chipText: { ...typo.smallStrong, color: colors.muted2 },
-  addRow: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' },
   step: { width: 32, height: 32, borderRadius: 16, borderWidth: 1.5, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
 });

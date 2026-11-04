@@ -95,7 +95,7 @@ export default function BusinessScreen() {
           <View style={[styles.heroBar, { top: insets.top + 8 }]}>
             <RoundButton icon="arrow-back" label="Retour" onPress={() => router.back()} />
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              {b.location && <RoundButton icon="navigate-outline" label={`Itinéraire vers ${b.name}`} onPress={() => openDirections(b.location!, b.name)} />}
+              {b.location && <RoundButton icon="location-outline" label={`Voir ${b.name} sur la carte`} onPress={() => openDirections(b.location!, b.name)} />}
               <RoundButton icon="call-outline" label={`Appeler ${b.name}`} onPress={() => Linking.openURL(`tel:+221${b.phone.replace(/\s/g, '')}`)} />
             </View>
           </View>
@@ -120,7 +120,7 @@ export default function BusinessScreen() {
             <View style={styles.metaItem}>
               <Ionicons name={b.deliveryFee !== null ? 'bicycle-outline' : 'walk-outline'} size={15} color={colors.primary} />
               <Text style={[styles.metaText, { color: colors.primary, fontWeight: '600' }]}>
-                {b.deliveryFee === null ? 'À emporter' : b.deliveryFee ? `Livraison ${formatFcfa(b.deliveryFee)}` : 'Livraison gratuite'}
+                {b.deliveryFee === null ? 'À emporter' : b.deliveryFee ? `Livraison dès ${formatFcfa(b.deliveryFee)}` : 'Livraison gratuite'}
               </Text>
             </View>
           </View>
@@ -375,7 +375,7 @@ const styles = StyleSheet.create({
   tabText: { ...typo.smallStrong, color: colors.muted2 },
   tabTextOn: { color: colors.navy },
   section: { gap: 12 },
-  sectionTitle: { ...typo.h3, color: colors.navy },
+  sectionTitle: { ...typo.section, color: colors.navy },
   muted: { ...typo.caption, color: colors.muted2, marginTop: 2 },
   dish: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 10, flexDirection: 'row', gap: 12 },
   dishPhoto: { width: 100, height: 100, borderRadius: radii.md, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },

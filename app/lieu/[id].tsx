@@ -90,7 +90,7 @@ export default function LieuScreen() {
             )}
           </View>
 
-          <PrimaryButton label="Itinéraire à pied" onPress={() => openDirections(p.location, p.name)} />
+          <PrimaryButton label="Y aller" onPress={() => openDirections(p.location, p.name)} />
           <Text style={styles.note}>S’ouvre dans Plans ou Google Maps</Text>
         </View>
       </ScrollView>

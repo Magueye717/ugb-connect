@@ -105,6 +105,8 @@ export type Caravan = {
   price: number;
   /** Seats one student can buy: their own + companions. */
   maxSeatsPerStudent: number;
+  /** Providers accepted for this trip (the organizer's choice). */
+  paymentMethods: ('wave' | 'orange_money')[];
   /** The ticket I travel on for this departure, if any. */
   myTicketId: string | null;
   /** I bought here and gave my own ticket to a friend. */

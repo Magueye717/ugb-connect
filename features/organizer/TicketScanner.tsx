@@ -5,7 +5,7 @@ import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 
 import { popIn, riseIn } from '@/components/motion';
-import { Field } from '@/components/ui';
+import { Field, TextButton } from '@/components/ui';
 import { colors, motion, radii, typo } from '@/constants/theme';
 import { haptics } from '@/lib/haptics';
 import type { ScanResult } from './useTicketCheck';
@@ -130,9 +130,7 @@ export function TicketScanner({
             <Text style={styles.nextText}>Billet suivant</Text>
           </Pressable>
           {onOpenList && result.caravanId && (
-            <Pressable onPress={() => onOpenList(result.caravanId!)} hitSlop={8} accessibilityRole="link">
-              <Text style={styles.link}>Voir la liste des passagers</Text>
-            </Pressable>
+            <TextButton label="Voir la liste des passagers" icon="list-outline" style={{ alignSelf: 'center' }} onPress={() => onOpenList(result.caravanId!)} />
           )}
         </Animated.View>
       ) : (
@@ -183,7 +181,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   nextText: { ...typo.title, color: '#fff' },
-  link: { ...typo.bodyStrong, color: colors.orangeText, paddingVertical: 6 },
   group: { alignSelf: 'stretch', gap: 8, padding: 12, borderRadius: radii.md, backgroundColor: colors.primarySoft, marginBottom: 6 },
   groupTitle: { ...typo.label, color: colors.primary },
   groupRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },

@@ -1,14 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AvatarPicker } from '@/components/AvatarPicker';
 import { OrganizerLine } from '@/components/caravan';
 import { SpacesList } from '@/components/SpacesList';
 import { colors, radii, shadow, typo } from '@/constants/theme';
-import { useAuth } from '@/context/AuthContext';
-
-const onWeb = (label: string) => Alert.alert(label, 'Ça se gère sur la plateforme web organisateur, depuis un ordinateur.');
+import { isOwner, useAuth } from '@/context/AuthContext';
 
 export default function Compte() {
   const { user, organizer, logout } = useAuth();
@@ -19,9 +18,7 @@ export default function Compte() {
         <Text style={styles.h1}>Compte</Text>
 
         <View style={[styles.card, shadow.card, styles.hero]}>
-          <View style={styles.avatar}>
-            <Text style={styles.initials}>{user?.initials}</Text>
-          </View>
+          <AvatarPicker size={56} />
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={styles.name}>
               {user?.firstName} {user?.lastName}
@@ -38,10 +35,8 @@ export default function Compte() {
         <SpacesList />
 
         <View style={[styles.card, shadow.card, { paddingVertical: 4 }]}>
-          <Row icon="megaphone-outline" label="Promouvoir un événement (bannière)" onPress={() => router.push('/mes-publicites')} />
-          <Row icon="people-outline" label="Mon équipe (chauffeurs, contrôleurs)" onPress={() => onWeb('Mon équipe')} />
-          <Row icon="wallet-outline" label="Paiements reçus" onPress={() => onWeb('Paiements reçus')} />
-          <Row icon="help-circle-outline" label="Aide organisateur" onPress={() => onWeb('Aide organisateur')} last />
+          <Row icon="megaphone-outline" label="Promouvoir un événement (bannière)" onPress={() => router.push('/mes-publicites')} last={!isOwner(organizer?.roles)} />
+          {isOwner(organizer?.roles) && <Row icon="people-outline" label="Mon équipe" onPress={() => router.push('/mon-equipe')} last />}
         </View>
 
         <Pressable onPress={logout} style={styles.logout} accessibilityRole="button">
@@ -69,8 +64,6 @@ const styles = StyleSheet.create({
   h1: { ...typo.h1, color: colors.navy },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14 },
   hero: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  initials: { ...typo.h3, color: '#fff' },
   name: { ...typo.h3, color: colors.navy },
   muted: { ...typo.caption, color: colors.muted2 },
   switch: { flexDirection: 'row', alignItems: 'center', gap: 12 },

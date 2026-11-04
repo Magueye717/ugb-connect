@@ -3,6 +3,7 @@ import { Tabs } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { SpaceSwitcher } from '@/components/SpaceSwitcher';
 import { colors } from '@/constants/theme';
 
 const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
@@ -28,31 +29,35 @@ export default function TabLayout() {
   const insets = useSafeAreaInsets();
   const bottom = Math.max(insets.bottom, 10);
   return (
-    <Tabs
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarShowLabel: true,
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.tabInactive,
-        tabBarStyle: [styles.bar, { height: 62 + bottom, paddingBottom: bottom }],
-        tabBarLabel: ({ focused, color }) => Label(TITLES[route.name] ?? route.name, focused, String(color)),
-        tabBarLabelStyle: styles.label,
-        tabBarIcon: ({ focused, color }) => {
-          const name = focused ? activeIcons[route.name] : icons[route.name];
-          return (
-            <View style={[styles.iconWrap, focused && styles.iconOn]}>
-              <Ionicons name={name ?? 'ellipse-outline'} size={22} color={String(color)} />
-            </View>
-          );
-        },
-      })}>
-      <Tabs.Screen name="index" options={{ title: 'Accueil' }} />
-      {/* Route names stay the same so existing links keep working; labels follow the new structure. */}
-      <Tabs.Screen name="resto" options={{ title: 'Manger' }} />
-      <Tabs.Screen name="caravanes" options={{ title: 'Trajets' }} />
-      <Tabs.Screen name="lieux" options={{ title: 'Campus' }} />
-      <Tabs.Screen name="profil" options={{ title: 'Profil' }} />
-    </Tabs>
+    // The space button floats over every tab (only with several spaces).
+    <View style={{ flex: 1 }}>
+      <Tabs
+        screenOptions={({ route }) => ({
+          headerShown: false,
+          tabBarShowLabel: true,
+          tabBarActiveTintColor: colors.primary,
+          tabBarInactiveTintColor: colors.tabInactive,
+          tabBarStyle: [styles.bar, { height: 62 + bottom, paddingBottom: bottom }],
+          tabBarLabel: ({ focused, color }) => Label(TITLES[route.name] ?? route.name, focused, String(color)),
+          tabBarLabelStyle: styles.label,
+          tabBarIcon: ({ focused, color }) => {
+            const name = focused ? activeIcons[route.name] : icons[route.name];
+            return (
+              <View style={[styles.iconWrap, focused && styles.iconOn]}>
+                <Ionicons name={name ?? 'ellipse-outline'} size={22} color={String(color)} />
+              </View>
+            );
+          },
+        })}>
+        <Tabs.Screen name="index" options={{ title: 'Accueil' }} />
+        {/* Route names stay the same so existing links keep working; labels follow the new structure. */}
+        <Tabs.Screen name="resto" options={{ title: 'Manger' }} />
+        <Tabs.Screen name="caravanes" options={{ title: 'Trajets' }} />
+        <Tabs.Screen name="lieux" options={{ title: 'Campus' }} />
+        <Tabs.Screen name="profil" options={{ title: 'Profil' }} />
+      </Tabs>
+      <SpaceSwitcher />
+    </View>
   );
 }
 

@@ -28,15 +28,14 @@ export default function Commandes() {
   const [profile, setProfile] = useState<BusinessDto | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const orgId = business?.orgId;
 
   const load = useCallback(async () => {
-    if (!orgId) return;
-    const [list, me] = await Promise.allSettled([commerceApi.queue(orgId, scope), commerceApi.mine(orgId)]);
+    if (!business) return;
+    const [list, me] = await Promise.allSettled([commerceApi.queue(business, scope), commerceApi.mine(business!)]);
     if (list.status === 'fulfilled') setOrders(list.value.items);
     else setOrders((o) => o ?? []);
     if (me.status === 'fulfilled') setProfile(me.value);
-  }, [orgId, scope]);
+  }, [business, scope]);
 
   useFocusEffect(
     useCallback(() => {
@@ -46,7 +45,7 @@ export default function Commandes() {
     }, [load]),
   );
 
-  if (!business || !orgId) return null;
+  if (!business) return null;
   const canManage = business.roles.some((r) => r === 'owner' || r === 'manager');
 
   const advance = async (o: OrderDto) => {
@@ -54,7 +53,7 @@ export default function Commandes() {
     if (!next) return;
     setBusy(o.id);
     try {
-      await commerceApi.step(orgId, o.id, next.step);
+      await commerceApi.step(business, o.id, next.step);
       await load();
     } catch (err) {
       fail('Action impossible')(err);
@@ -64,7 +63,7 @@ export default function Commandes() {
   };
 
   const pause = (accepting: boolean) =>
-    commerceApi.updateMine(orgId, { acceptingOrders: accepting }).then(setProfile, fail('Changement impossible'));
+    commerceApi.updateMine(business, { acceptingOrders: accepting }).then(setProfile, fail('Changement impossible'));
 
   const newCount = orders?.filter((o) => o.status === 'placed').length ?? 0;
 
@@ -152,7 +151,7 @@ export default function Commandes() {
               <View style={styles.row}>
                 <Ionicons name={o.mode === 'delivery' ? 'bicycle-outline' : 'walk-outline'} size={15} color={colors.muted2} />
                 <Text style={[styles.muted, { flex: 1 }]} numberOfLines={1}>
-                  {o.mode === 'delivery' ? o.address : 'À emporter'} · {o.customer?.name}
+                  {o.mode === 'delivery' ? [o.zoneLabel, o.address].filter(Boolean).join(' · ') : 'À emporter'} · {o.customer?.name}
                 </Text>
                 <Text style={styles.total}>{formatFcfa(o.total)}</Text>
               </View>

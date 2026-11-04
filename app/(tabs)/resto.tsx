@@ -8,8 +8,8 @@ export default function MangerScreen() {
     <TabScreen
       title="Manger"
       views={[
-        { key: 'prives', label: 'Restos privés', subtitle: 'Commande en ligne · à emporter ou livré', render: () => <PrivateRestosBoard /> },
-        { key: 'publics', label: 'Restos publics', subtitle: 'Menus des restaurants universitaires', render: () => <RestoUBoard /> },
+        { key: 'prives', label: 'Restos privés', icon: 'fast-food-outline', subtitle: 'Commande en ligne · à emporter ou livré', render: () => <PrivateRestosBoard /> },
+        { key: 'publics', label: 'Restos publics', icon: 'restaurant-outline', subtitle: 'Menus des restaurants universitaires', render: () => <RestoUBoard /> },
       ]}
     />
   );

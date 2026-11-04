@@ -4,7 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { colors, radii } from '@/constants/theme';
 
 export type MapPin = { id: string; kind: 'place' | 'restaurant' | 'shop'; name: string; subtitle: string; lat: number; lng: number; color: string; icon: keyof typeof Ionicons.glyphMap; look?: 'pin' | 'zone' | 'dot' };
-type Campus = { outline: { lat: number; lng: number }[]; bounds: { south: number; west: number; north: number; east: number }; attribution: string };
+type Campus = { outline: { lat: number; lng: number }[]; bounds: { south: number; west: number; north: number; east: number }; start: { lat: number; lng: number; delta: number }; attribution: string };
 
 /** react-native-maps has no web support: a plain placeholder keeps the web build working. */
 export function CampusMap({ pins, style }: { pins: MapPin[]; campus?: Campus | null; onOpen: (pin: MapPin) => void; style?: object }) {

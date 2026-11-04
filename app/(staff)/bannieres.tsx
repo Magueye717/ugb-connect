@@ -6,7 +6,7 @@ import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressa
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/states';
-import { Field, LabeledField, PrimaryButton, Segmented, StatusChip } from '@/components/ui';
+import { Field, LabeledField, PrimaryButton, Segmented, StatusChip, TextButton } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCampus } from '@/context/CampusContext';
@@ -90,9 +90,7 @@ export default function Bannieres() {
                   </View>
                 )}
                 {tab === 'live' && (
-                  <Pressable onPress={() => setDeciding({ banner: b, action: 'withdraw' })} hitSlop={8}>
-                    <Text style={styles.link}>Retirer de l’accueil</Text>
-                  </Pressable>
+                  <TextButton label="Retirer de l’accueil" tone="danger" icon="eye-off-outline" onPress={() => setDeciding({ banner: b, action: 'withdraw' })} />
                 )}
               </View>
             </View>
@@ -164,7 +162,6 @@ const styles = StyleSheet.create({
   btnOkText: { color: '#fff', fontWeight: '700' },
   btnNo: { borderWidth: 1.5, borderColor: colors.dangerText },
   btnNoText: { color: colors.dangerText, fontWeight: '700' },
-  link: { color: colors.dangerText, fontWeight: '700', marginTop: 4 },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,27,76,0.35)' },
   sheet: { backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20, paddingBottom: 36, gap: 12 },
   sheetTitle: { ...typo.h3, color: colors.navy },

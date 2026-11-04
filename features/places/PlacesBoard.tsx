@@ -6,7 +6,7 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, T
 
 import { CampusMap, type MapPin } from '@/components/CampusMap';
 import { EmptyState } from '@/components/states';
-import { Field, FilterChips, Segmented } from '@/components/ui';
+import { Field, FilterChips, TextButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { commerceApi, type ListedBusiness } from '@/features/commerce/api';
 import { openDirections } from '@/lib/maps';
@@ -67,30 +67,33 @@ export function PlacesBoard() {
   return (
     <>
       <View style={styles.search}>
-        <Field
-          icon="search"
-          placeholder="Bibliothèque, barbier, Village E…"
-          value={query}
-          onChangeText={setQuery}
-          autoCorrect={false}
-          returnKeyType="search"
-          accessibilityLabel="Rechercher un lieu"
-          right={
-            query ? (
-              <Pressable onPress={() => setQuery('')} hitSlop={10} accessibilityLabel="Effacer la recherche">
-                <Ionicons name="close-circle" size={18} color={colors.muted} />
-              </Pressable>
-            ) : null
-          }
-        />
-        <Segmented
-          options={[
-            { value: 'list', label: 'Liste' },
-            { value: 'map', label: 'Carte du campus' },
-          ]}
-          value={view}
-          onChange={setView}
-        />
+        <View style={{ flex: 1 }}>
+          <Field
+            icon="search"
+            placeholder="BU, Rectorat, Village E…"
+            value={query}
+            onChangeText={setQuery}
+            autoCorrect={false}
+            returnKeyType="search"
+            accessibilityLabel="Rechercher un lieu"
+            right={
+              query ? (
+                <Pressable onPress={() => setQuery('')} hitSlop={10} accessibilityLabel="Effacer la recherche">
+                  <Ionicons name="close-circle" size={18} color={colors.muted} />
+                </Pressable>
+              ) : null
+            }
+          />
+        </View>
+        {/* List or map: one button, it shows where it takes you. */}
+        <Pressable
+          style={[styles.viewBtn, view === 'map' && styles.viewBtnOn]}
+          onPress={() => setView(view === 'map' ? 'list' : 'map')}
+          accessibilityRole="button"
+          accessibilityLabel={view === 'map' ? 'Voir la liste' : 'Voir la carte du campus'}>
+          <Ionicons name={view === 'map' ? 'list' : 'map'} size={18} color={view === 'map' ? '#fff' : colors.primary} />
+          <Text style={[styles.viewBtnText, view === 'map' && { color: '#fff' }]}>{view === 'map' ? 'Liste' : 'Carte'}</Text>
+        </Pressable>
       </View>
 
       {view === 'map' ? (
@@ -122,9 +125,7 @@ export function PlacesBoard() {
             <View style={styles.sectionRow}>
               <Text style={styles.section}>{q ? `${list.length} résultat${list.length > 1 ? 's' : ''}` : 'Lieux incontournables'}</Text>
               {(q || filter !== 'Tout') && (
-                <Pressable onPress={() => (setFilter('Tout'), setQuery(''))}>
-                  <Text style={styles.link}>Tout voir</Text>
-                </Pressable>
+                <TextButton label="Tout voir" onPress={() => (setFilter('Tout'), setQuery(''))} />
               )}
             </View>
 
@@ -191,10 +192,12 @@ function PlaceCard({ p, onOpen }: { p: PlaceDto; onOpen: () => void }) {
             </Text>
           </View>
         )}
+        {/* Under the text, never beside it: nothing gets cut, however long the name. */}
+        <Pressable style={styles.go} hitSlop={6} onPress={() => openDirections(p.location, p.name)} accessibilityRole="button" accessibilityLabel={`Y aller : ${p.name}`}>
+          <Ionicons name="location" size={14} color="#fff" />
+          <Text style={styles.goText}>Y aller</Text>
+        </Pressable>
       </View>
-      <Pressable style={styles.nav} hitSlop={6} onPress={() => openDirections(p.location, p.name)} accessibilityRole="link" accessibilityLabel={`Itinéraire vers ${p.name}`}>
-        <Ionicons name="navigate-outline" size={18} color={colors.primary} />
-      </Pressable>
     </Pressable>
   );
 }
@@ -202,15 +205,17 @@ function PlaceCard({ p, onOpen }: { p: PlaceDto; onOpen: () => void }) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
-  search: { paddingHorizontal: 20, marginTop: 14, gap: 10 },
+  search: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, marginTop: 14, gap: 10 },
+  viewBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 56, paddingHorizontal: 14, borderRadius: radii.md, backgroundColor: colors.primarySoft },
+  viewBtnOn: { backgroundColor: colors.primary },
+  viewBtnText: { ...typo.smallStrong, color: colors.primary },
   layers: { flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 10 },
   layer: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 12, borderRadius: radii.pill, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.card },
   layerText: { ...typo.smallStrong, color: colors.navy },
   // Takes the rest of the screen: the whole university at a glance.
   map: { flex: 1, marginHorizontal: 12, marginBottom: 12, borderRadius: radii.xl },
   sectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
-  section: { ...typo.h3, color: colors.navy },
-  link: { color: colors.primary, fontWeight: '700' },
+  section: { ...typo.section, color: colors.navy },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
   photo: { width: 88, height: 88, borderRadius: radii.md, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   title: { ...typo.title, color: colors.navy },
@@ -232,12 +237,6 @@ const styles = StyleSheet.create({
   catText: { ...typo.label },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   metaText: { ...typo.caption, flex: 1, color: colors.muted2 },
-  nav: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: colors.primarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  go: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', marginTop: 4, height: 32, paddingHorizontal: 14, borderRadius: radii.pill, backgroundColor: colors.primary },
+  goText: { ...typo.smallStrong, color: '#fff' },
 });

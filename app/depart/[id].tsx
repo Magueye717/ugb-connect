@@ -151,7 +151,7 @@ export default function Manifest() {
           </View>
           {current && (
             <View style={styles.next}>
-              <Ionicons name="navigate-outline" size={16} color={colors.primary} />
+              <Ionicons name="location-outline" size={16} color={colors.primary} />
               <Text style={styles.nextText} numberOfLines={2}>
                 Prochain arrêt : <Text style={{ fontWeight: '700' }}>{current.place}</Text> · {current.time} ·{' '}
                 {passengers.filter((p) => p.pickupStopId === current.stopId && !isBoarded(p)).length} à faire monter

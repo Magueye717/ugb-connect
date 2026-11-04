@@ -72,6 +72,81 @@ export function Select({ icon, placeholder, title, value, options, onChange, onC
   );
 }
 
+/**
+ * Several choices (a restaurant's cuisines, a shop's specialties): looks like a Field showing them joined; the sheet
+ * ticks up to `max`, then « Valider ».
+ */
+export function MultiSelect({ icon, placeholder, title, values, options, onChange, max, disabled, invalid }: { icon: keyof typeof Ionicons.glyphMap; placeholder: string; title: string; values: string[]; options: string[]; onChange: (values: string[]) => void; max: number; disabled?: boolean; invalid?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<string[]>(values);
+  const show = () => {
+    setDraft(values);
+    setOpen(true);
+  };
+  const toggle = (o: string) => setDraft((d) => (d.includes(o) ? d.filter((x) => x !== o) : d.length < max ? [...d, o] : d));
+  const full = draft.length >= max;
+
+  return (
+    <>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !!disabled, expanded: open }}
+        accessibilityLabel={values.length ? values.join(', ') : placeholder}
+        disabled={disabled}
+        onPress={show}
+        style={[styles.field, invalid && styles.fieldInvalid, disabled && styles.disabled]}>
+        <Ionicons name={icon} size={18} color={invalid ? colors.danger : colors.muted} />
+        <Text style={[styles.value, !values.length && { color: colors.muted }]} numberOfLines={2}>
+          {values.length ? values.join(' · ') : placeholder}
+        </Text>
+        <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+      </Pressable>
+
+      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setOpen(false)} accessibilityLabel="Fermer" />
+        <SafeAreaView edges={['bottom']} style={styles.sheet}>
+          <View style={styles.handle} />
+          <View style={styles.multiHead}>
+            <Text style={[styles.title, { flex: 1, marginBottom: 0 }]}>{title}</Text>
+            <Text style={[styles.count, full && { color: colors.primary }]}>
+              {draft.length} / {max}
+            </Text>
+          </View>
+          <Text style={styles.hint}>{full ? `${max} au maximum : retire-en un pour en choisir un autre.` : 'Un ou plusieurs.'}</Text>
+          <ScrollView style={{ maxHeight: 360 }}>
+            {options.map((o) => {
+              const on = draft.includes(o);
+              const off = !on && full;
+              return (
+                <Pressable
+                  key={o}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: on, disabled: off }}
+                  disabled={off}
+                  onPress={() => toggle(o)}
+                  style={({ pressed }) => [styles.option, pressed && { backgroundColor: colors.bg }, off && { opacity: 0.4 }]}>
+                  <Text style={[styles.optionText, on && { color: colors.primary, fontWeight: '700' }]}>{o}</Text>
+                  <Ionicons name={on ? 'checkbox' : 'square-outline'} size={20} color={on ? colors.primary : colors.muted} />
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+          <Pressable
+            style={[styles.done, !draft.length && { opacity: 0.5 }]}
+            disabled={!draft.length}
+            onPress={() => {
+              onChange(draft);
+              setOpen(false);
+            }}
+            accessibilityRole="button">
+            <Text style={styles.doneText}>Valider</Text>
+          </Pressable>
+        </SafeAreaView>
+      </Modal>
+    </>
+  );
+}
+
 const styles = StyleSheet.create({
   field: {
     minHeight: 56,
@@ -107,4 +182,9 @@ const styles = StyleSheet.create({
     borderRadius: radii.sm,
   },
   optionText: { ...typo.body, color: colors.text },
+  multiHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  count: { ...typo.smallStrong, color: colors.muted2 },
+  hint: { ...typo.caption, color: colors.muted2, marginTop: 2, marginBottom: 6 },
+  done: { marginTop: 10, minHeight: 50, borderRadius: radii.md, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  doneText: { ...typo.bodyStrong, color: '#fff' },
 });

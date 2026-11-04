@@ -8,7 +8,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { OrganizerLine } from '@/components/caravan';
 import { eventWhen } from '@/components/home';
 import { PaymentLogo } from '@/components/PaymentLogo';
-import { BackButton } from '@/components/ui';
+import { BackButton, TextButton } from '@/components/ui';
 import { formatDateTime, formatFcfa, paymentMethods } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCaravans } from '@/context/CaravansContext';
@@ -176,9 +176,7 @@ export default function Evenement() {
               <Pressable style={styles.heldBtn} onPress={resume} disabled={paying}>
                 <Text style={styles.heldBtnText}>{paying ? 'Paiement…' : `Payer ${formatFcfa(e.myBooking.total)}`}</Text>
               </Pressable>
-              <Pressable onPress={() => eventsApi.release(e.myBooking!.id).then(load, () => undefined)} hitSlop={8}>
-                <Text style={styles.link}>Libérer les places</Text>
-              </Pressable>
+              <TextButton label="Libérer les places" tone="accent" style={{ alignSelf: 'center' }} onPress={() => eventsApi.release(e.myBooking!.id).then(load, () => undefined)} />
             </View>
           ) : (
             e.status === 'published' && (
@@ -338,7 +336,7 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14 },
   info: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   infoIcon: { width: 38, height: 38, borderRadius: radii.sm, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  section: { ...typo.title, color: colors.navy, marginTop: 4 },
+  section: { ...typo.section, color: colors.navy, marginTop: 4 },
   description: { ...typo.body, color: colors.text, lineHeight: 22 },
   muted: { ...typo.caption, color: colors.muted2, lineHeight: 17 },
   type: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -354,7 +352,6 @@ const styles = StyleSheet.create({
   heldTitle: { ...typo.title, color: colors.navy },
   heldBtn: { marginTop: 4, backgroundColor: colors.accent, paddingHorizontal: 22, minHeight: 42, borderRadius: radii.pill, justifyContent: 'center' },
   heldBtnText: { color: '#fff', fontWeight: '700' },
-  link: { color: colors.orangeText, fontWeight: '700' },
   banner: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: radii.md },
   bannerText: { flex: 1, fontSize: 13, fontWeight: '600', lineHeight: 18 },
   backOver: { position: 'absolute', left: 16 },

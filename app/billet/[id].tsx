@@ -26,6 +26,42 @@ function minus15(time: string) {
   return `${String(Math.floor(n / 60)).padStart(2, '0')}h${String(n % 60).padStart(2, '0')}`;
 }
 
+/**
+ * Several tickets bought together: one small stub per ticket ("2/3", its type or seat, for whom), side by side and
+ * scrollable, the open one highlighted. Nothing is cut, whatever the type's name.
+ */
+function TicketSwitcher({ items, current }: { items: { id: string; title: string; sub: string }[]; current: string }) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.stubs} accessibilityRole="tablist">
+      {items.map((t, i) => {
+        const on = t.id === current;
+        return (
+          <Pressable
+            key={t.id}
+            onPress={() => !on && router.replace(`/billet/${t.id}`)}
+            style={[styles.stub, on && styles.stubOn]}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={`Billet ${i + 1} sur ${items.length} : ${t.title}, ${t.sub}`}>
+            <View style={styles.stubTop}>
+              <Ionicons name={on ? 'ticket' : 'ticket-outline'} size={14} color={on ? colors.primary : colors.muted2} />
+              <Text style={[styles.stubCount, on && { color: colors.primary }]}>
+                {i + 1}/{items.length}
+              </Text>
+            </View>
+            <Text style={[styles.stubTitle, on && { color: colors.primary }]} numberOfLines={1}>
+              {t.title}
+            </Text>
+            <Text style={styles.stubSub} numberOfLines={1}>
+              {t.sub}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
 
 export default function Billet() {
@@ -155,23 +191,10 @@ export default function Billet() {
         <StatusBanner {...banner} />
 
         {group.length > 1 && (
-          <View style={styles.group}>
-            {group.map((t) => {
-              const on = t.id === ticket.id;
-              return (
-                <Pressable
-                  key={t.id}
-                  onPress={() => !on && router.replace(`/billet/${t.id}`)}
-                  style={[styles.groupChip, on && styles.groupChipOn]}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: on }}>
-                  <Text style={[styles.groupText, on && styles.groupTextOn]} numberOfLines={1}>
-                    Place {t.seat} · {t.passenger ? t.passenger.name.split(' ')[0] : 'Toi'}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          <TicketSwitcher
+            current={ticket.id}
+            items={group.map((t) => ({ id: t.id, title: t.seat ? `Place ${t.seat}` : 'Place libre', sub: t.passenger ? t.passenger.name.split(' ')[0]! : 'Toi' }))}
+          />
         )}
 
         <Animated.View entering={fresh ? riseIn.delay(motion.fast) : undefined} style={[styles.ticket, shadow.raised, !active && { opacity: 0.6 }]}>
@@ -406,20 +429,7 @@ function EventBillet({ ticket, fresh, onBack, load }: { ticket: EventTicketDto; 
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <StatusBanner {...banner} />
 
-        {group.length > 1 && (
-          <View style={styles.group}>
-            {group.map((t, i) => {
-              const on = t.id === ticket.id;
-              return (
-                <Pressable key={t.id} onPress={() => !on && router.replace(`/billet/${t.id}`)} style={[styles.groupChip, on && styles.groupChipOn]} accessibilityRole="tab" accessibilityState={{ selected: on }}>
-                  <Text style={[styles.groupText, on && styles.groupTextOn]} numberOfLines={1}>
-                    Billet {i + 1} · {t.details.typeName}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        )}
+        {group.length > 1 && <TicketSwitcher current={ticket.id} items={group.map((t) => ({ id: t.id, title: t.details.typeName, sub: formatFcfa(t.price) }))} />}
 
         <Animated.View entering={fresh ? riseIn.delay(motion.fast) : undefined} style={[styles.ticket, shadow.raised, !active && { opacity: 0.6 }]}>
           {d.image && <Image source={{ uri: d.image }} style={styles.cover} contentFit="cover" />}
@@ -612,9 +622,11 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(15,27,76,0.35)' },
   sheet: { backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20, paddingBottom: 36, gap: 14 },
   sheetTitle: { ...typo.h3, color: colors.navy },
-  group: { flexDirection: 'row', gap: 8 },
-  groupChip: { flex: 1, minHeight: 40, borderRadius: radii.pill, borderWidth: 1.5, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
-  groupChipOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
-  groupText: { ...typo.smallStrong, color: colors.muted2 },
-  groupTextOn: { color: colors.primary },
+  stubs: { gap: 10, paddingVertical: 2 },
+  stub: { width: 112, paddingVertical: 10, paddingHorizontal: 12, gap: 2, borderRadius: radii.md, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.border, backgroundColor: colors.card },
+  stubOn: { borderStyle: 'solid', borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  stubTop: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  stubCount: { ...typo.label, color: colors.muted2 },
+  stubTitle: { ...typo.bodyStrong, color: colors.navy },
+  stubSub: { ...typo.caption, color: colors.muted2 },
 });

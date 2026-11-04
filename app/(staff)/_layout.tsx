@@ -3,58 +3,70 @@ import { Tabs } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { SpaceSwitcher } from '@/components/SpaceSwitcher';
 import { colors } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 
-// The work spaces opened by platform roles: "resto" (restaurant staff update stock levels during the service)
-// and "alerts" (the communication team posts alerts). Each shows its own screen and the account tab; menus are
-// planned on the back office.
+// The work spaces of the app creator's team, one per job: Administration (the super admin's team and the students'
+// events), Restos publics (menus of the restaurants assigned), Communication (alerts, "À la une", paid banners),
+// Référencement (places, restaurants, shops). Each space shows only its own tabs, then the account.
 const icons: Record<string, [keyof typeof Ionicons.glyphMap, keyof typeof Ionicons.glyphMap]> = {
+  'equipe-plateforme': ['people-outline', 'people'],
+  evenements: ['sparkles-outline', 'sparkles'],
   menus: ['restaurant-outline', 'restaurant'],
   alertes: ['megaphone-outline', 'megaphone'],
   bannieres: ['images-outline', 'images'],
-  evenements: ['sparkles-outline', 'sparkles'],
-  commerces: ['storefront-outline', 'storefront'],
   lieux: ['map-outline', 'map'],
+  commerces: ['storefront-outline', 'storefront'],
   'mon-compte': ['person-outline', 'person'],
 };
-const TITLES: Record<string, string> = { menus: 'Menus du jour', alertes: 'Communication', bannieres: 'Bannières', evenements: 'Événements', commerces: 'Commerces', lieux: 'Lieux', 'mon-compte': 'Compte' };
+const TITLES: Record<string, string> = {
+  'equipe-plateforme': 'Équipe', evenements: 'Événements', menus: 'Menus', alertes: 'Communication', bannieres: 'Bannières', lieux: 'Lieux', commerces: 'Commerces', 'mon-compte': 'Compte',
+};
 
 export default function StaffTabLayout() {
   const { space, user } = useAuth();
-  // Paid banners are reviewed by the communication team (not the academic team).
-  const reviewsBanners = space === 'alerts' && !!user?.roles.some((r) => r === 'admin' || r === 'content_editor');
-  // Students' events are approved by the admins, who also create the restaurants and shops.
-  const reviewsEvents = space === 'alerts' && !!user?.roles.includes('admin');
+  const roles = user?.roles ?? [];
+  const has = (...r: string[]) => roles.includes('admin') || r.some((x) => roles.includes(x));
+  const show = (on: boolean) => (on ? undefined : null);
+  // Named after what the editor was given: private restaurants, shops, or both.
+  const commercesTitle = has('restaurant_editor') && has('shop_editor') ? 'Commerces' : has('restaurant_editor') ? 'Restos privés' : 'Boutiques';
+  const titleOf = (name: string) => (name === 'commerces' ? commercesTitle : (TITLES[name] ?? name));
   const insets = useSafeAreaInsets();
   const bottom = Math.max(insets.bottom, 10);
   return (
-    <Tabs
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.tabInactive,
-        tabBarStyle: [styles.bar, { height: 62 + bottom, paddingBottom: bottom }],
-        tabBarLabel: ({ focused, color }) => (
-          <Text style={[styles.label, { color: String(color), fontWeight: focused ? '700' : '500' }]} maxFontSizeMultiplier={1.3} numberOfLines={1}>
-            {TITLES[route.name] ?? route.name}
-          </Text>
-        ),
-        tabBarIcon: ({ focused, color }) => (
-          <View style={[styles.iconWrap, focused && styles.iconOn]}>
-            <Ionicons name={icons[route.name]?.[focused ? 1 : 0] ?? 'ellipse-outline'} size={22} color={String(color)} />
-          </View>
-        ),
-      })}>
-      {/* Only the current space's screen: the other spaces are under "Mes espaces". */}
-      <Tabs.Screen name="menus" options={{ title: TITLES.menus, href: space === 'resto' ? undefined : null }} />
-      <Tabs.Screen name="alertes" options={{ title: TITLES.alertes, href: space === 'alerts' ? undefined : null }} />
-      <Tabs.Screen name="bannieres" options={{ title: TITLES.bannieres, href: reviewsBanners ? undefined : null }} />
-      <Tabs.Screen name="evenements" options={{ title: TITLES.evenements, href: reviewsEvents ? undefined : null }} />
-      <Tabs.Screen name="lieux" options={{ title: TITLES.lieux, href: reviewsBanners ? undefined : null }} />
-      <Tabs.Screen name="commerces" options={{ title: TITLES.commerces, href: reviewsEvents ? undefined : null }} />
-      <Tabs.Screen name="mon-compte" options={{ title: TITLES['mon-compte'] }} />
-    </Tabs>
+    // The space button floats over every tab (only with several spaces).
+    <View style={{ flex: 1 }}>
+      <Tabs
+        screenOptions={({ route }) => ({
+          headerShown: false,
+          tabBarActiveTintColor: colors.primary,
+          tabBarInactiveTintColor: colors.tabInactive,
+          tabBarStyle: [styles.bar, { height: 62 + bottom, paddingBottom: bottom }],
+          tabBarLabel: ({ focused, color }) => (
+            <Text style={[styles.label, { color: String(color), fontWeight: focused ? '700' : '500' }]} maxFontSizeMultiplier={1.3} numberOfLines={1}>
+              {titleOf(route.name)}
+            </Text>
+          ),
+          tabBarIcon: ({ focused, color }) => (
+            <View style={[styles.iconWrap, focused && styles.iconOn]}>
+              <Ionicons name={icons[route.name]?.[focused ? 1 : 0] ?? 'ellipse-outline'} size={22} color={String(color)} />
+            </View>
+          ),
+        })}>
+        <Tabs.Screen name="equipe-plateforme" options={{ title: TITLES['equipe-plateforme'], href: show(space === 'admin') }} />
+        <Tabs.Screen name="evenements" options={{ title: TITLES.evenements, href: show(space === 'admin') }} />
+        <Tabs.Screen name="menus" options={{ title: TITLES.menus, href: show(space === 'resto') }} />
+        <Tabs.Screen name="alertes" options={{ title: TITLES.alertes, href: show(space === 'alerts') }} />
+        <Tabs.Screen name="bannieres" options={{ title: TITLES.bannieres, href: show(space === 'alerts' && has('content_editor')) }} />
+        <Tabs.Screen name="lieux" options={{ title: TITLES.lieux, href: show(space === 'directory' && has('place_editor')) }} />
+        <Tabs.Screen name="commerces" options={{ title: commercesTitle, href: show(space === 'directory' && has('restaurant_editor', 'shop_editor')) }} />
+        {/* The Référencement space's entry: opens its first tab. */}
+        <Tabs.Screen name="referencement" options={{ href: null }} />
+        <Tabs.Screen name="mon-compte" options={{ title: TITLES['mon-compte'] }} />
+      </Tabs>
+      <SpaceSwitcher />
+    </View>
   );
 }
 

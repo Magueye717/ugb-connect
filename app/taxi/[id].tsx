@@ -96,7 +96,7 @@ const styles = StyleSheet.create({
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 8 },
   h1: { ...typo.h3, color: colors.navy },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
-  section: { ...typo.title, color: colors.navy, marginTop: 6 },
+  section: { ...typo.section, color: colors.navy, marginTop: 6 },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, paddingHorizontal: 14 },
   passenger: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 60 },
   divider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },

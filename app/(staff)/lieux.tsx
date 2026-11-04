@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
@@ -13,6 +12,7 @@ import { colors, radii, shadow, typo } from '@/constants/theme';
 import { PLACE_CATEGORIES, placeIcon, placesApi, placeTone, type PlaceCategory, type PlaceDto } from '@/features/places/api';
 import { CAMPUSES } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
+import { pickPhoto } from '@/lib/pickPhoto';
 import { uploadImage } from '@/lib/upload';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
@@ -102,11 +102,11 @@ function PlaceEditor({ place, onClose, onSaved }: { place: PlaceDto | null; onCl
   const [saving, setSaving] = useState(false);
 
   const pick = async () => {
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: MAX_PHOTOS - photos.length, quality: 0.85 });
-    if (res.canceled) return;
+    const assets = await pickPhoto({ multiple: MAX_PHOTOS - photos.length, title: 'Photos du lieu' });
+    if (!assets.length) return;
     setUploading(true);
     try {
-      for (const a of res.assets.slice(0, MAX_PHOTOS - photos.length)) {
+      for (const a of assets) {
         const up = await uploadImage(a, 'place');
         setPhotos((list) => [...list, { ref: up.id, url: up.url }]);
       }

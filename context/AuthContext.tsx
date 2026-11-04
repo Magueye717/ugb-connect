@@ -15,6 +15,12 @@ export type Profile = {
   initials: string;
   /** Display line: "UGB · Campus 1 · Village E · Ch. 214". */
   campus: string;
+  /** The profile picture; null: the initials show. */
+  avatarUrl: string | null;
+  /** Lives in a campus village (then `village` and `room`). */
+  onCampus: boolean;
+  /** "campus1" / "campus2" (delivery zone by default); null without a student profile. */
+  campusCode: 'campus1' | 'campus2' | null;
   /** Null when living off campus (or for organizer-only accounts). */
   village: string | null;
   room: string | null;
@@ -40,21 +46,38 @@ export type Profile = {
 export type AccountOrganizer = CaravanOrganizer & { orgId: string; slug: string; roles: string[] };
 
 /**
- * Which part of the app is shown, decided by the backend from the account: students book, organizers check their
- * passengers, and platform roles open work spaces (restaurant stock levels, campus alerts). The first one is home;
- * the others are listed under "Mes espaces".
+ * The kind of part of the app shown, decided by the backend from the account: students book, organizers check their
+ * passengers, restaurants and shops take orders, and the platform team's roles open work spaces (administration,
+ * public restaurants' menus, communication, places and businesses). The screens' guards check this.
  */
-export type Space = 'student' | 'organizer' | 'business' | 'resto' | 'alerts';
+export type Space = 'student' | 'organizer' | 'business' | 'admin' | 'resto' | 'alerts' | 'directory';
 
-/** The restaurant or shop this account works for (owner, manager or staff): orders, catalog, team. */
+/**
+ * One space the account can open. An entity may run several: "Khoulé & frère" has a restaurant space, a shop
+ * space and an organizer space, each with its own team. `key` is what /espace?vers= opens.
+ */
+export type AppSpace = { key: string; type: Space; kind: 'restaurant' | 'shop' | null; orgId: string | null; name: string; roles: string[]; logoUrl: string | null; /** A student's own entity (their shop). */ personal: boolean };
+/**
+ * The shop a student owns ("Ma boutique"): the one they opened, or one Référencement added for their number (an
+ * account owns one entity, so one shop at most). A shop where they're only Gérant or Employé isn't theirs.
+ */
+export const ownShop = (spaces: AppSpace[]) => spaces.find((x) => x.type === 'business' && x.kind === 'shop' && x.roles.includes('owner')) ?? null;
+
+
+/** The restaurant or shop of the space on screen (owner, manager or staff): orders, catalog, team. */
 export type AccountBusiness = { orgId: string; name: string; kind: 'restaurant' | 'shop'; roles: string[] };
+
+/** Only the owner of a space manages its team and edits its information. */
+export const isOwner = (roles: string[] | undefined) => !!roles?.includes('owner');
 
 /** The first screen of a space. */
 export function spaceHome(space: Space | null) {
   if (space === 'organizer') return '/activites' as const;
   if (space === 'business') return '/commandes' as const;
+  if (space === 'admin') return '/equipe-plateforme' as const;
   if (space === 'resto') return '/menus' as const;
   if (space === 'alerts') return '/alertes' as const;
+  if (space === 'directory') return '/referencement' as const;
   if (space === 'student') return '/(tabs)' as const;
   return '/(auth)/welcome' as const;
 }
@@ -63,12 +86,14 @@ type AuthValue = {
   /** `restoring` while the saved session is checked at start-up. */
   status: 'restoring' | 'signedOut' | 'signedIn';
   user: Profile | null;
-  /** The company or association this account manages, if any. Set by an admin on the backend. */
+  /** The organizer space on screen: its organization (caravans, events). */
   organizer: AccountOrganizer | null;
-  /** The restaurant or shop this account works for, if any. Created by an admin; the owner adds the team. */
+  /** The restaurant or shop space on screen. */
   business: AccountBusiness | null;
-  /** Spaces this account may open, decided by the backend: a student who also organizes has both. */
-  spaces: Space[];
+  /** Spaces this account may open, decided by the backend: a student who also runs a shop has both. */
+  spaces: AppSpace[];
+  /** The space on screen, and its type (what the screens' guards check). */
+  current: AppSpace | null;
   space: Space | null;
   /** Throws ApiError (wrong password, locked, network): the screen shows its message. */
   login: (identifier: string, password: string) => Promise<void>;
@@ -76,10 +101,10 @@ type AuthValue = {
   completeSignIn: (tokens: Tokens) => Promise<void>;
   /** Reads the account again (after changing the profile). */
   reloadAccount: () => Promise<void>;
-  /** Opens another of the account's spaces, through the /espace transition screen. */
-  openSpace: (space: Space) => void;
+  /** Opens another of the account's spaces (by key), through the /espace transition screen. */
+  openSpace: (key: string) => void;
   /** Used by /espace only: flips the guards while no protected screen is focused. */
-  setSpace: (space: Space) => void;
+  setSpace: (key: string) => void;
   logout: () => Promise<void>;
 };
 
@@ -90,10 +115,11 @@ type MeResponse = {
   initials: string;
   phoneMasked: string;
   student: { studentNumber: string; campus: string; onCampus: boolean; village: string | null; room: string | null; ufr: string | null; region: string | null; filiere: string | null; niveau: string | null; identity?: { birthDate: string | null; birthPlace: string | null; nationality: string | null; fromCard: boolean } | null } | null;
-  spaces: Space[];
+  spaces: AppSpace[];
   platformRoles: string[];
-  organizations: { id: string; name: string; category: string; level: string; roles: string[]; capabilities: string[] }[];
+  organizations: { id: string; name: string; category: string; level: string; roles: string[]; capabilities: string[]; space: string }[];
   email: { address: string; verified: boolean } | null;
+  avatarUrl: string | null;
 };
 
 type OrgResponse = {
@@ -118,6 +144,9 @@ function toProfile(me: MeResponse): Profile {
     lastName: me.lastName,
     initials: me.initials,
     campus: !s ? 'UGB' : s.onCampus && s.village ? `UGB · ${campusLabel} · ${s.village} · Ch. ${s.room}` : `UGB · ${campusLabel} · Hors campus`,
+    avatarUrl: me.avatarUrl,
+    onCampus: !!s?.onCampus,
+    campusCode: s ? (s.campus as 'campus1' | 'campus2') : null,
     village: s?.village ?? null,
     room: s?.room ?? null,
     studentId: s?.studentNumber ?? null,
@@ -133,18 +162,8 @@ function toProfile(me: MeResponse): Profile {
   };
 }
 
-const isBusiness = (o: MeResponse['organizations'][number]) => o.capabilities.includes('restaurant') || o.capabilities.includes('shop');
-
-function toBusiness(me: MeResponse): AccountBusiness | null {
-  const o = me.organizations.find(isBusiness);
-  return o ? { orgId: o.id, name: o.name, kind: o.capabilities.includes('shop') ? 'shop' : 'restaurant', roles: o.roles } : null;
-}
-
-async function loadOrganizer(me: MeResponse): Promise<AccountOrganizer | null> {
-  // Caravans and events: a restaurant or shop has its own space.
-  const membership = me.organizations.find((o) => !isBusiness(o));
-  if (!membership) return null;
-  const { organization: o, myRoles } = await api<OrgResponse>('GET', `/org/${membership.id}`, { auth: true });
+async function loadOrganizer(orgId: string): Promise<AccountOrganizer | null> {
+  const { organization: o, myRoles } = await api<OrgResponse>('GET', `/org/${orgId}`, { auth: true });
   return {
     id: o.id,
     orgId: o.id,
@@ -162,31 +181,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthValue['status']>('restoring');
   const [user, setUser] = useState<Profile | null>(null);
   const [organizer, setOrganizer] = useState<AccountOrganizer | null>(null);
-  const [business, setBusiness] = useState<AccountBusiness | null>(null);
-  const [spaces, setSpaces] = useState<Space[]>([]);
-  const [space, setSpace] = useState<Space | null>(null);
+  const [spaces, setSpaces] = useState<AppSpace[]>([]);
+  const [key, setKey] = useState<string | null>(null);
+  const current = spaces.find((x) => x.key === key) ?? null;
+  const space = current?.type ?? null;
+  const business = useMemo<AccountBusiness | null>(
+    () => (current?.type === 'business' && current.orgId && current.kind ? { orgId: current.orgId, name: current.name, kind: current.kind, roles: current.roles } : null),
+    [current],
+  );
 
   const reset = useCallback(() => {
     setUser(null);
     setOrganizer(null);
-    setBusiness(null);
     setSpaces([]);
-    setSpace(null);
+    setKey(null);
     setStatus('signedOut');
   }, []);
 
   /** Loads the account behind the current tokens. The backend decides the spaces, not the app. */
   const loadAccount = useCallback(async () => {
     const me = await api<MeResponse>('GET', '/me', { auth: true });
-    const org = me.spaces.includes('organizer') ? await loadOrganizer(me) : null;
+    // Removed from every team, nothing left to open: signed out (the backend refuses a new sign-in too).
+    if (!me.spaces.length) {
+      await session.clear();
+      reset();
+      router.replace('/(auth)/login');
+      return;
+    }
     setUser(toProfile(me));
-    setOrganizer(org);
-    setBusiness(toBusiness(me));
     setSpaces(me.spaces);
-    // Signing in opens the first space (a student stays a student); reloading keeps the one on screen.
-    setSpace((current) => (current && me.spaces.includes(current) ? current : (me.spaces[0] ?? null)));
+    // Signing in opens the first space (a student stays a student); reloading keeps the one on screen if it's still there.
+    setKey((k) => (k && me.spaces.some((x) => x.key === k) ? k : me.spaces[0]!.key));
     setStatus('signedIn');
   }, []);
+
+  // An organizer space shows its organization (rating, trips, my roles): loaded when it's the one on screen.
+  const organizerOrgId = current?.type === 'organizer' ? current.orgId : null;
+  useEffect(() => {
+    let alive = true;
+    if (!organizerOrgId) {
+      setOrganizer(null);
+      return;
+    }
+    loadOrganizer(organizerOrgId).then((o) => alive && setOrganizer(o), () => alive && setOrganizer(null));
+    return () => {
+      alive = false;
+    };
+  }, [organizerOrgId]);
 
   // Start-up: a saved refresh token means a session to restore.
   useEffect(() => {
@@ -232,16 +273,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       organizer,
       business,
       spaces,
+      current,
       space,
       login: async (identifier, password) => completeSignIn(await signIn(identifier, password)),
       completeSignIn,
       reloadAccount: loadAccount,
       openSpace: (next) => {
-        if (next === space || !spaces.includes(next)) return;
+        if (next === key || !spaces.some((x) => x.key === next)) return;
         router.replace({ pathname: '/espace', params: { vers: next } });
       },
       setSpace: (next) => {
-        if (spaces.includes(next)) setSpace(next);
+        if (spaces.some((x) => x.key === next)) setKey(next);
       },
       logout: async () => {
         await unregisterPushToken();
@@ -253,7 +295,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         router.replace('/(auth)/login');
       },
     }),
-    [status, user, organizer, business, spaces, space, completeSignIn, reset, loadAccount],
+    [status, user, organizer, business, spaces, current, space, key, completeSignIn, reset, loadAccount],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

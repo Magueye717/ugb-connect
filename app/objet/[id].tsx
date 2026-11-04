@@ -169,7 +169,7 @@ export default function ObjetScreen() {
                     <View style={[styles.infoCard, shadow.card]}>
                       <Info icon="business-outline" label={lostOffice.name} value={`${lostOffice.area} · ${lostOffice.hours}`} />
                       <Text style={styles.hint}>Présente-toi avec ta carte étudiant ou une pièce d’identité.</Text>
-                      <OutlineButton label="Itinéraire vers le bureau" onPress={() => openDirections(lostOffice.coords, lostOffice.name)} />
+                      <OutlineButton label="Voir le bureau sur la carte" onPress={() => openDirections(lostOffice.coords, lostOffice.name)} />
                     </View>
                   ) : (
                     <View style={[styles.infoCard, shadow.card]}>
@@ -328,7 +328,7 @@ const styles = StyleSheet.create({
   details: { ...typo.body, color: colors.muted2, lineHeight: 20 },
   owner: { ...typo.smallStrong, color: colors.successText },
   body: { paddingHorizontal: 20, marginTop: 16, gap: 12 },
-  section: { ...typo.title, color: colors.navy, marginTop: 4 },
+  section: { ...typo.section, color: colors.navy, marginTop: 4 },
   infoCard: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14, gap: 12 },
   info: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   infoIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },

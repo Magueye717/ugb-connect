@@ -78,8 +78,10 @@ export const shadow = {
  */
 
 /**
- * Text scale: 11 · 12 · 13 · 14 · 16 · 18 · 22 · 28 · 30. Regular for reading, Bold for emphasis,
- * ExtraBold only for titles (18 and up). Spread into styles: `title: { ...typo.title, color: colors.navy }`.
+ * Text scale for a phone, in the system font (SF Pro on iOS, Roboto on Android: the most legible at small sizes):
+ * 11 · 12 · 13 · 14 · 15 · 16 · 17 · 20 · 24 · 28. Regular for reading, Bold for emphasis, ExtraBold only for screen
+ * titles. `section` is every section header inside a screen ("Lieux incontournables", "Ajouter quelqu’un"…).
+ * Spread into styles: `title: { ...typo.title, color: colors.navy }`.
  */
 export const typo = {
   label: { fontSize: 11, fontWeight: '700' },
@@ -89,11 +91,12 @@ export const typo = {
   smallStrong: { fontSize: 13, fontWeight: '700' },
   body: { fontSize: 14, fontWeight: '400' },
   bodyStrong: { fontSize: 14, fontWeight: '700' },
+  section: { fontSize: 15, fontWeight: '700' },
   title: { fontSize: 16, fontWeight: '700' },
-  h3: { fontSize: 18, fontWeight: '800' },
-  h2: { fontSize: 22, fontWeight: '800' },
-  h1: { fontSize: 28, fontWeight: '800' },
-  display: { fontSize: 30, fontWeight: '800' },
+  h3: { fontSize: 17, fontWeight: '700' },
+  h2: { fontSize: 20, fontWeight: '800' },
+  h1: { fontSize: 24, fontWeight: '800', letterSpacing: -0.2 },
+  display: { fontSize: 28, fontWeight: '800', letterSpacing: -0.3 },
 } satisfies Record<string, TextStyle>;
 
 /**

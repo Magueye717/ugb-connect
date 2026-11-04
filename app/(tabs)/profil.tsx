@@ -1,20 +1,23 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, type Href } from 'expo-router';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AvatarPicker } from '@/components/AvatarPicker';
 import { SpacesList } from '@/components/SpacesList';
 import { colors, radii, shadow, typo } from '@/constants/theme';
-import { useAuth } from '@/context/AuthContext';
+import { ownShop, useAuth } from '@/context/AuthContext';
 import { useNotifications } from '@/context/NotificationsContext';
 
 /** `todo`: something to fill in ("À compléter"). */
-type Row = { icon: keyof typeof Ionicons.glyphMap; label: string; href?: Href; badge?: number; todo?: boolean; onPress?: () => void };
-
-const soon = (label: string) => Alert.alert(label, 'Bientôt disponible dans l’app.');
+type Row = { icon: keyof typeof Ionicons.glyphMap; label: string; href?: Href; badge?: number; todo?: boolean; done?: boolean; onPress?: () => void };
 
 export default function ProfilScreen() {
-  const { user, logout } = useAuth();
+  const { user, logout, spaces } = useAuth();
+  // The shop they own: "Ma boutique" once there is one.
+  const myShop = ownShop(spaces);
+  const cardDone = !!user?.identity?.fromCard;
+
   const academic = [user?.ufr, user?.filiere, user?.niveau].filter(Boolean).join(' · ');
   const { unreadCount } = useNotifications();
 
@@ -23,28 +26,29 @@ export default function ProfilScreen() {
     {
       title: 'Mon compte',
       rows: [
-        { icon: 'person-outline', label: 'Informations personnelles' },
+        { icon: 'person-outline', label: 'Informations personnelles', href: '/infos' },
         { icon: 'school-outline', label: 'Mon UFR et ma région', href: '/mes-etudes', todo: !user?.ufrCode || !user.region },
-        { icon: 'card-outline', label: 'Ma carte étudiant', href: '/ma-carte', todo: !user?.identity?.birthDate },
+        { icon: 'card-outline', label: 'Ma carte étudiant', href: '/ma-carte', todo: !cardDone, done: cardDone },
       ],
     },
     {
       title: 'Mes activités',
       rows: [
-        { icon: 'ticket-outline', label: 'Billets caravane', href: { pathname: '/(tabs)/caravanes', params: { vue: 'caravanes' } } },
+        { icon: 'ticket-outline', label: 'Mes billets', href: '/mes-billets' },
         { icon: 'cube-outline', label: 'Mes objets perdus', href: { pathname: '/(tabs)/lieux', params: { vue: 'objets' } } },
         { icon: 'bag-handle-outline', label: 'Mon panier', href: '/panier' },
         { icon: 'sparkles-outline', label: 'Mes événements', href: '/mes-evenements' },
         { icon: 'megaphone-outline', label: 'Mes publicités', href: '/mes-publicites' },
+        { icon: 'storefront-outline', label: myShop ? 'Ma boutique' : 'Vendre sur le campus', href: '/ma-boutique' },
       ],
     },
     {
       title: 'Préférences',
-      rows: [{ icon: 'notifications-outline', label: 'Notifications', href: '/notifications', badge: unreadCount }],
+      rows: [{ icon: 'notifications-outline', label: 'Notifications et préférences', href: '/notifications', badge: unreadCount }],
     },
     {
       title: 'Aide',
-      rows: [{ icon: 'help-circle-outline', label: 'Aide & support' }],
+      rows: [{ icon: 'help-circle-outline', label: 'Aide & support', href: '/aide' }],
     },
   ];
 
@@ -53,9 +57,7 @@ export default function ProfilScreen() {
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <Text style={styles.h1}>Profil</Text>
         <View style={[styles.hero, shadow.card]}>
-          <View style={styles.avatar}>
-            <Text style={styles.initials}>{user?.initials ?? 'AD'}</Text>
-          </View>
+          <AvatarPicker size={64} />
           <View style={{ flex: 1 }}>
             <Text style={styles.name}>
               {user?.firstName} {user?.lastName}
@@ -78,7 +80,7 @@ export default function ProfilScreen() {
               {g.rows.map((r, i) => (
                 <Pressable
                   key={r.label}
-                  onPress={() => (r.onPress ? r.onPress() : r.href ? router.push(r.href) : soon(r.label))}
+                  onPress={() => (r.onPress ? r.onPress() : r.href && router.push(r.href))}
                   style={({ pressed }) => [styles.row, i > 0 && styles.rowDivider, pressed && { backgroundColor: colors.primarySofter }]}
                   accessibilityRole="button"
                   accessibilityLabel={r.badge ? `${r.label}, ${r.badge} non lues` : r.todo ? `${r.label}, à compléter` : r.label}>
@@ -92,6 +94,7 @@ export default function ProfilScreen() {
                     </View>
                   )}
                   {r.todo && <Text style={styles.todo}>À compléter</Text>}
+                  {r.done && <Ionicons name="checkmark-circle" size={18} color={colors.successText} accessibilityLabel="Vérifiée" />}
                   <Ionicons name="chevron-forward" size={18} color={colors.muted} />
                 </Pressable>
               ))}
@@ -113,8 +116,6 @@ const styles = StyleSheet.create({
   body: { padding: 20, gap: 18, paddingBottom: 40 },
   h1: { ...typo.h1, color: colors.navy },
   hero: { flexDirection: 'row', alignItems: 'center', gap: 16, backgroundColor: colors.card, borderRadius: radii.lg, padding: 18 },
-  avatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  initials: { ...typo.h2, color: '#fff' },
   name: { ...typo.h2, color: colors.navy },
   meta: { ...typo.small, color: colors.muted2, marginTop: 2 },
   groupTitle: { ...typo.captionStrong, color: colors.muted2, textTransform: 'uppercase', letterSpacing: 0.6, marginLeft: 4 },

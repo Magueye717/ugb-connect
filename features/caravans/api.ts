@@ -24,6 +24,8 @@ export type DepartureDto = {
   price: number;
   /** Seats one student can buy here: their own + companions (2 by default). */
   maxSeatsPerStudent: number;
+  /** Providers the organizer accepts for this trip. */
+  paymentMethods: ('wave' | 'orange_money')[];
   totalSeats: number;
   seatsFree: number;
   seatsBooked: number;
@@ -264,6 +266,7 @@ export function toCaravan(d: DepartureDto): Caravan {
     bookingOpen: d.bookingOpen,
     price: d.price,
     maxSeatsPerStudent: d.maxSeatsPerStudent,
+    paymentMethods: d.paymentMethods ?? ['wave', 'orange_money'],
     myTicketId: d.myTicketId ?? null,
     purchasedHere: !!d.purchasedHere,
     mySeatsLeft: d.mySeatsLeft ?? d.maxSeatsPerStudent,

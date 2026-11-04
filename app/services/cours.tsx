@@ -125,7 +125,7 @@ const styles = StyleSheet.create({
   alertTitle: { ...typo.bodyStrong, color: colors.navy },
   alertSub: { ...typo.caption, color: colors.muted2, marginTop: 2 },
   sectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
-  section: { ...typo.h3, color: colors.navy },
+  section: { ...typo.section, color: colors.navy },
   link: { ...typo.smallStrong, color: colors.primary },
   empty: { color: colors.muted2, textAlign: 'center', paddingVertical: 24 },
   slot: { flexDirection: 'row', gap: 12, alignItems: 'stretch' },

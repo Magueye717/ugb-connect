@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,9 +20,9 @@ export default function HomeScreen() {
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={styles.row}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{user?.initials ?? 'AD'}</Text>
-          </View>
+          <Pressable style={styles.avatar} onPress={() => router.push('/(tabs)/profil')} accessibilityRole="button" accessibilityLabel="Mon profil">
+            {user?.avatarUrl ? <Image source={{ uri: user.avatarUrl }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Text style={styles.avatarText}>{user?.initials ?? 'AD'}</Text>}
+          </Pressable>
           <View style={{ flex: 1 }}>
             <Text style={styles.hello}>Bonjour, {name}</Text>
             <Text style={styles.campus}>{user?.campus ?? 'UGB · Campus social'}</Text>
@@ -38,6 +39,8 @@ export default function HomeScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        {/* The banners (paid ads, events) open the home screen. */}
+        <AdCarousel />
         <AlertStrip />
         <OriginPrompt />
         {/* What the student has going on comes first; the tabs cover the rest (no services grid). */}
@@ -46,8 +49,6 @@ export default function HomeScreen() {
         <EventCard />
         <TaxiCard />
         <RestoCard />
-
-        <AdCarousel />
 
         <Headlines />
       </ScrollView>
@@ -72,6 +73,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   avatarText: { color: '#fff', fontWeight: '700' },
   hello: { ...typo.h2, color: '#fff' },

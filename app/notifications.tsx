@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton, FilterChips } from '@/components/ui';
@@ -9,6 +9,7 @@ import { EmptyState, ErrorState } from '@/components/states';
 import { notificationFilters } from '@/constants/data';
 import { colors, shadow, radii, typo } from '@/constants/theme';
 import { useNotifications } from '@/context/NotificationsContext';
+import { profileApi, type NotificationPrefs } from '@/features/profile/api';
 import { api, ApiError } from '@/lib/api';
 
 type Filter = (typeof notificationFilters)[number];
@@ -48,6 +49,7 @@ export default function NotificationsScreen() {
   const [now, setNow] = useState(() => Date.now());
   // In a shop's space: its orders only, no categories to filter.
   const { markAllRead, scope } = useNotifications();
+  const [settings, setSettings] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -86,7 +88,12 @@ export default function NotificationsScreen() {
           <Text style={styles.h1}>{scope ? 'Notifications commandes' : 'Notifications'}</Text>
           <Text style={styles.sub}>{fresh ? `${fresh} nouvelle${fresh > 1 ? 's' : ''}` : 'Tout est lu'}</Text>
         </View>
+        <Pressable style={styles.gear} onPress={() => setSettings(true)} accessibilityRole="button" accessibilityLabel="Préférences de notification">
+          <Ionicons name="options-outline" size={18} color={colors.navy} />
+          <Text style={styles.gearText}>Préférences</Text>
+        </Pressable>
       </View>
+      {settings && <Preferences onClose={() => setSettings(false)} />}
       {!scope && (
         <View style={{ marginTop: 14 }}>
           <FilterChips options={notificationFilters} value={filter} onChange={setFilter} />
@@ -145,7 +152,65 @@ export default function NotificationsScreen() {
   );
 }
 
+/** What a student can switch off (phone notifications; the list here keeps everything). */
+const PREF_ROWS: { key: keyof NotificationPrefs; title: string; text: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: 'paiements', title: 'Paiements et commandes', text: 'Billets, remboursements, commandes, livraisons', icon: 'card-outline' },
+  { key: 'social', title: 'Social', text: 'Messages, objets perdus, taxi, équipes', icon: 'people-outline' },
+  { key: 'cours', title: 'Cours et scolarité', text: 'Annonces de ton UFR', icon: 'school-outline' },
+  { key: 'campus', title: 'Campus', text: 'Menus, ruptures, alertes du campus', icon: 'megaphone-outline' },
+];
+
+function Preferences({ onClose }: { onClose: () => void }) {
+  const [prefs, setPrefs] = useState<NotificationPrefs | null>(null);
+  useEffect(() => {
+    profileApi.prefs().then(setPrefs, () => onClose());
+  }, [onClose]);
+  const toggle = (key: keyof NotificationPrefs, on: boolean) => {
+    if (!prefs) return;
+    const next = { ...prefs, [key]: on };
+    setPrefs(next);
+    profileApi.setPrefs(next).catch((err) => {
+      setPrefs(prefs);
+      Alert.alert('Changement impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
+    });
+  };
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose} />
+      <View style={styles.sheet}>
+        <Text style={styles.sheetTitle}>Préférences de notification</Text>
+        <Text style={styles.sheetSub}>Ce que ton téléphone t’envoie. La liste des notifications garde tout.</Text>
+        {!prefs ? (
+          <ActivityIndicator color={colors.primary} />
+        ) : (
+          PREF_ROWS.map((r) => (
+            <View key={r.key} style={styles.prefRow}>
+              <View style={styles.prefIcon}>
+                <Ionicons name={r.icon} size={18} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.prefTitle}>{r.title}</Text>
+                <Text style={styles.sheetSub}>{r.text}</Text>
+              </View>
+              <Switch value={prefs[r.key] !== false} onValueChange={(v) => toggle(r.key, v)} trackColor={{ true: colors.success }} accessibilityLabel={r.title} />
+            </View>
+          ))
+        )}
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
+  gear: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 36, paddingHorizontal: 12, borderRadius: radii.pill, backgroundColor: colors.card, ...shadow.card },
+  gearText: { ...typo.smallStrong, color: colors.navy },
+  backdrop: { flex: 1, backgroundColor: 'rgba(15,27,76,0.35)' },
+  sheet: { backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20, paddingBottom: 36, gap: 12 },
+  sheetTitle: { ...typo.h3, color: colors.navy },
+  sheetSub: { ...typo.caption, color: colors.muted2 },
+  prefRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
+  prefIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  prefTitle: { ...typo.bodyStrong, color: colors.navy },
   safe: { flex: 1, backgroundColor: colors.bg },
   head: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingTop: 8 },
   h1: { ...typo.h1, color: colors.navy },

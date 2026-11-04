@@ -9,9 +9,9 @@ export default function CampusScreen() {
     <TabScreen
       title="Campus"
       views={[
-        { key: 'lieux', label: 'Lieux', subtitle: 'Les endroits à connaître', render: () => <PlacesBoard /> },
-        { key: 'objets', label: 'Objets perdus', subtitle: 'Perdus et trouvés sur le campus', render: () => <LostBoard /> },
-        { key: 'boutiques', label: 'Boutiques', subtitle: 'Le marché des boutiques du campus', render: () => <MarketBoard /> },
+        { key: 'lieux', label: 'Lieux', icon: 'map-outline', subtitle: 'Les endroits à connaître', render: () => <PlacesBoard /> },
+        { key: 'objets', label: 'Objets perdus', icon: 'search-outline', subtitle: 'Perdus et trouvés sur le campus', render: () => <LostBoard /> },
+        { key: 'boutiques', label: 'Boutiques', icon: 'storefront-outline', subtitle: 'Le marché des boutiques du campus', render: () => <MarketBoard /> },
       ]}
     />
   );

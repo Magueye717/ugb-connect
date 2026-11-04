@@ -74,8 +74,8 @@ export function RestoUBoard() {
                 </Text>
               </View>
               {r.coords && (
-                <Pressable style={styles.go} onPress={() => openDirections(r.coords!, r.name)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Itinéraire vers ${r.name}`}>
-                  <Ionicons name="navigate" size={14} color={colors.primary} />
+                <Pressable style={styles.go} onPress={() => openDirections(r.coords!, r.name)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Voir ${r.name} sur la carte`}>
+                  <Ionicons name="location" size={15} color={colors.primary} />
                 </Pressable>
               )}
               {dishes.length > 0 && (

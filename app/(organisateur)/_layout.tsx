@@ -3,50 +3,61 @@ import { Tabs } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { SpaceSwitcher } from '@/components/SpaceSwitcher';
 import { colors } from '@/constants/theme';
+import { isOwner, useAuth } from '@/context/AuthContext';
 
 // Organizer space: few tabs, the scanner in the middle, one tap away at the bus door.
 const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
   activites: 'calendar-outline',
   scanner: 'qr-code-outline',
+  'mon-equipe': 'people-outline',
   compte: 'person-outline',
 };
 
-const TITLES: Record<string, string> = { activites: 'Activités', scanner: 'Scanner', compte: 'Compte' };
+const TITLES: Record<string, string> = { activites: 'Activités', scanner: 'Scanner', 'mon-equipe': 'Équipe', compte: 'Compte' };
 
 const activeIcons: Record<string, keyof typeof Ionicons.glyphMap> = {
   activites: 'calendar',
   scanner: 'qr-code',
+  'mon-equipe': 'people',
   compte: 'person',
 };
 
 export default function OrganizerTabLayout() {
+  const { organizer } = useAuth();
   // Android edge-to-edge: the system navigation bar sits over the app, so the tab bar grows by its height.
   const insets = useSafeAreaInsets();
   const bottom = Math.max(insets.bottom, 10);
   return (
-    <Tabs
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarShowLabel: true,
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.tabInactive,
-        tabBarStyle: [styles.bar, { height: 62 + bottom, paddingBottom: bottom }],
-        tabBarLabel: ({ focused, color }) => Label(TITLES[route.name] ?? route.name, focused, String(color)),
-        tabBarLabelStyle: styles.label,
-        tabBarIcon: ({ focused, color }) => {
-          const name = focused ? activeIcons[route.name] : icons[route.name];
-          return (
-            <View style={[styles.iconWrap, focused && styles.iconOn]}>
-              <Ionicons name={name ?? 'ellipse-outline'} size={22} color={String(color)} />
-            </View>
-          );
-        },
-      })}>
-      <Tabs.Screen name="activites" options={{ title: 'Activités' }} />
-      <Tabs.Screen name="scanner" options={{ title: 'Scanner' }} />
-      <Tabs.Screen name="compte" options={{ title: 'Compte' }} />
-    </Tabs>
+    // The space button floats over every tab (only with several spaces).
+    <View style={{ flex: 1 }}>
+      <Tabs
+        screenOptions={({ route }) => ({
+          headerShown: false,
+          tabBarShowLabel: true,
+          tabBarActiveTintColor: colors.primary,
+          tabBarInactiveTintColor: colors.tabInactive,
+          tabBarStyle: [styles.bar, { height: 62 + bottom, paddingBottom: bottom }],
+          tabBarLabel: ({ focused, color }) => Label(TITLES[route.name] ?? route.name, focused, String(color)),
+          tabBarLabelStyle: styles.label,
+          tabBarIcon: ({ focused, color }) => {
+            const name = focused ? activeIcons[route.name] : icons[route.name];
+            return (
+              <View style={[styles.iconWrap, focused && styles.iconOn]}>
+                <Ionicons name={name ?? 'ellipse-outline'} size={22} color={String(color)} />
+              </View>
+            );
+          },
+        })}>
+        <Tabs.Screen name="activites" options={{ title: 'Activités' }} />
+        <Tabs.Screen name="scanner" options={{ title: 'Scanner' }} />
+        {/* The team is the owner's: managers and scanners never see this tab. */}
+        <Tabs.Screen name="mon-equipe" options={{ title: 'Équipe', href: isOwner(organizer?.roles) ? undefined : null }} />
+        <Tabs.Screen name="compte" options={{ title: 'Compte' }} />
+      </Tabs>
+      <SpaceSwitcher />
+    </View>
   );
 }
 

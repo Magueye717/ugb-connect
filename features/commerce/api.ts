@@ -5,6 +5,22 @@ import { api } from '@/lib/api';
 const auth = { auth: true } as const;
 
 export type BusinessKind = 'restaurant' | 'shop';
+/** A business's own space: its organization and its kind (one entity may run a restaurant and a shop). */
+export type BusinessRef = { orgId: string; kind: BusinessKind };
+/** Whose profile and catalog: the business's own space, or Référencement (an editor, by the business's id). */
+/** An entity a number owns (Référencement): what it runs, and whether it is a student's own (their shop). */
+export type OwnedEntity = { orgId: string; name: string; personal: boolean; /** It organizes caravans or events. */ organizer: boolean; kinds: BusinessKind[]; businesses: { id: string; kind: BusinessKind; name: string }[] };
+
+export type BusinessTarget = BusinessRef | { editorOf: string };
+const own = (b: BusinessRef) => `/org/${b.orgId}/${b.kind}`;
+const profileOf = (t: BusinessTarget) => ('editorOf' in t ? `/admin/businesses/${t.editorOf}` : `${own(t)}/business`);
+const catalogOf = (t: BusinessTarget) => ('editorOf' in t ? `/admin/businesses/${t.editorOf}/catalog` : `${own(t)}/catalog`);
+
+export type DeliveryZone = 'campus1' | 'campus2' | 'outside';
+/** FCFA per zone, 0: free; null: no delivery there. All null: pickup only. */
+export type DeliveryFees = Record<DeliveryZone, number | null>;
+/** The pickers' lists, from the backend (GET /reference/commerce). */
+export type CommerceReference = { specialties: Record<BusinessKind, string[]>; /** How many a business may pick. */ maxSpecialties: number; zones: { value: DeliveryZone; label: string }[] };
 export type ItemSection = 'menu' | 'drink' | 'article';
 
 export type ItemDto = {
@@ -28,6 +44,8 @@ export type BusinessDto = {
   orgId: string;
   kind: BusinessKind;
   name: string;
+  /** One or several; `specialty` is them joined ("Sénégalais · Grillades"). */
+  specialties: string[];
   specialty: string;
   description: string;
   photo: string | null;
@@ -42,10 +60,13 @@ export type BusinessDto = {
   /** Takes orders now (within its hours, not paused). */
   open: boolean;
   statusLabel: string;
-  /** FCFA, 0: free; null: pickup only. */
+  deliveryFees: DeliveryFees;
+  /** The lowest delivery price ("dès 200 F"); null: pickup only. */
   deliveryFee: number | null;
   acceptingOrders: boolean;
   active: boolean;
+  /** A student's own shop. */
+  byStudent: boolean;
 };
 export type ListedBusiness = BusinessDto & { highlights: ItemDto[]; minPrice: number | null; itemsCount: number; /** Every available item: for searching. */ itemNames: string[] };
 /** The market: every article of every shop, each with its shop. */
@@ -64,6 +85,9 @@ export type OrderDto = {
   lines: { itemId: string; name: string; price: number; qty: number; photo: string | null }[];
   subtotal: number;
   deliveryFee: number;
+  zone: DeliveryZone | null;
+  /** "Campus 2": where it's delivered. */
+  zoneLabel: string | null;
   total: number;
   mode: OrderMode;
   address: string | null;
@@ -79,7 +103,7 @@ export type OrderDto = {
 
 export type BusinessPatch = Partial<{
   name: string;
-  specialty: string;
+  specialties: string[];
   description: string;
   photoId: string | null;
   location: { lat: number; lng: number } | null;
@@ -87,11 +111,10 @@ export type BusinessPatch = Partial<{
   campus: 'campus1' | 'campus2' | null;
   phone: string;
   services: { start: string; end: string }[];
-  deliveryFee: number | null;
+  deliveryFees: DeliveryFees;
   acceptingOrders: boolean;
 }>;
 export type ItemInput = { section: ItemSection; category?: string | null; name: string; detail?: string; price: number; photoId?: string | null; stock?: number | null; available?: boolean };
-export type Member = { userId: string; roles: string[]; firstName: string; lastName: string };
 
 /** The steps a student sees, by mode. */
 export function orderSteps(mode: OrderMode) {
@@ -129,31 +152,33 @@ export const commerceApi = {
   list: (kind: BusinessKind) => api<{ items: ListedBusiness[] }>('GET', `/businesses?kind=${kind}`, auth),
   get: (id: string) => api<BusinessDetail>('GET', `/businesses/${id}`, auth),
   market: (kind: BusinessKind) => api<{ businesses: BusinessDto[]; items: MarketItem[] }>('GET', `/market?kind=${kind}`, auth),
-  order: (id: string, body: { lines: { itemId: string; qty: number }[]; mode: OrderMode; address?: string | null; note?: string | null; method: PaymentMethod }) =>
+  reference: () => api<CommerceReference>('GET', '/reference/commerce'),
+  order: (id: string, body: { lines: { itemId: string; qty: number }[]; mode: OrderMode; zone?: DeliveryZone | null; address?: string | null; note?: string | null; method: PaymentMethod }) =>
     api<{ order: OrderDto; payment: PaymentDto }>('POST', `/businesses/${id}/orders`, { ...auth, body: { ...body, returnUrl: paymentReturnUrl() } }),
   myOrders: () => api<{ items: OrderDto[] }>('GET', '/me/orders', auth),
   myOrder: (id: string) => api<OrderDto>('GET', `/me/orders/${id}`, auth),
   cancel: (id: string) => api<OrderDto>('POST', `/me/orders/${id}/cancel`, auth),
-  // The business's own space
-  mine: (orgId: string) => api<BusinessDto>('GET', `/org/${orgId}/business`, auth),
-  updateMine: (orgId: string, body: BusinessPatch) => api<BusinessDto>('PATCH', `/org/${orgId}/business`, { ...auth, body }),
-  catalog: (orgId: string) => api<{ items: ItemDto[] }>('GET', `/org/${orgId}/catalog`, auth),
-  addItem: (orgId: string, body: ItemInput) => api<ItemDto>('POST', `/org/${orgId}/catalog`, { ...auth, body }),
-  updateItem: (orgId: string, itemId: string, body: Partial<ItemInput>) => api<ItemDto>('PATCH', `/org/${orgId}/catalog/${itemId}`, { ...auth, body }),
-  removeItem: (orgId: string, itemId: string) => api<void>('DELETE', `/org/${orgId}/catalog/${itemId}`, auth),
-  queue: (orgId: string, scope: 'active' | 'done' = 'active') => api<{ items: OrderDto[] }>('GET', `/org/${orgId}/orders?scope=${scope}`, auth),
-  businessOrder: (orgId: string, id: string) => api<OrderDto>('GET', `/org/${orgId}/orders/${id}`, auth),
-  step: (orgId: string, id: string, step: 'accept' | 'ready' | 'complete') => api<OrderDto>('POST', `/org/${orgId}/orders/${id}/${step}`, auth),
+  // The business's own space (its team: features/team)
+  // Profile and catalog: also Référencement's (an editor of the kind), with the same screens.
+  mine: (t: BusinessTarget) => api<BusinessDto>('GET', profileOf(t), auth),
+  updateMine: (t: BusinessTarget, body: BusinessPatch) => api<BusinessDto>('PATCH', profileOf(t), { ...auth, body }),
+  catalog: (t: BusinessTarget) => api<{ items: ItemDto[] }>('GET', catalogOf(t), auth),
+  addItem: (t: BusinessTarget, body: ItemInput) => api<ItemDto>('POST', catalogOf(t), { ...auth, body }),
+  updateItem: (t: BusinessTarget, itemId: string, body: Partial<ItemInput>) => api<ItemDto>('PATCH', `${catalogOf(t)}/${itemId}`, { ...auth, body }),
+  removeItem: (t: BusinessTarget, itemId: string) => api<void>('DELETE', `${catalogOf(t)}/${itemId}`, auth),
+  queue: (b: BusinessRef, scope: 'active' | 'done' = 'active') => api<{ items: OrderDto[] }>('GET', `${own(b)}/orders?scope=${scope}`, auth),
+  businessOrder: (b: BusinessRef, id: string) => api<OrderDto>('GET', `${own(b)}/orders/${id}`, auth),
+  step: (b: BusinessRef, id: string, step: 'accept' | 'ready' | 'complete') => api<OrderDto>('POST', `${own(b)}/orders/${id}/${step}`, auth),
   /** At the counter: the code the student gives, typed or scanned from their QR. */
-  handover: (orgId: string, code: string) => api<OrderDto>('POST', `/org/${orgId}/orders/handover`, { ...auth, body: { code } }),
-  refuse: (orgId: string, id: string, reason: string) => api<OrderDto>('POST', `/org/${orgId}/orders/${id}/refuse`, { ...auth, body: { reason } }),
-  members: (orgId: string) => api<Member[]>('GET', `/org/${orgId}/members`, auth),
-  /** A new number gets an account when firstName and lastName are given. */
-  setMember: (orgId: string, body: { phone: string; roles: string[]; firstName?: string; lastName?: string }) => api<void>('PUT', `/org/${orgId}/members`, { ...auth, body }),
-  removeMember: (orgId: string, userId: string) => api<void>('DELETE', `/org/${orgId}/members/${userId}`, auth),
+  handover: (b: BusinessRef, code: string) => api<OrderDto>('POST', `${own(b)}/orders/handover`, { ...auth, body: { code } }),
+  refuse: (b: BusinessRef, id: string, reason: string) => api<OrderDto>('POST', `${own(b)}/orders/${id}/refuse`, { ...auth, body: { reason } }),
   // Admins
   all: () => api<{ items: BusinessDto[] }>('GET', '/admin/businesses', auth),
-  create: (body: { kind: BusinessKind; name: string; specialty: string; owner: { phone: string; firstName: string; lastName: string } } & BusinessPatch) =>
+  /** A new entity with its owner, or `orgId`: a restaurant's entity also opens a shop (or the reverse). */
+  create: (body: { kind: BusinessKind; name: string; specialties: string[]; orgId?: string; owner?: { phone: string; firstName: string; lastName: string; password?: string } } & BusinessPatch) =>
     api<BusinessDto>('POST', '/admin/businesses', { ...auth, body }),
+  /** Référencement, before adding: the account of this number and the entities it owns (with what each runs). */
+  ownerLookup: (phone: string) =>
+    api<{ account: { firstName: string; lastName: string } | null; entities: OwnedEntity[] }>('POST', '/admin/businesses/owner-lookup', { ...auth, body: { phone } }),
   setActive: (id: string, active: boolean) => api<BusinessDto>('PATCH', `/admin/businesses/${id}`, { ...auth, body: { active } }),
 };

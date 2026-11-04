@@ -31,7 +31,7 @@ export default function Remise() {
     setBusy(true);
     setError(null);
     try {
-      const o = await commerceApi.handover(business.orgId, value);
+      const o = await commerceApi.handover(business, value);
       haptics.success();
       setDone(o);
     } catch (err) {

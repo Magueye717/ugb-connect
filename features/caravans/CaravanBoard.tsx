@@ -238,7 +238,7 @@ const styles = StyleSheet.create({
   seats: { fontSize: 12, fontWeight: '600', color: colors.muted2, marginTop: 1 },
   bookOff: { backgroundColor: colors.tabInactive },
   bookMine: { flexDirection: 'row', gap: 5, backgroundColor: colors.primarySoft },
-  section: { ...typo.title, color: colors.navy },
+  section: { ...typo.section, color: colors.navy },
   ticket: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.card, borderRadius: radii.md, padding: 12 },
   ticketTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   countBadge: { backgroundColor: colors.primarySoft, borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 2 },

@@ -2,45 +2,65 @@ import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radii, shadow, typo } from '@/constants/theme';
-import { useAuth, type Space } from '@/context/AuthContext';
+import { useAuth, type AppSpace } from '@/context/AuthContext';
 
 type Info = { icon: keyof typeof Ionicons.glyphMap; title: string; text: string };
 
-/** How each space is named wherever spaces are listed or switched. */
-export function spaceInfo(space: Space, organizerName?: string, businessName?: string): Info {
-  switch (space) {
+/** How each space is named wherever spaces are listed or switched: "Khoulé & frère · Restaurant". */
+export function spaceInfo(s: AppSpace): Info {
+  switch (s.type) {
     case 'student':
       return { icon: 'school-outline', title: 'Espace étudiant', text: 'Caravanes, restos, taxi, campus' };
     case 'organizer':
-      return { icon: 'bus-outline', title: organizerName ? `Espace ${organizerName}` : 'Espace organisateur', text: 'Départs, passagers, scanner' };
+      return { icon: 'bus-outline', title: `${s.name} · Organisateur`, text: 'Départs, événements, passagers, scanner' };
     case 'business':
-      return { icon: 'storefront-outline', title: businessName ?? 'Mon commerce', text: 'Commandes, catalogue, équipe' };
+      // The shop they own is "Ma boutique" (a student's own entity bears their name: not repeated).
+      if (s.kind === 'shop' && s.roles.includes('owner')) return { icon: 'storefront-outline', title: 'Ma boutique', text: s.personal ? 'Commandes, articles, équipe' : `${s.name} · commandes, articles, équipe` };
+      return s.kind === 'shop'
+        ? { icon: 'storefront-outline', title: `${s.name} · Boutique`, text: 'Commandes, articles, équipe' }
+        : { icon: 'restaurant-outline', title: `${s.name} · Restaurant`, text: 'Commandes, menus, équipe' };
+    case 'admin':
+      return { icon: 'shield-checkmark-outline', title: 'Administration', text: 'Équipe UGB Campus, événements, entités' };
     case 'resto':
-      return { icon: 'restaurant-outline', title: 'Restos publics', text: 'Stocks des plats du jour, ruptures' };
+      return { icon: 'restaurant-outline', title: 'Restos publics', text: 'Menus du déjeuner et du dîner, ruptures' };
     case 'alerts':
-      return { icon: 'megaphone-outline', title: 'Communication', text: 'Alertes et « À la une » de l’accueil' };
+      return { icon: 'megaphone-outline', title: 'Communication', text: 'Alertes, « À la une », bannières' };
+    case 'directory':
+      return { icon: 'map-outline', title: 'Référencement', text: 'Lieux, restaurants et boutiques du campus' };
   }
 }
 
 /**
- * "Mes espaces": every space this account can open (student, organizer, and one per platform role), the current
- * one marked. Hidden when there's only one.
+ * "Mes espaces": every space this account can open (student, each space of each organization, the platform team's),
+ * the current one marked. Hidden when there's only one. Also always one tap away: the space button (SpaceSwitcher).
  */
 export function SpacesList() {
-  const { spaces, space, organizer, business, openSpace } = useAuth();
+  const { spaces } = useAuth();
   if (spaces.length < 2) return null;
 
   return (
     <View style={{ gap: 8 }}>
       <Text style={styles.title}>Mes espaces</Text>
+      <SpaceRows />
+    </View>
+  );
+}
+
+/** The spaces, one row each (the current one marked); `onOpen` runs before switching (closing a sheet). */
+export function SpaceRows({ onOpen }: { onOpen?: () => void }) {
+  const { spaces, current: here, openSpace } = useAuth();
+  return (
       <View style={[styles.group, shadow.card]}>
         {spaces.map((s, i) => {
-          const info = spaceInfo(s, organizer?.name, business?.name);
-          const current = s === space;
+          const info = spaceInfo(s);
+          const current = s.key === here?.key;
           return (
             <Pressable
-              key={s}
-              onPress={() => openSpace(s)}
+              key={s.key}
+              onPress={() => {
+                onOpen?.();
+                openSpace(s.key);
+              }}
               disabled={current}
               style={({ pressed }) => [styles.row, i > 0 && styles.divider, pressed && { backgroundColor: colors.primarySofter }]}
               accessibilityRole="button"
@@ -64,7 +84,6 @@ export function SpacesList() {
           );
         })}
       </View>
-    </View>
   );
 }
 

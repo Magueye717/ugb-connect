@@ -14,7 +14,7 @@ export const DEV_OTP = '1234';
 export const TERMS_VERSION = '2026-01';
 
 export type OtpChannel = 'sms' | 'whatsapp' | 'email';
-export type OtpPurpose = 'register' | 'reset_password';
+export type OtpPurpose = 'register' | 'reset_password' | 'change_phone';
 
 /** A verification in progress: the id the next calls refer to. */
 export type OtpChallenge = { challengeId: string; expiresIn: number; resendAfter: number; codeLength: number };
@@ -27,12 +27,15 @@ export type VerifyResult =
 /** Which of the two numbers already has an account. */
 export type AccountConflict = 'student_number' | 'phone';
 
-/** Step 1: the number that already has an account, or null when both are free. */
-export async function accountConflict(studentId: string, phone: string): Promise<AccountConflict | null> {
-  const res = await api<{ available: boolean; conflict?: AccountConflict }>('POST', '/auth/register/check', {
+/**
+ * Step 1: the number that already has an account (`conflict`), or none. `existingAccount`: the phone has an account
+ * that isn't a student's (someone given a role in a team): sign-up completes it, the roles stay.
+ */
+export async function checkAccount(studentId: string, phone: string): Promise<{ conflict: AccountConflict | null; existingAccount: boolean }> {
+  const res = await api<{ available: boolean; conflict?: AccountConflict; existingAccount?: boolean }>('POST', '/auth/register/check', {
     body: { studentNumber: studentId, phone },
   });
-  return res.available ? null : (res.conflict ?? 'phone');
+  return { conflict: res.available ? null : (res.conflict ?? 'phone'), existingAccount: !!res.existingAccount };
 }
 
 /** The backend has no university directory yet, so no e-mail fallback for the code (open question Q-14). */
@@ -95,7 +98,7 @@ export async function createAccount(input: NewAccount): Promise<Tokens> {
       room: input.onCampus ? input.room : null,
       ufr: input.ufr,
       region: input.region,
-      password: input.password,
+      password: input.password.trim(),
       termsVersion: TERMS_VERSION,
       device: deviceInfo(),
     },
@@ -106,12 +109,12 @@ export async function createAccount(input: NewAccount): Promise<Tokens> {
 /** Sign-in with a phone number (or a student number) and a password. */
 export async function signIn(identifier: string, password: string): Promise<Tokens> {
   const { tokens } = await api<{ userId: string; tokens: Tokens }>('POST', '/auth/login', {
-    body: { identifier, password, device: deviceInfo() },
+    body: { identifier: identifier.trim(), password: password.trim(), device: deviceInfo() },
   });
   return tokens;
 }
 
 /** Last step of "mot de passe oublié": every existing session ends. */
 export function resetPassword(verificationToken: string, newPassword: string): Promise<void> {
-  return api<void>('POST', '/auth/password/reset', { body: { verificationToken, newPassword } });
+  return api<void>('POST', '/auth/password/reset', { body: { verificationToken, newPassword: newPassword.trim() } });
 }

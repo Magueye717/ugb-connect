@@ -94,7 +94,7 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14 },
   web: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
   webText: { ...typo.caption, flex: 1, color: colors.muted2, lineHeight: 17 },
-  section: { ...typo.title, color: colors.navy, marginTop: 4 },
+  section: { ...typo.section, color: colors.navy, marginTop: 4 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   route: { ...typo.title, color: colors.navy },
   muted: { ...typo.caption, color: colors.muted2, marginTop: 2 },

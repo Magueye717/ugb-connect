@@ -174,7 +174,7 @@ export default function CommandeScreen() {
           <View style={styles.rowBetween}>
             <View style={{ flex: 1 }}>
               <Text style={styles.label}>{order.mode === 'delivery' ? 'Livraison' : 'À récupérer'}</Text>
-              <Text style={styles.value}>{order.mode === 'delivery' ? order.address : order.business.address}</Text>
+              <Text style={styles.value}>{order.mode === 'delivery' ? [order.zoneLabel, order.address].filter(Boolean).join(' · ') : order.business.address}</Text>
             </View>
             <Pressable
               style={styles.call}

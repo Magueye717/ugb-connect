@@ -6,7 +6,7 @@ import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleS
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/states';
-import { BackButton, StatusChip } from '@/components/ui';
+import { BackButton, StatusChip, TextButton } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { BANNER_STATUS, bannersApi, type BannerDto } from '@/features/banners/api';
@@ -71,14 +71,10 @@ export default function MesPublicites() {
                 {b.status === 'pending_review' && <Text style={styles.muted}>L’équipe UGB Campus la vérifie avant la diffusion.</Text>}
                 <View style={styles.actions}>
                   {b.status === 'pending_payment' && b.payment && (
-                    <Pressable onPress={() => payInBrowser(b.payment!).then(load, fail)} hitSlop={8}>
-                      <Text style={styles.link}>Payer</Text>
-                    </Pressable>
+                    <TextButton label="Payer" icon="card-outline" onPress={() => payInBrowser(b.payment!).then(load, fail)} />
                   )}
                   {(b.status === 'pending_payment' || b.status === 'pending_review') && (
-                    <Pressable onPress={() => cancel(b)} hitSlop={8}>
-                      <Text style={[styles.link, { color: colors.dangerText }]}>Annuler</Text>
-                    </Pressable>
+                    <TextButton label="Annuler" tone="danger" onPress={() => cancel(b)} />
                   )}
                 </View>
               </View>
@@ -103,5 +99,4 @@ const styles = StyleSheet.create({
   muted: { ...typo.caption, color: colors.muted2, lineHeight: 17 },
   reason: { ...typo.caption, color: colors.dangerText },
   actions: { flexDirection: 'row', gap: 18, marginTop: 2 },
-  link: { color: colors.orangeText, fontWeight: '700' },
 });

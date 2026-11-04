@@ -86,6 +86,47 @@ export function OutlineButton({ label, onPress, disabled }: { label: string; onP
   );
 }
 
+/**
+ * A secondary action that must still read as a button ("Choisir une photo", "Annuler", "Tout voir"): a soft pill,
+ * never bare coloured text. `danger` for what removes or cancels.
+ */
+export function TextButton({
+  label,
+  onPress,
+  icon,
+  tone = 'primary',
+  disabled,
+  style,
+}: {
+  label: string;
+  onPress: () => void;
+  icon?: keyof typeof Ionicons.glyphMap;
+  tone?: 'primary' | 'danger' | 'accent';
+  disabled?: boolean;
+  style?: object;
+}) {
+  const t = TEXT_BUTTON_TONES[tone];
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      hitSlop={6}
+      style={({ pressed }) => [styles.textBtn, { backgroundColor: t.bg }, pressed && styles.pressed, disabled && { opacity: 0.4 }, style]}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!disabled }}>
+      {icon && <Ionicons name={icon} size={15} color={t.fg} />}
+      <Text style={[styles.textBtnLabel, { color: t.fg }]} numberOfLines={2}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+const TEXT_BUTTON_TONES = {
+  primary: { fg: colors.primary, bg: colors.primarySoft },
+  danger: { fg: colors.dangerText, bg: colors.dangerBg },
+  accent: { fg: colors.orangeText, bg: '#FFEDE3' },
+};
+
 export function Field({
   icon,
   right,
@@ -347,6 +388,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
   },
   outlineLabel: { ...typo.title, color: colors.primary },
+  textBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, alignSelf: 'flex-start', minHeight: 36, paddingHorizontal: 14, paddingVertical: 6, borderRadius: radii.pill },
+  textBtnLabel: { ...typo.smallStrong, textAlign: 'center', flexShrink: 1 },
   pressed: { opacity: 0.86 },
   disabled: { opacity: 0.45 },
   field: {

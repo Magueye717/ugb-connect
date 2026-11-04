@@ -5,7 +5,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { colors, typo } from '@/constants/theme';
 import { spaceInfo } from '@/components/SpacesList';
-import { spaceHome, useAuth, type Space } from '@/context/AuthContext';
+import { spaceHome, useAuth } from '@/context/AuthContext';
 
 /**
  * Switching space goes through this neutral screen: the guards flip while it's on screen, never under
@@ -13,18 +13,19 @@ import { spaceHome, useAuth, type Space } from '@/context/AuthContext';
  * It also makes the change visible: different tabs, different job.
  */
 export default function SwitchSpace() {
-  const { vers } = useLocalSearchParams<{ vers?: Space }>();
-  const { space, spaces, setSpace, organizer, business } = useAuth();
-  const target = vers && spaces.includes(vers) ? vers : space;
+  // `vers`: a space's key ("shop:<orgId>"): from "Mes espaces", or a notification ("you joined the team").
+  const { vers } = useLocalSearchParams<{ vers?: string }>();
+  const { current, spaces, setSpace } = useAuth();
+  const target = spaces.find((x) => x.key === vers) ?? current;
 
   useEffect(() => {
-    if (target && target !== space) setSpace(target);
-  }, [target, space, setSpace]);
+    if (target && target.key !== current?.key) setSpace(target.key);
+  }, [target, current, setSpace]);
 
   if (!target) return <Redirect href="/(auth)/welcome" />;
-  if (target === space) return <Redirect href={spaceHome(target)} />;
+  if (target.key === current?.key) return <Redirect href={spaceHome(target.type)} />;
 
-  const info = spaceInfo(target, organizer?.name, business?.name);
+  const info = spaceInfo(target);
   return (
     <View style={styles.root}>
       <Ionicons name={info.icon} size={40} color="#fff" />

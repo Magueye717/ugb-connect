@@ -23,16 +23,15 @@ export default function CommandeRecue() {
   const [busy, setBusy] = useState(false);
   const [refusing, setRefusing] = useState(false);
   const [reason, setReason] = useState('');
-  const orgId = business?.orgId;
 
   useFocusEffect(
     useCallback(() => {
-      if (orgId && id) commerceApi.businessOrder(orgId, id).then(setO, fail('Commande introuvable'));
-    }, [orgId, id]),
+      if (business && id) commerceApi.businessOrder(business, id).then(setO, fail('Commande introuvable'));
+    }, [business, id]),
   );
 
   const back = () => (router.canGoBack() ? router.back() : router.replace('/commandes'));
-  if (!o || !orgId) {
+  if (!o || !business) {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.head}>
@@ -92,7 +91,7 @@ export default function CommandeRecue() {
         </View>
 
         <View style={[styles.card, shadow.card]}>
-          <Info icon={o.mode === 'delivery' ? 'bicycle-outline' : 'walk-outline'} label={o.mode === 'delivery' ? 'À livrer' : 'À emporter'} value={o.mode === 'delivery' ? (o.address ?? '') : `Le client donne le code ${o.code}`} />
+          <Info icon={o.mode === 'delivery' ? 'bicycle-outline' : 'walk-outline'} label={o.mode === 'delivery' ? 'À livrer' : 'À emporter'} value={o.mode === 'delivery' ? [o.zoneLabel, o.address].filter(Boolean).join(' · ') : `Le client donne le code ${o.code}`} />
           {o.customer && (
             <Pressable style={styles.call} onPress={() => Linking.openURL(`tel:+221${o.customer!.phone.replace(/\s/g, '')}`)} accessibilityRole="button" accessibilityLabel={`Appeler ${o.customer.name}`}>
               <Info icon="person-outline" label={o.customer.name} value={o.customer.phone} />
@@ -114,7 +113,7 @@ export default function CommandeRecue() {
           {o.refusal && <Text style={[styles.muted, { color: colors.dangerText }]}>Motif : {o.refusal}</Text>}
         </View>
 
-        {next && <PrimaryButton label={next.label} loading={busy} disabled={busy} onPress={() => run(() => commerceApi.step(orgId, o.id, next.step))} />}
+        {next && <PrimaryButton label={next.label} loading={busy} disabled={busy} onPress={() => run(() => commerceApi.step(business, o.id, next.step))} />}
         {o.status === 'placed' && (
           <Pressable onPress={() => setRefusing(true)} style={styles.refuse} accessibilityRole="button">
             <Ionicons name="close-circle-outline" size={18} color={colors.dangerText} />
@@ -143,7 +142,7 @@ export default function CommandeRecue() {
               loading={busy}
               onPress={() =>
                 run(async () => {
-                  const r = await commerceApi.refuse(orgId, o.id, reason.trim());
+                  const r = await commerceApi.refuse(business, o.id, reason.trim());
                   setRefusing(false);
                   return r;
                 })
