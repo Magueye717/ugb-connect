@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
-import { Field, LabeledField, PrimaryButton } from '@/components/ui';
+import { Field, LabeledField, PrimaryButton, SafeBottom } from '@/components/ui';
 import { colors, radii, typo } from '@/constants/theme';
 import type { PassengerDto } from '@/features/caravans/api';
 import { formatPhone, phoneDigits, validatePhone } from '@/features/register/validation';
@@ -38,7 +39,7 @@ export function CompanionSheet({ seat, initial, route, onClose, onSave, onRemove
   return (
     <Modal visible={seat !== null} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <View style={styles.sheet}>
           <View style={styles.titleRow}>
             <View style={styles.seat}>
@@ -79,6 +80,7 @@ export function CompanionSheet({ seat, initial, route, onClose, onSave, onRemove
           <Pressable onPress={initial ? onRemove : onClose} hitSlop={8} accessibilityRole="button" style={styles.secondary}>
             <Text style={styles.secondaryText}>{initial ? 'Retirer cette place' : 'Annuler'}</Text>
           </Pressable>
+          <SafeBottom />
         </View>
       </KeyboardAvoidingView>
     </Modal>

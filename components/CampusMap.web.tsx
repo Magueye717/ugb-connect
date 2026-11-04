@@ -7,9 +7,9 @@ export type MapPin = { id: string; kind: 'place' | 'restaurant' | 'shop'; name: 
 type Campus = { outline: { lat: number; lng: number }[]; bounds: { south: number; west: number; north: number; east: number }; start: { lat: number; lng: number; delta: number }; attribution: string };
 
 /** react-native-maps has no web support: a plain placeholder keeps the web build working. */
-export function CampusMap({ pins, style }: { pins: MapPin[]; campus?: Campus | null; onOpen: (pin: MapPin) => void; style?: object }) {
+export function CampusMap({ pins, style, insetTop = 0 }: { pins: MapPin[]; campus?: Campus | null; onOpen: (pin: MapPin) => void; style?: object; insetTop?: number }) {
   return (
-    <View style={[styles.box, style]}>
+    <View style={[styles.box, style, { paddingTop: insetTop }]}>
       <Ionicons name="map-outline" size={28} color={colors.primary} />
       <Text style={styles.text}>{pins.length} lieux · carte disponible dans l’app mobile</Text>
     </View>

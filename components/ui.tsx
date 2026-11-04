@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 
 import Animated, { FadeInDown, interpolateColor, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, motion, radii, typo } from '@/constants/theme';
 import { bellLabel, useNotifications } from '@/context/NotificationsContext';
@@ -335,6 +336,49 @@ export function Segmented<T extends string>({
   );
 }
 
+/**
+ * A choice among a few (campus, category, role, day…): the same look in every form. 36 px tall, 44 px to the touch
+ * (hit slop); off: white with a border (visible on a card and on the page), on: navy with white text. `role`: radio
+ * for one choice, checkbox for several, tab for a switch.
+ */
+export function Chip({
+  label,
+  selected,
+  onPress,
+  role = 'radio',
+  icon,
+  disabled,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  role?: 'radio' | 'checkbox' | 'tab';
+  icon?: keyof typeof Ionicons.glyphMap;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
+      style={({ pressed }) => [styles.choice, selected && styles.choiceOn, pressed && styles.pressed, disabled && { opacity: 0.45 }]}
+      accessibilityRole={role}
+      accessibilityState={role === 'tab' ? { selected, disabled: !!disabled } : { checked: selected, disabled: !!disabled }}>
+      {icon && <Ionicons name={icon} size={15} color={selected ? '#fff' : colors.primary} />}
+      <Text style={[styles.choiceText, selected && styles.choiceTextOn]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/**
+ * The end of a bottom sheet: as tall as the phone's navigation bar (gesture bar, Android buttons), so the sheet's last
+ * button is never under it.
+ */
+export function SafeBottom() {
+  const insets = useSafeAreaInsets();
+  return <View style={{ height: insets.bottom }} />;
+}
+
 export function FilterChips<T extends string>({
   options,
   value,
@@ -349,7 +393,7 @@ export function FilterChips<T extends string>({
       {options.map((o) => {
         const on = o === value;
         return (
-          <Pressable key={o} onPress={() => onChange(o)} style={[styles.filter, on && styles.filterOn]}>
+          <Pressable key={o} onPress={() => onChange(o)} hitSlop={{ top: 2, bottom: 2 }} style={[styles.filter, on && styles.filterOn]} accessibilityRole="radio" accessibilityState={{ checked: on }}>
             <Text style={[styles.filterText, on && styles.filterTextOn]}>{o}</Text>
           </Pressable>
         );
@@ -436,6 +480,10 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: colors.orange,
   },
+  choice: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 36, paddingHorizontal: 14, borderRadius: radii.pill, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+  choiceOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  choiceText: { ...typo.smallStrong, color: colors.navy },
+  choiceTextOn: { color: '#fff' },
   chip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radii.pill },
   chipText: { fontSize: 12, fontWeight: '600' },
   screenHead: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingTop: 8 },

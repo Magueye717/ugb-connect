@@ -2,9 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ErrorState } from '@/components/states';
 import { BackButton, Field, PrimaryButton, Segmented } from '@/components/ui';
 import { formatFcfa, paymentMethods } from '@/constants/data';
 import { PaymentLogo } from '@/components/PaymentLogo';
@@ -12,11 +14,14 @@ import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
 import { useOrders } from '@/context/OrdersContext';
-import { type BusinessDetail, commerceApi, type CommerceReference, type DeliveryZone, type OrderMode } from '@/features/commerce/api';
-import { payInBrowser, type PaymentMethod } from '@/features/payments/checkout';
+import { type BusinessDetail, commerceApi, type DeliveryZone, type OrderMethod, type OrderMode } from '@/features/commerce/api';
+import { useCommerceReference } from '@/features/commerce/useCommerceReference';
+import { payInBrowser } from '@/features/payments/checkout';
 import { ApiError } from '@/lib/api';
+import { toast } from '@/lib/toast';
 
-const METHOD: Record<string, PaymentMethod> = { wave: 'wave', om: 'orange_money' };
+// The providers' logos (constants/data) for the online methods a business accepts.
+const LOGO: Partial<Record<OrderMethod, (typeof paymentMethods)[number]>> = { wave: paymentMethods.find((m) => m.id === 'wave'), orange_money: paymentMethods.find((m) => m.id === 'om') };
 
 /** The basket: one business, delivery or pickup, paid now with Wave or Orange Money; then the order's tracking. */
 export default function Panier() {
@@ -26,21 +31,25 @@ export default function Panier() {
   const [b, setB] = useState<BusinessDetail | null>(null);
   const [mode, setMode] = useState<OrderMode | null>(null);
   const [zone, setZone] = useState<DeliveryZone | null>(null);
-  const [zones, setZones] = useState<CommerceReference['zones']>([]);
+  // The delivery zones (shared list); the business's prices come with it below.
+  const { reference, failed: refFailed, retry: retryRef } = useCommerceReference();
+  const zones = reference?.zones ?? [];
+  // The business (prices, stock) couldn't be loaded: an error with « Réessayer », not an endless spinner.
+  const [failed, setFailed] = useState(false);
   // Pre-filled with the room given at sign-up; still editable (delivery to a friend, the BU…).
   const [address, setAddress] = useState(user?.village && user.room ? `${user.village}, chambre ${user.room}` : '');
   const [note, setNote] = useState('');
-  const [payment, setPayment] = useState(paymentMethods[0].id);
+  const [picked, setPicked] = useState<OrderMethod | null>(null);
   const [paying, setPaying] = useState(false);
   const businessId = cart.business?.id;
 
   // Prices and stock as they are now.
-  useFocusEffect(
-    useCallback(() => {
-      if (businessId) commerceApi.get(businessId).then(setB, () => undefined);
-      commerceApi.reference().then((r) => setZones(r.zones), () => undefined);
-    }, [businessId]),
-  );
+  const load = useCallback(() => {
+    if (!businessId) return;
+    setFailed(false);
+    commerceApi.get(businessId).then(setB, () => setFailed(true));
+  }, [businessId]);
+  useFocusEffect(load);
 
   const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/(tabs)/resto' }));
 
@@ -59,11 +68,22 @@ export default function Panier() {
       </SafeAreaView>
     );
   }
-  if (!b) {
+  // Without the business or the zones, the totals and delivery choices would be wrong: wait, or say why and retry.
+  if (!b || !reference) {
+    const stuck = (!b && failed) || (!reference && refFailed);
     return (
       <SafeAreaView style={styles.safe}>
         <Header onBack={back} />
-        <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
+        {stuck ? (
+          <ErrorState
+            onRetry={() => {
+              if (!b) load();
+              if (!reference) retryRef();
+            }}
+          />
+        ) : (
+          <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
+        )}
       </SafeAreaView>
     );
   }
@@ -78,6 +98,8 @@ export default function Panier() {
   const gone = Object.keys(cart.items).filter((itemId) => !b.items.some((i) => i.id === itemId));
   const subtotal = lines.reduce((sum, l) => sum + l.qty * l.price, 0);
   const delivery = chosen === 'delivery';
+  // What the student picked, if this business takes it; otherwise its first method.
+  const payment: OrderMethod = picked && b.paymentMethods.some((m) => m.value === picked) ? picked : (b.paymentMethods[0]?.value ?? 'wave');
   const fee = delivery && where ? (b.deliveryFees[where] ?? 0) : 0;
   const feeLabel = b.deliveryFee ? `Livraison · dès ${formatFcfa(b.deliveryFee)}` : 'Livraison gratuite';
   const total = subtotal + fee;
@@ -93,10 +115,16 @@ export default function Panier() {
         zone: delivery ? where : null,
         address: delivery ? address.trim() : null,
         note: note.trim() || null,
-        method: METHOD[payment] ?? 'wave',
+        method: payment,
       });
       upsert(placed);
       cart.clear();
+      // Cash: no payment page, the order is already with the business.
+      if (!pay) {
+        router.replace(`/commande/${placed.id}`);
+        toast(`Commande envoyée : tu paies ${formatFcfa(placed.total)} en espèces ${placed.mode === 'delivery' ? 'à la livraison' : 'au retrait'}.`);
+        return;
+      }
       const paid = await payInBrowser(pay);
       upsert(await commerceApi.myOrder(placed.id));
       router.replace(`/commande/${placed.id}`);
@@ -111,8 +139,7 @@ export default function Panier() {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <Header onBack={back} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={[styles.card, styles.resto, shadow.card]}>
             <View style={[styles.restoPhoto, { backgroundColor: colors.primarySoft }]}>
               {b.photo ? <Image source={{ uri: b.photo }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name={b.kind === 'shop' ? 'storefront' : 'restaurant'} size={22} color={colors.primary} />}
@@ -221,14 +248,22 @@ export default function Panier() {
           />
 
           <Text style={styles.section}>Paiement</Text>
-          {paymentMethods.map((m) => {
-            const on = m.id === payment;
+          {/* Only what this business accepts: cash (at delivery or at the counter), Wave, Orange Money. */}
+          {b.paymentMethods.map((m) => {
+            const on = m.value === payment;
+            const logo = LOGO[m.value];
             return (
-              <Pressable key={m.id} onPress={() => setPayment(m.id)} style={[styles.card, styles.payment, on && styles.paymentOn]} accessibilityRole="radio" accessibilityState={{ checked: on }}>
-                <PaymentLogo method={m} />
+              <Pressable key={m.value} onPress={() => setPicked(m.value)} style={[styles.card, styles.payment, on && styles.paymentOn]} accessibilityRole="radio" accessibilityState={{ checked: on }} accessibilityLabel={m.label}>
+                {logo ? (
+                  <PaymentLogo method={logo} />
+                ) : (
+                  <View style={styles.cash}>
+                    <Ionicons name="cash-outline" size={22} color={colors.successText} />
+                  </View>
+                )}
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.payName}>{m.name}</Text>
-                  <Text style={styles.muted}>Remboursé si la commande est refusée</Text>
+                  <Text style={styles.payName}>{m.label}</Text>
+                  <Text style={styles.muted}>{m.value === 'cash' ? (delivery ? 'À payer au livreur' : 'À payer au retrait') : 'Remboursé si la commande est refusée'}</Text>
                 </View>
                 {on ? <Ionicons name="checkmark-circle" size={22} color={colors.primary} /> : <View style={styles.radio} />}
               </Pressable>
@@ -245,9 +280,8 @@ export default function Panier() {
             </View>
           </View>
 
-          <PrimaryButton label={blocker ?? `Payer ${formatFcfa(total)} et commander`} onPress={order} disabled={!!blocker || paying} loading={paying} />
-        </ScrollView>
-      </KeyboardAvoidingView>
+          <PrimaryButton label={blocker ?? (payment === 'cash' ? `Commander · payer ${formatFcfa(total)} en espèces` : `Payer ${formatFcfa(total)} et commander`)} onPress={order} disabled={!!blocker || paying} loading={paying} />
+        </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
@@ -305,6 +339,7 @@ const styles = StyleSheet.create({
   infoText: { ...typo.small, flex: 1, color: colors.muted2 },
   payment: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderColor: 'transparent' },
   paymentOn: { borderColor: colors.primary },
+  cash: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.successBg, alignItems: 'center', justifyContent: 'center' },
   payName: { ...typo.title, color: colors.navy },
   radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: colors.border },
   recapRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

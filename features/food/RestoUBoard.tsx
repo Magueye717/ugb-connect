@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { EmptyState } from '@/components/states';
+import { EmptyState, SkeletonCard } from '@/components/states';
+import { Segmented } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCampus } from '@/context/CampusContext';
 import { currentMeal, hmLabel, MEAL_LABEL, type DishStatus } from '@/features/restos/api';
@@ -13,7 +14,7 @@ import { useNow } from '@/lib/useNow';
 const STATUS: Record<DishStatus, { label: string | null; color: string }> = {
   available: { label: null, color: colors.success },
   low: { label: 'Bientôt fini', color: colors.warning },
-  out: { label: 'Rupture', color: colors.muted },
+  out: { label: 'Rupture', color: colors.muted2 },
 };
 
 /**
@@ -32,108 +33,102 @@ export function RestoUBoard() {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={pull} />}>
+    <>
+      {/* Lunch or dinner: the same switch as everywhere else in the app, pinned above the list (never scrolled away). */}
       <View style={styles.toolbar}>
+        <Segmented options={(['lunch', 'dinner'] as const).map((k) => ({ value: k, label: k === meal.key && meal.live ? `${MEAL_LABEL[k]} · en cours` : MEAL_LABEL[k] }))} value={shown} onChange={setPicked} />
         <View style={[styles.now, meal.live && styles.nowLive]}>
           <View style={[styles.liveDot, { backgroundColor: meal.live ? colors.success : colors.muted }]} />
           <Text style={[styles.nowText, meal.live && { color: colors.successText }]} numberOfLines={1}>
             {meal.label} · {meal.status}
           </Text>
         </View>
-        <View style={styles.switch}>
-          {(['lunch', 'dinner'] as const).map((k) => {
-            const on = k === shown;
-            return (
-              <Pressable key={k} onPress={() => setPicked(k)} style={[styles.switchBtn, on && styles.switchOn]} accessibilityRole="tab" accessibilityState={{ selected: on }}>
-                <Text style={[styles.switchText, on && styles.switchTextOn]}>{MEAL_LABEL[k]}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
       </View>
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={pull} />}>
+        {!data && (
+          <View style={{ gap: 10 }} accessibilityLabel="Chargement">
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </View>
+        )}
+        {data?.restos.length === 0 && <EmptyState icon="restaurant-outline" title="Aucun restaurant" text="Les menus des restaurants universitaires apparaîtront ici." />}
 
-      {!data && <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />}
-      {data?.restos.length === 0 && <EmptyState icon="restaurant-outline" title="Aucun restaurant" text="Les menus des restaurants universitaires apparaîtront ici." />}
-
-      {data?.restos.map((r) => {
-        const service = r.services[shown];
-        const dishes = r.menus[shown]?.dishes ?? [];
-        const left = dishes.filter((d) => d.status !== 'out').length;
-        return (
-          <View key={r.id} style={[styles.card, shadow.card]}>
-            <View style={styles.head}>
-              <View style={styles.icon}>
-                <Ionicons name="restaurant" size={16} color={colors.primary} />
+        {data?.restos.map((r) => {
+          const service = r.services[shown];
+          const dishes = r.menus[shown]?.dishes ?? [];
+          const left = dishes.filter((d) => d.status !== 'out').length;
+          return (
+            <View key={r.id} style={[styles.card, shadow.card]}>
+              <View style={styles.head}>
+                <View style={styles.icon}>
+                  <Ionicons name="restaurant" size={16} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.name} numberOfLines={1}>
+                    {r.name}
+                  </Text>
+                  <Text style={styles.meta} numberOfLines={1}>
+                    {[r.location, `${hmLabel(service.start)}-${hmLabel(service.end)}`].filter(Boolean).join(' · ')}
+                  </Text>
+                </View>
+                {r.coords && (
+                  <Pressable style={styles.go} onPress={() => openDirections(r.coords!, r.name)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Voir ${r.name} sur la carte`}>
+                    <Ionicons name="location" size={15} color={colors.primary} />
+                  </Pressable>
+                )}
+                {dishes.length > 0 && (
+                  <View style={[styles.count, left === 0 && { backgroundColor: colors.bg }]}>
+                    <Text style={[styles.countText, left === 0 && { color: colors.muted2 }]}>{left === 0 ? 'Tout épuisé' : `${left} plat${left > 1 ? 's' : ''}`}</Text>
+                  </View>
+                )}
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.name} numberOfLines={1}>
-                  {r.name}
-                </Text>
-                <Text style={styles.meta} numberOfLines={1}>
-                  {[r.location, `${hmLabel(service.start)}-${hmLabel(service.end)}`].filter(Boolean).join(' · ')}
-                </Text>
-              </View>
-              {r.coords && (
-                <Pressable style={styles.go} onPress={() => openDirections(r.coords!, r.name)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Voir ${r.name} sur la carte`}>
-                  <Ionicons name="location" size={15} color={colors.primary} />
-                </Pressable>
-              )}
-              {dishes.length > 0 && (
-                <View style={[styles.count, left === 0 && { backgroundColor: colors.bg }]}>
-                  <Text style={[styles.countText, left === 0 && { color: colors.muted2 }]}>{left === 0 ? 'Tout épuisé' : `${left} plat${left > 1 ? 's' : ''}`}</Text>
+              {dishes.length === 0 ? (
+                <Text style={styles.empty}>Menu pas encore publié.</Text>
+              ) : (
+                <View style={styles.dishes}>
+                  {dishes.map((d, i) => (
+                    <View key={d.id} style={[styles.dish, i > 0 && styles.divider]}>
+                      <View style={[styles.dot, { backgroundColor: STATUS[d.status].color }]} />
+                      <Text style={[styles.dishName, d.status === 'out' && styles.dishOut]} numberOfLines={1}>
+                        {d.name}
+                        {!!d.detail && <Text style={styles.dishDetail}> · {d.detail}</Text>}
+                      </Text>
+                      {STATUS[d.status].label && <Text style={[styles.dishStatus, { color: d.status === 'low' ? colors.warningText : colors.muted2 }]}>{STATUS[d.status].label}</Text>}
+                    </View>
+                  ))}
                 </View>
               )}
             </View>
-            {dishes.length === 0 ? (
-              <Text style={styles.empty}>Menu pas encore publié.</Text>
-            ) : (
-              <View style={styles.dishes}>
-                {dishes.map((d, i) => (
-                  <View key={d.id} style={[styles.dish, i > 0 && styles.divider]}>
-                    <View style={[styles.dot, { backgroundColor: STATUS[d.status].color }]} />
-                    <Text style={[styles.dishName, d.status === 'out' && styles.dishOut]} numberOfLines={1}>
-                      {d.name}
-                      {!!d.detail && <Text style={styles.dishDetail}> · {d.detail}</Text>}
-                    </Text>
-                    {STATUS[d.status].label && <Text style={[styles.dishStatus, { color: d.status === 'low' ? colors.warningText : colors.muted2 }]}>{STATUS[d.status].label}</Text>}
-                  </View>
-                ))}
-              </View>
-            )}
-          </View>
-        );
-      })}
-      {!!data?.restos.length && <Text style={styles.note}>Au ticket, sur présentation de la carte étudiant.</Text>}
-    </ScrollView>
+          );
+        })}
+        {!!data?.restos.length && <Text style={styles.note}>Au ticket, sur présentation de la carte étudiant.</Text>}
+      </ScrollView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { padding: 20, paddingTop: 16, gap: 12, paddingBottom: 32 },
-  toolbar: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  now: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, height: 40, paddingHorizontal: 12, borderRadius: radii.pill, backgroundColor: colors.card },
+  body: { padding: 20, paddingTop: 4, gap: 12, paddingBottom: 32 },
+  toolbar: { gap: 8, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 10 },
+  now: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 40, paddingHorizontal: 12, borderRadius: radii.pill, backgroundColor: colors.card },
   nowLive: { backgroundColor: colors.successBg },
   liveDot: { width: 8, height: 8, borderRadius: 4 },
   nowText: { ...typo.smallStrong, color: colors.muted2, flexShrink: 1 },
-  switch: { flexDirection: 'row', padding: 3, borderRadius: radii.pill, backgroundColor: colors.card },
-  switchBtn: { height: 34, paddingHorizontal: 14, borderRadius: radii.pill, justifyContent: 'center' },
-  switchOn: { backgroundColor: '#111318' },
-  switchText: { ...typo.smallStrong, color: colors.muted2 },
-  switchTextOn: { color: '#fff' },
   card: { backgroundColor: colors.card, borderRadius: 20, padding: 12, gap: 8, borderWidth: 1, borderColor: '#EEF0F4' },
   head: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   icon: { width: 34, height: 34, borderRadius: 10, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   name: { fontSize: 15, fontWeight: '700', color: colors.navy },
   meta: { ...typo.caption, color: colors.muted2, marginTop: 1 },
   go: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  count: { paddingHorizontal: 9, height: 24, borderRadius: radii.pill, backgroundColor: colors.successBg, justifyContent: 'center' },
+  count: { paddingHorizontal: 9, minHeight: 24, borderRadius: radii.pill, backgroundColor: colors.successBg, justifyContent: 'center' },
   countText: { fontSize: 11, fontWeight: '700', color: colors.successText },
   dishes: { borderRadius: 14, backgroundColor: '#F7F8FA', paddingHorizontal: 10 },
   dish: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 36 },
   divider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   dot: { width: 8, height: 8, borderRadius: 4 },
   dishName: { flex: 1, fontSize: 13.5, fontWeight: '600', color: colors.text },
-  dishOut: { textDecorationLine: 'line-through', color: colors.muted },
+  dishOut: { textDecorationLine: 'line-through', color: colors.muted2 },
   dishDetail: { fontSize: 12, fontWeight: '400', color: colors.muted2 },
   dishStatus: { fontSize: 11, fontWeight: '700' },
   empty: { ...typo.caption, color: colors.muted2, paddingVertical: 4 },

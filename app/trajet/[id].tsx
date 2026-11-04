@@ -4,9 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,15 +13,17 @@ import {
   View,
   type ScrollViewInstance,
 } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BackButton, Field, PrimaryButton } from '@/components/ui';
+import { BackButton, Field, PrimaryButton, SafeBottom } from '@/components/ui';
 import { TAXI_CHAT_HOURS, taxiQuickReplies } from '@/constants/data';
 import { colors, radii, typo } from '@/constants/theme';
 import { useTaxi } from '@/context/TaxiContext';
 import { useConversation, type ChatMessage } from '@/features/chat/useConversation';
 import { ApiError } from '@/lib/api';
 import { useNow } from '@/lib/useNow';
+import { toast } from '@/lib/toast';
 
 // Same text as the quick reply in constants/data.ts.
 const CHECK_IN_REPLY = 'Je suis au point de rendez-vous';
@@ -53,7 +53,7 @@ export default function TripChat() {
     markRead();
   }, [markRead]);
 
-  const back = () => (router.canGoBack() ? router.back() : router.replace('/services/taxi'));
+  const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/(tabs)/caravanes', params: { vue: 'taxi' } }));
 
   if (!trip || !trip.conversationId || chat.revoked) {
     return (
@@ -99,7 +99,7 @@ export default function TripChat() {
         text: 'Signaler le message',
         onPress: () =>
           chat.report(m).then(
-            () => Alert.alert('Message signalé', 'L’équipe Sunu Taxi va lire la conversation. Merci de nous aider à garder les trajets sûrs.'),
+            () => toast('Message signalé : l’équipe Sunu Taxi va lire la conversation.'),
             fail('Signalement non envoyé'),
           ),
       },
@@ -166,7 +166,7 @@ export default function TripChat() {
         </View>
       )}
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <ScrollView
           ref={scroll}
           contentContainerStyle={styles.thread}
@@ -180,7 +180,7 @@ export default function TripChat() {
           </View>
 
           {chat.hasMore && (
-            <Pressable onPress={() => chat.loadOlder().catch(() => undefined)} style={styles.older} accessibilityRole="button">
+            <Pressable onPress={() => chat.loadOlder().catch((err) => Alert.alert('Messages indisponibles', err instanceof ApiError ? err.message : 'Vérifie ta connexion et réessaie.'))} style={styles.older} accessibilityRole="button">
               <Text style={styles.olderText}>Messages précédents</Text>
             </Pressable>
           )}
@@ -300,7 +300,7 @@ function PinSheet({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} onShow={() => setValue(initial)}>
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <View style={styles.sheet}>
           <Text style={styles.sheetTitle}>Quel taxi ?</Text>
           <Text style={styles.sheetText}>Modèle, couleur et plaque : les passagers le retrouvent plus vite, et c’est plus sûr.</Text>
@@ -313,6 +313,7 @@ function PinSheet({
             autoFocus
           />
           <PrimaryButton label="Épingler" disabled={!valid} onPress={() => onSave(value.trim())} />
+          <SafeBottom />
         </View>
       </KeyboardAvoidingView>
     </Modal>

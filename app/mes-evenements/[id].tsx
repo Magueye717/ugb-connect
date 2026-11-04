@@ -4,11 +4,12 @@ import * as ImagePicker from 'expo-image-picker';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { eventWhen } from '@/components/home';
 import { PaymentLogo } from '@/components/PaymentLogo';
-import { BackButton, Field, LabeledField, PrimaryButton, StatusChip, TextButton } from '@/components/ui';
+import { BackButton, Chip, Field, LabeledField, PrimaryButton, StatusChip, TextButton } from '@/components/ui';
 import { formatFcfa, paymentMethods } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
@@ -255,13 +256,6 @@ function Photos({ images, setImages, uploading, setUploading, fixedCover, setFix
   );
 }
 
-function Chip({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={[styles.chip, on && styles.chipOn]} accessibilityRole="checkbox" accessibilityState={{ checked: on }}>
-      <Text style={[styles.chipText, on && { color: colors.primary }]}>{label}</Text>
-    </Pressable>
-  );
-}
 
 /**
  * Validated by the team: the owner chooses who sees the event on the home screen (campus, village, UFR, region),
@@ -328,7 +322,7 @@ function PublishForm({ event: e, onChanged }: { event: OrgEventDto; onChanged: (
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+    <KeyboardAwareScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" bottomOffset={24}>
       <View style={styles.okBox}>
         <Ionicons name="checkmark-circle" size={20} color={colors.successText} />
         <View style={{ flex: 1 }}>
@@ -364,44 +358,44 @@ function PublishForm({ event: e, onChanged }: { event: OrgEventDto; onChanged: (
       ))}
       <View style={styles.row}>
         <Text style={[styles.label, { flex: 1 }]}>Billets max par étudiant</Text>
-        <Pressable onPress={() => setMaxPer(Math.max(1, maxPer - 1))} style={styles.step}>
+        <Pressable onPress={() => setMaxPer(Math.max(1, maxPer - 1))} style={styles.step} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Un billet de moins par étudiant (${maxPer})`}>
           <Ionicons name="remove" size={16} color={colors.primary} />
         </Pressable>
         <Text style={styles.label}>{maxPer}</Text>
-        <Pressable onPress={() => setMaxPer(Math.min(10, maxPer + 1))} style={styles.step}>
+        <Pressable onPress={() => setMaxPer(Math.min(10, maxPer + 1))} style={styles.step} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Un billet de plus par étudiant (${maxPer})`}>
           <Ionicons name="add" size={16} color={colors.primary} />
         </Pressable>
       </View>
 
       <Text style={styles.section}>Qui voit ton événement ?</Text>
       <View style={styles.wrap}>
-        <Chip label="Toute l’université" on={!targeted} onPress={() => setTargeted(false)} />
-        <Chip label="Un public précis" on={targeted} onPress={() => setTargeted(true)} />
+        <Chip label="Toute l’université" selected={!targeted} onPress={() => setTargeted(false)} />
+        <Chip label="Un public précis" selected={targeted} onPress={() => setTargeted(true)} />
       </View>
       {targeted && (
         <View style={styles.audienceBox}>
           <Text style={styles.label}>Campus</Text>
           <View style={styles.wrap}>
             {CAMPUSES.map((c) => (
-              <Chip key={c.key} label={c.label} on={audience.campuses.includes(c.key)} onPress={() => pickCampus(c.key)} />
+              <Chip key={c.key} label={c.label} selected={audience.campuses.includes(c.key)} onPress={() => pickCampus(c.key)} role="checkbox" />
             ))}
           </View>
           <Text style={styles.label}>Village</Text>
           <View style={styles.wrap}>
             {villages.map((v) => (
-              <Chip key={v} label={v.replace('Village ', '')} on={audience.villages.includes(v)} onPress={() => toggle('villages', v)} />
+              <Chip key={v} label={v.replace('Village ', '')} selected={audience.villages.includes(v)} onPress={() => toggle('villages', v)} role="checkbox" />
             ))}
           </View>
           <Text style={styles.label}>UFR</Text>
           <View style={styles.wrap}>
             {UFRS.map((u) => (
-              <Chip key={u.code} label={u.code} on={audience.ufrs.includes(u.code)} onPress={() => toggle('ufrs', u.code)} />
+              <Chip key={u.code} label={u.code} selected={audience.ufrs.includes(u.code)} onPress={() => toggle('ufrs', u.code)} role="checkbox" />
             ))}
           </View>
           <Text style={styles.label}>Région d’origine</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
             {REGIONS.map((r) => (
-              <Chip key={r} label={r} on={audience.regions.includes(r)} onPress={() => toggle('regions', r)} />
+              <Chip key={r} label={r} selected={audience.regions.includes(r)} onPress={() => toggle('regions', r)} role="checkbox" />
             ))}
           </ScrollView>
           <Text style={styles.muted}>
@@ -435,7 +429,7 @@ function PublishForm({ event: e, onChanged }: { event: OrgEventDto; onChanged: (
         );
       })}
       <PrimaryButton label={`Payer ${formatFcfa(fee)} et publier`} disabled={!ready} loading={paying} onPress={publish} />
-    </ScrollView>
+    </KeyboardAwareScrollView>
   );
 }
 
@@ -463,9 +457,13 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
 
   const setTicket = (i: number, patch: Partial<TicketRow>) => setTickets((list) => list.map((t, j) => (j === i ? { ...t, ...patch } : t)));
   // The price of the publication (paid once the event is approved), known from the start.
+  // The fee couldn't be loaded: say so (the organizer must know the price before sending), with a retry.
+  const [feeFailed, setFeeFailed] = useState(false);
+  const [feeAttempt, setFeeAttempt] = useState(0);
   useEffect(() => {
-    if (!feeRule) eventsApi.publicationFee().then(setFeeRule, () => undefined);
-  }, [feeRule]);
+    if (feeRule) return;
+    eventsApi.publicationFee().then(setFeeRule, () => setFeeFailed(true));
+  }, [feeRule, feeAttempt]);
   const totalPlaces = tickets.reduce((n, t) => n + (Number(t.capacity) || 0), 0);
   const fee = feeRule ? Math.max(feeRule.minimum, totalPlaces * feeRule.perPlace) : null;
 
@@ -502,7 +500,7 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+    <KeyboardAwareScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" bottomOffset={24}>
       {event?.status === 'changes_requested' && event.review && (
         <View style={styles.reviewBox}>
           <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.dangerText} />
@@ -542,29 +540,21 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
         {days(now).map((d) => {
           const on = !!day && dayKey(d) === dayKey(day);
           return (
-            <Pressable key={d.toISOString()} onPress={() => setDay(d)} style={[styles.chip, on && styles.chipOn]}>
-              <Text style={[styles.chipText, on && { color: colors.primary }]}>
-                {DAYS[d.getDay()]} {d.getDate()} {MONTHS[d.getMonth()]}
-              </Text>
-            </Pressable>
+            <Chip key={d.toISOString()} label={`${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`} selected={on} onPress={() => setDay(d)} />
           );
         })}
       </ScrollView>
       <Text style={styles.label}>Heure de début</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
         {times.map((t) => (
-          <Pressable key={t} onPress={() => setTime(t)} style={[styles.chip, time === t && styles.chipOn]}>
-            <Text style={[styles.chipText, time === t && { color: colors.primary }]}>{t.replace(':', 'h')}</Text>
-          </Pressable>
+          <Chip key={t} label={t.replace(':', 'h')} selected={time === t} onPress={() => setTime(t)} />
         ))}
       </ScrollView>
       {inPast && <Text style={styles.warn}>{times.length ? 'Cette heure est passée : choisis une heure à venir.' : 'Plus d’horaire possible aujourd’hui : choisis un autre jour.'}</Text>}
       <Text style={styles.label}>Durée</Text>
       <View style={styles.wrap}>
         {DURATIONS.map((h) => (
-          <Pressable key={h} onPress={() => setHours(h)} style={[styles.chip, hours === h && styles.chipOn]}>
-            <Text style={[styles.chipText, hours === h && { color: colors.primary }]}>{h} h</Text>
-          </Pressable>
+          <Chip key={h} label={`${h} h`} selected={hours === h} onPress={() => setHours(h)} />
         ))}
       </View>
 
@@ -597,15 +587,16 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
       )}
       <View style={styles.row}>
         <Text style={[styles.label, { flex: 1 }]}>Billets max par étudiant</Text>
-        <Pressable onPress={() => setMaxPer(Math.max(1, maxPer - 1))} style={styles.step}>
+        <Pressable onPress={() => setMaxPer(Math.max(1, maxPer - 1))} style={styles.step} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Un billet de moins par étudiant (${maxPer})`}>
           <Ionicons name="remove" size={16} color={colors.primary} />
         </Pressable>
         <Text style={styles.label}>{maxPer}</Text>
-        <Pressable onPress={() => setMaxPer(Math.min(10, maxPer + 1))} style={styles.step}>
+        <Pressable onPress={() => setMaxPer(Math.min(10, maxPer + 1))} style={styles.step} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Un billet de plus par étudiant (${maxPer})`}>
           <Ionicons name="add" size={16} color={colors.primary} />
         </Pressable>
       </View>
 
+      {!feeRule && feeFailed && <TextButton label="Prix de publication indisponible : réessayer" icon="refresh-outline" onPress={() => (setFeeFailed(false), setFeeAttempt((a) => a + 1))} />}
       {feeRule && fee !== null && (
         <View style={[styles.card, shadow.card, styles.feeCard]}>
           <View style={styles.row}>
@@ -623,7 +614,7 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
       <Text style={styles.muted}>1. L’équipe UGB Campus vérifie ton événement. 2. Une fois validé, tu choisis qui le voit (campus, village, UFR, région) et tu paies la publication, selon le nombre de places. 3. La billetterie ouvre. L’argent des billets t’est versé après l’événement, sur ton numéro.</Text>
       <PrimaryButton label="Envoyer pour validation" disabled={!ready} loading={saving === 'submit'} onPress={() => save(true)} />
       <TextButton label={saving === 'draft' ? 'Enregistrement…' : 'Enregistrer le brouillon'} icon="save-outline" disabled={!ready} style={{ alignSelf: 'center' }} onPress={() => save(false)} />
-    </ScrollView>
+    </KeyboardAwareScrollView>
   );
 }
 

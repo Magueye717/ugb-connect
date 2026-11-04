@@ -2,10 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
-import { EmptyState } from '@/components/states';
-import { Field, LabeledField, PrimaryButton } from '@/components/ui';
+import { EmptyState, ErrorState } from '@/components/states';
+import { Chip, Field, LabeledField, PrimaryButton, SafeBottom } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { commerceApi, type BusinessKind, type BusinessTarget, type ItemDto, type ItemSection } from '@/features/commerce/api';
@@ -25,9 +26,12 @@ const AISLES = ['Fournitures', 'Impression', 'Épicerie', 'Boissons', 'Hygiène'
  */
 export function CatalogEditor({ target, kind, canManage, title = 'Catalogue' }: { target: BusinessTarget; kind: BusinessKind; canManage: boolean; title?: string }) {
   const [items, setItems] = useState<ItemDto[] | null>(null);
+  // The first load failed (no network…): « Impossible de charger », with « Réessayer » (not an empty list).
+  const [loadFailed, setLoadFailed] = useState(false);
   const [editing, setEditing] = useState<ItemDto | 'new' | null>(null);
   const load = useCallback(() => {
-    commerceApi.catalog(target).then((r) => setItems(r.items), () => setItems((i) => i ?? []));
+    setLoadFailed(false);
+    commerceApi.catalog(target).then((r) => setItems(r.items), () => setLoadFailed(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the target's identity, not the object
   }, ['editorOf' in target ? target.editorOf : `${target.orgId}:${target.kind}`]);
   useFocusEffect(load);
@@ -54,7 +58,8 @@ export function CatalogEditor({ target, kind, canManage, title = 'Catalogue' }: 
       </View>
       <Text style={styles.sub}>Désactive un article épuisé : il disparaît pour les clients jusqu’à ce qu’il soit réactivé.</Text>
 
-      {!items && <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />}
+      {!items && !loadFailed && <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />}
+      {!items && loadFailed && <ErrorState onRetry={load} />}
       {items?.length === 0 && (
         <EmptyState
           icon={kind === 'restaurant' ? 'restaurant-outline' : 'pricetags-outline'}
@@ -86,6 +91,7 @@ export function CatalogEditor({ target, kind, canManage, title = 'Catalogue' }: 
                     <Text style={styles.price}>
                       {formatFcfa(i.price)}
                       {i.stock !== null && <Text style={[styles.muted, i.stock <= 3 && { color: colors.dangerText }]}>  ·  {i.stock} en stock</Text>}
+                      {!i.orderable && <Text style={styles.muted}>  ·  Infos seulement</Text>}
                     </Text>
                   </View>
                   <Switch value={i.available} onValueChange={(v) => toggle(i, v)} trackColor={{ true: colors.success }} accessibilityLabel={`${i.name} disponible`} />
@@ -121,6 +127,8 @@ function ItemEditor({ business, kind, item, aisles, onClose, onSaved }: { busine
   const [otherAisle, setOtherAisle] = useState(false);
   const [price, setPrice] = useState(item ? String(item.price) : '');
   const [stock, setStock] = useState(item?.stock !== null && item?.stock !== undefined ? String(item.stock) : '');
+  // A service done on the spot (printing, photocopies…): shown with its price, students don't order it.
+  const [orderable, setOrderable] = useState(item?.orderable ?? true);
   const [photo, setPhoto] = useState<{ id: string | null; url: string | null }>({ id: item?.photoId ?? null, url: item?.photo ?? null });
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -144,8 +152,8 @@ function ItemEditor({ business, kind, item, aisles, onClose, onSaved }: { busine
     setSaving(true);
     try {
       const body = {
-        section, name: name.trim(), detail: detail.trim(), price: Number(price), photoId: photo.id,
-        ...(kind === 'shop' ? { category: category.trim() || null, stock: stock ? Number(stock) : null } : {}),
+        section, name: name.trim(), detail: detail.trim(), price: Number(price), photoId: photo.id, orderable,
+        ...(kind === 'shop' ? { category: category.trim() || null, stock: stock && orderable ? Number(stock) : null } : {}),
       };
       if (item) await commerceApi.updateItem(business, item.id, body);
       else await commerceApi.addItem(business, body);
@@ -166,15 +174,13 @@ function ItemEditor({ business, kind, item, aisles, onClose, onSaved }: { busine
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <ScrollView style={styles.sheet} contentContainerStyle={{ gap: 12, paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
           <Text style={styles.sheetTitle}>{item ? 'Modifier' : 'Nouvel article'}</Text>
           {kind === 'restaurant' && (
             <View style={styles.row}>
               {(['menu', 'drink'] as const).map((s) => (
-                <Pressable key={s} onPress={() => setSection(s)} style={[styles.chip, section === s && styles.chipOn]}>
-                  <Text style={[styles.chipText, section === s && { color: '#fff' }]}>{s === 'menu' ? 'Plat' : 'Boisson'}</Text>
-                </Pressable>
+                <Chip key={s} label={s === 'menu' ? 'Plat' : 'Boisson'} selected={section === s} onPress={() => setSection(s)} />
               ))}
             </View>
           )}
@@ -195,40 +201,35 @@ function ItemEditor({ business, kind, item, aisles, onClose, onSaved }: { busine
                 {aisles.map((a) => {
                   const on = !otherAisle && category === a;
                   return (
-                    <Pressable
-                      key={a}
-                      onPress={() => {
+                    <Chip key={a} label={a} selected={on} onPress={() => {
                         setOtherAisle(false);
                         setCategory(on ? '' : a);
-                      }}
-                      style={[styles.chip, on && styles.chipOn]}
-                      accessibilityRole="radio"
-                      accessibilityState={{ checked: on }}>
-                      <Text style={[styles.chipText, on && { color: '#fff' }]}>{a}</Text>
-                    </Pressable>
+                      }} />
                   );
                 })}
-                <Pressable
-                  onPress={() => {
+                <Chip label="+ Autre" selected={otherAisle} onPress={() => {
                     setOtherAisle(true);
                     setCategory('');
-                  }}
-                  style={[styles.chip, otherAisle && styles.chipOn]}
-                  accessibilityRole="radio"
-                  accessibilityState={{ checked: otherAisle }}>
-                  <Text style={[styles.chipText, otherAisle && { color: '#fff' }]}>+ Autre</Text>
-                </Pressable>
+                  }} />
               </View>
               {otherAisle && <Field placeholder="Nom du rayon" value={category} onChangeText={setCategory} maxLength={30} autoFocus autoCapitalize="sentences" />}
             </View>
           )}
+          <View style={{ gap: 8 }}>
+            <Text style={styles.label}>Les étudiants</Text>
+            <View style={styles.row}>
+              <Chip label="Le commandent" icon="cart-outline" selected={orderable} onPress={() => setOrderable(true)} />
+              <Chip label="Infos seulement" icon="information-circle-outline" selected={!orderable} onPress={() => setOrderable(false)} />
+            </View>
+            {!orderable && <Text style={styles.muted}>Affiché avec son prix (ex. impression, photocopie) : ça se fait sur place, sans commande.</Text>}
+          </View>
           <View style={styles.row}>
             <View style={{ flex: 1 }}>
-              <LabeledField label="Prix (FCFA)">
+              <LabeledField label={orderable ? 'Prix (FCFA)' : 'Prix indicatif (FCFA)'}>
                 <Field keyboardType="number-pad" value={price} onChangeText={(v) => setPrice(v.replace(/\D/g, ''))} />
               </LabeledField>
             </View>
-            {kind === 'shop' && (
+            {kind === 'shop' && orderable && (
               <View style={{ flex: 1 }}>
                 <LabeledField label="Stock (vide : illimité)">
                   <Field keyboardType="number-pad" value={stock} onChangeText={(v) => setStock(v.replace(/\D/g, ''))} />
@@ -242,6 +243,7 @@ function ItemEditor({ business, kind, item, aisles, onClose, onSaved }: { busine
               <Text style={{ color: colors.dangerText, fontWeight: '700' }}>Retirer du catalogue</Text>
             </Pressable>
           )}
+          <SafeBottom />
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
@@ -261,12 +263,9 @@ const styles = StyleSheet.create({
   muted: { ...typo.caption, color: colors.muted2 },
   price: { ...typo.smallStrong, color: colors.primary, marginTop: 2 },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,27,76,0.35)' },
-  sheet: { maxHeight: 640, backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20 },
+  sheet: { flexShrink: 1, maxHeight: 640, backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20 },
   sheetTitle: { ...typo.h3, color: colors.navy },
   label: { ...typo.smallStrong, color: colors.navy },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { paddingHorizontal: 14, minHeight: 36, borderRadius: radii.pill, backgroundColor: colors.bg, justifyContent: 'center' },
-  chipOn: { backgroundColor: colors.primary },
-  chipText: { ...typo.smallStrong, color: colors.navy },
   photo: { alignSelf: 'center', width: 110, height: 110, borderRadius: radii.lg, backgroundColor: colors.primarySoft, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
 });

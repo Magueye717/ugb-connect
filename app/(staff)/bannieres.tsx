@@ -2,11 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { EmptyState } from '@/components/states';
-import { Field, LabeledField, PrimaryButton, Segmented, StatusChip, TextButton } from '@/components/ui';
+import { EmptyState, ErrorState } from '@/components/states';
+import { Field, LabeledField, PrimaryButton, SafeBottom, Segmented, StatusChip, TextButton } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCampus } from '@/context/CampusContext';
@@ -25,12 +26,15 @@ const ctaText = (b: BannerDto) => (b.cta ? `Bouton « ${b.cta.label} » → ${b.
 export default function Bannieres() {
   const { refresh } = useCampus();
   const [items, setItems] = useState<BannerDto[] | null>(null);
+  // The first load failed (no network…): « Impossible de charger », with « Réessayer » (not an empty list).
+  const [loadFailed, setLoadFailed] = useState(false);
   const [tab, setTab] = useState<View_>('review');
   const [deciding, setDeciding] = useState<{ banner: BannerDto; action: 'reject' | 'withdraw' } | null>(null);
   const now = useNow();
 
   const load = useCallback(() => {
-    bannersApi.review().then((r) => setItems(r.items), () => setItems((x) => x ?? []));
+    setLoadFailed(false);
+    bannersApi.review().then((r) => setItems(r.items), () => setLoadFailed(true));
   }, []);
   useFocusEffect(load);
   const fail = (err: unknown) => Alert.alert('Action impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
@@ -56,7 +60,8 @@ export default function Bannieres() {
           value={tab}
           onChange={setTab}
         />
-        {!items && <ActivityIndicator color={colors.primary} />}
+        {!items && !loadFailed && <ActivityIndicator color={colors.primary} />}
+        {!items && loadFailed && <ErrorState onRetry={load} />}
         {items && list.length === 0 && (
           <EmptyState icon="images-outline" title={tab === 'review' ? 'Rien à valider' : 'Aucune bannière'} text={tab === 'review' ? 'Les bannières payées arrivent ici avant leur diffusion.' : undefined} />
         )}
@@ -123,7 +128,7 @@ function ReasonSheet({ title, note, confirm, onClose, onConfirm }: { title: stri
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <View style={styles.sheet}>
           <Text style={styles.sheetTitle}>{title}</Text>
           <Text style={styles.meta}>{note}</Text>
@@ -139,6 +144,7 @@ function ReasonSheet({ title, note, confirm, onClose, onConfirm }: { title: stri
               onConfirm(reason.trim()).finally(() => setSending(false));
             }}
           />
+          <SafeBottom />
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -158,7 +164,7 @@ const styles = StyleSheet.create({
   meta: { ...typo.caption, color: colors.muted2, lineHeight: 17 },
   actions: { flexDirection: 'row', gap: 10, marginTop: 6 },
   btn: { flex: 1, flexDirection: 'row', gap: 6, minHeight: 42, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center' },
-  btnOk: { backgroundColor: colors.success },
+  btnOk: { backgroundColor: colors.successText },
   btnOkText: { color: '#fff', fontWeight: '700' },
   btnNo: { borderWidth: 1.5, borderColor: colors.dangerText },
   btnNoText: { color: colors.dangerText, fontWeight: '700' },

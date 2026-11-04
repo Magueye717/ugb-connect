@@ -7,7 +7,9 @@ import { api } from '@/lib/api';
 export type PaymentMethod = 'wave' | 'orange_money';
 export const methodLabel: Record<PaymentMethod, string> = { wave: 'Wave', orange_money: 'Orange Money' };
 
-export type PaymentDto = { reference: string; status: string; fulfillment: string; amount: number; checkoutUrl: string | null; expiresAt: string };
+/** `purpose` and `purposeRef`: what was paid (an order, a booking, a banner…), to open it after the payment page. */
+export type PaymentPurpose = 'taxi_seat' | 'caravan_booking' | 'event_booking' | 'event_publication' | 'banner' | 'commerce_order';
+export type PaymentDto = { reference: string; status: string; fulfillment: string; amount: number; checkoutUrl: string | null; expiresAt: string; purpose: PaymentPurpose; purposeRef: string };
 
 /** Where the checkout page sends the student back: ugbcampus://paiement/retour (exp://… in Expo Go). */
 export const paymentReturnUrl = () => Linking.createURL('paiement/retour');

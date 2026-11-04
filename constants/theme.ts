@@ -17,7 +17,8 @@ export const colors = {
   navy: '#0F1B4C',
   text: '#121A3A',
   muted: '#8A93A8',
-  muted2: '#6B7389',
+  /** Secondary text: ≥ 4.5:1 on white and on the page background (`bg`). */
+  muted2: '#5F677D',
   bg: '#ECEFF4',
   // Pure white: the cream tint looked yellowish on the cool grey background.
   card: '#FFFFFF',

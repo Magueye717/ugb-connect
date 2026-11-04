@@ -3,10 +3,11 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState, type ReactNode } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BackButton, Field, PrimaryButton } from '@/components/ui';
+import { BackButton, Chip, Field, PrimaryButton } from '@/components/ui';
 import { lostCategories, lostCategory, lostOffice, lostSafetyTip } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useLost } from '@/context/LostContext';
@@ -39,7 +40,7 @@ export default function Declarer() {
   const [when, setWhen] = useState<LostWhen>('today');
   const [holder, setHolder] = useState<'office' | 'finder'>('office');
 
-  const back = () => (router.canGoBack() ? router.back() : router.replace('/services/objets'));
+  const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/(tabs)/lieux', params: { vue: 'objets' } }));
   const cat = categoryId ? lostCategory(categoryId) : null;
   const isObject = cat?.kind === 'object';
   const scanFirst = found && !!cat && cat.kind !== 'object';
@@ -105,8 +106,7 @@ export default function Declarer() {
         <View style={{ width: 44 }} />
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={[styles.intro, { backgroundColor: found ? colors.successBg : '#FFE8D4' }]}>
             <Ionicons name={found ? 'heart-outline' : 'search-outline'} size={20} color={found ? colors.successText : colors.orangeText} />
             <Text style={[styles.introText, { color: found ? colors.successText : colors.orangeText }]}>
@@ -255,8 +255,7 @@ export default function Declarer() {
               </>
             )
           )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
@@ -304,14 +303,7 @@ function Chips({ options, value, onChange }: { options: string[]; value: string 
       {options.map((o) => {
         const on = o === value;
         return (
-          <Pressable
-            key={o}
-            onPress={() => onChange(o)}
-            style={[styles.chip, on && styles.chipOn]}
-            accessibilityRole="radio"
-            accessibilityState={{ checked: on }}>
-            <Text style={[styles.chipText, on && { color: '#fff' }]}>{o}</Text>
-          </Pressable>
+          <Chip key={o} label={o} selected={on} onPress={() => onChange(o)} />
         );
       })}
     </View>
@@ -396,8 +388,6 @@ const styles = StyleSheet.create({
   remove: { position: 'absolute', top: 8, right: 8, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(15,27,76,0.6)', alignItems: 'center', justifyContent: 'center' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingHorizontal: 14, minHeight: 40, borderRadius: radii.pill, backgroundColor: colors.bg, justifyContent: 'center' },
-  chipOn: { backgroundColor: colors.primary },
-  chipText: { fontWeight: '600', color: colors.navy },
   choice: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.bg, borderRadius: radii.md, padding: 14, borderWidth: 1.5, borderColor: 'transparent' },
   choiceOn: { borderColor: colors.primary, backgroundColor: colors.primarySofter },
   choiceTitle: { ...typo.bodyStrong, color: colors.navy },

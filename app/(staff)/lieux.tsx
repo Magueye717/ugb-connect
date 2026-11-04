@@ -3,17 +3,20 @@ import { Image } from 'expo-image';
 import * as Location from 'expo-location';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { EmptyState } from '@/components/states';
-import { Field, LabeledField, PrimaryButton } from '@/components/ui';
+import { EmptyState, ErrorState } from '@/components/states';
+import { Chip, Field, LabeledField, PrimaryButton, SafeBottom } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { PLACE_CATEGORIES, placeIcon, placesApi, placeTone, type PlaceCategory, type PlaceDto } from '@/features/places/api';
 import { CAMPUSES } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
 import { pickPhoto } from '@/lib/pickPhoto';
+import { matches } from '@/lib/search';
 import { uploadImage } from '@/lib/upload';
+import { askToRelocate } from '@/lib/relocate';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
 const MAX_PHOTOS = 6;
@@ -24,10 +27,16 @@ const MAX_PHOTOS = 6;
  */
 export default function LieuxAdmin() {
   const [items, setItems] = useState<PlaceDto[] | null>(null);
+  // The first load failed (no network…): « Impossible de charger », with « Réessayer » (not an empty list).
+  const [loadFailed, setLoadFailed] = useState(false);
   const [editing, setEditing] = useState<PlaceDto | 'new' | null>(null);
+  // Find a place among many (before editing it, or to check it's not already there before adding it).
+  const [query, setQuery] = useState('');
+  const shown = (items ?? []).filter((p) => matches(query, [p.name, p.area, p.category, p.description]));
 
   const load = useCallback(() => {
-    placesApi.all().then((r) => setItems(r.items), () => setItems((x) => x ?? []));
+    setLoadFailed(false);
+    placesApi.all().then((r) => setItems(r.items), () => setLoadFailed(true));
   }, []);
   useFocusEffect(load);
 
@@ -41,7 +50,7 @@ export default function LieuxAdmin() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         <View style={styles.row}>
           <Text style={[styles.h1, { flex: 1 }]}>Lieux du campus</Text>
           <Pressable style={styles.add} onPress={() => setEditing('new')} accessibilityRole="button">
@@ -50,9 +59,41 @@ export default function LieuxAdmin() {
           </Pressable>
         </View>
         <Text style={styles.sub}>Ce que les étudiants voient dans l’onglet Lieux et sur la carte du campus.</Text>
-        {!items && <ActivityIndicator color={colors.primary} />}
+        {!!items?.length && (
+          <Field
+            icon="search"
+            placeholder="Nom, quartier, catégorie…"
+            value={query}
+            onChangeText={setQuery}
+            autoCorrect={false}
+            returnKeyType="search"
+            accessibilityLabel="Rechercher un lieu"
+            right={
+              query ? (
+                <Pressable onPress={() => setQuery('')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Effacer la recherche">
+                  <Ionicons name="close-circle" size={18} color={colors.muted} />
+                </Pressable>
+              ) : null
+            }
+          />
+        )}
+        {!!query.trim() && !!items?.length && (
+          <Text style={styles.muted}>
+            {shown.length} lieu{shown.length > 1 ? 'x' : ''} sur {items.length}
+          </Text>
+        )}
+        {!items && !loadFailed && <ActivityIndicator color={colors.primary} />}
+        {!items && loadFailed && <ErrorState onRetry={load} />}
         {items?.length === 0 && <EmptyState icon="map-outline" title="Aucun lieu" text="Ajoute la bibliothèque, le rectorat, le centre médical…" />}
-        {items?.map((p) => {
+        {!!items?.length && shown.length === 0 && (
+          <EmptyState
+            icon="search-outline"
+            title={`Aucun lieu pour « ${query.trim()} »`}
+            text="Vérifie l’orthographe, ou ajoute-le s’il n’existe pas encore."
+            action={{ label: 'Effacer la recherche', onPress: () => setQuery('') }}
+          />
+        )}
+        {shown.map((p) => {
           const tone = placeTone(p.category);
           return (
             <Pressable key={p.id} style={[styles.card, shadow.card, !p.active && { opacity: 0.55 }]} onPress={() => setEditing(p)} accessibilityRole="button">
@@ -132,6 +173,12 @@ function PlaceEditor({ place, onClose, onSaved }: { place: PlaceDto | null; onCl
       setLocating(false);
     }
   };
+  // Another campus for something already placed: ask at once whether its position on the map changed too.
+  const pickCampus = (key: 'campus1' | 'campus2', label: string) => {
+    const next = campus === key ? null : key;
+    setCampus(next);
+    if (next && next !== campus && (campus !== null || !!location)) askToRelocate(label, here);
+  };
 
   const location = { lat: Number(lat), lng: Number(lng) };
   const locationOk = !!lat && !!lng && Number.isFinite(location.lat) && Number.isFinite(location.lng) && Math.abs(location.lat) <= 90 && Math.abs(location.lng) <= 180;
@@ -160,7 +207,7 @@ function PlaceEditor({ place, onClose, onSaved }: { place: PlaceDto | null; onCl
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <ScrollView style={styles.sheet} contentContainerStyle={{ gap: 12, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
           <Text style={styles.sheetTitle}>{place ? 'Modifier le lieu' : 'Nouveau lieu'}</Text>
 
@@ -203,9 +250,7 @@ function PlaceEditor({ place, onClose, onSaved }: { place: PlaceDto | null; onCl
           </LabeledField>
           <View style={styles.wrap}>
             {CAMPUSES.map((c) => (
-              <Pressable key={c.key} onPress={() => setCampus(campus === c.key ? null : c.key)} style={[styles.chip, campus === c.key && styles.chipOn]}>
-                <Text style={[styles.chipText, campus === c.key && { color: '#fff' }]}>{c.label}</Text>
-              </Pressable>
+              <Chip key={c.key} label={c.label} selected={campus === c.key} onPress={() => pickCampus(c.key, c.label)} />
             ))}
           </View>
           <LabeledField label="Horaires (facultatif)">
@@ -234,6 +279,7 @@ function PlaceEditor({ place, onClose, onSaved }: { place: PlaceDto | null; onCl
               <Text style={{ color: colors.dangerText, fontWeight: '700' }}>Supprimer le lieu</Text>
             </Pressable>
           )}
+          <SafeBottom />
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
@@ -243,7 +289,7 @@ function PlaceEditor({ place, onClose, onSaved }: { place: PlaceDto | null; onCl
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
-  h1: { ...typo.h2, color: colors.navy },
+  h1: { ...typo.h1, color: colors.navy },
   sub: { ...typo.small, color: colors.muted2, marginTop: -6 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -254,7 +300,7 @@ const styles = StyleSheet.create({
   name: { ...typo.bodyStrong, color: colors.navy },
   muted: { ...typo.caption, color: colors.muted2 },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,27,76,0.35)' },
-  sheet: { maxHeight: 700, backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20 },
+  sheet: { flexShrink: 1, maxHeight: 700, backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20 },
   sheetTitle: { ...typo.h3, color: colors.navy },
   photos: { flexDirection: 'row', gap: 10 },
   photo: { width: 100, height: 76, borderRadius: radii.md, backgroundColor: colors.border },
@@ -263,7 +309,6 @@ const styles = StyleSheet.create({
   coverTagText: { ...typo.label, color: '#fff' },
   remove: { position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(10,16,40,0.7)', alignItems: 'center', justifyContent: 'center' },
   chip: { paddingHorizontal: 12, minHeight: 34, borderRadius: radii.pill, backgroundColor: colors.bg, justifyContent: 'center' },
-  chipOn: { backgroundColor: colors.primary },
   chipText: { ...typo.smallStrong, color: colors.navy },
   locBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingHorizontal: 12, minHeight: 38, borderRadius: radii.pill, backgroundColor: colors.primarySoft },
   locText: { ...typo.smallStrong, color: colors.primary },

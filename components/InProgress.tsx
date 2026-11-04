@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, type Href } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCart } from '@/context/CartContext';
@@ -11,6 +11,7 @@ import { useTaxi } from '@/context/TaxiContext';
 import { useCaravans } from '@/context/CaravansContext';
 import { byDeparture, dayLabel, hourLabel, isCaravanTicket, isEventTicket } from '@/features/caravans/api';
 import { useNow } from '@/lib/useNow';
+import { ApiError } from '@/lib/api';
 
 type Item = {
   key: string;
@@ -77,7 +78,7 @@ export function InProgress() {
       // Seats locked and not checked in yet: one tap from home.
       action:
         trip.myStatus === 'joined' && trip.passengers[0] !== taxi.me && now >= trip.lockAt && !trip.checkedIn.includes(taxi.me)
-          ? { label: 'Je suis là', onPress: () => taxi.checkIn(trip.id).catch(() => undefined) }
+          ? { label: 'Je suis là', onPress: () => taxi.checkIn(trip.id).catch((err) => Alert.alert('Pointage impossible', err instanceof ApiError ? err.message : 'Vérifie ta connexion et réessaie.')) }
           : undefined,
     });
   }

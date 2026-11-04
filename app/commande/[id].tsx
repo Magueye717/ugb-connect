@@ -14,6 +14,7 @@ import { colors, motion, radii, shadow, typo } from '@/constants/theme';
 import { useOrders } from '@/context/OrdersContext';
 import { commerceApi, orderSteps, type OrderDto } from '@/features/commerce/api';
 import { payInBrowser } from '@/features/payments/checkout';
+import { RatingCard } from '@/features/ratings/RatingCard';
 import { ApiError } from '@/lib/api';
 import { haptics } from '@/lib/haptics';
 
@@ -96,7 +97,7 @@ export default function CommandeScreen() {
       return commerceApi.myOrder(order.id);
     }, 'Paiement impossible');
   const cancel = () =>
-    Alert.alert('Annuler la commande ?', `Tu es remboursé de ${formatFcfa(order.total)} sur ton numéro.`, [
+    Alert.alert('Annuler la commande ?', order.method === 'cash' ? 'Rien n’a été payé : elle est simplement annulée.' : `Tu es remboursé de ${formatFcfa(order.total)} sur ton numéro.`, [
       { text: 'Garder', style: 'cancel' },
       { text: 'Annuler la commande', style: 'destructive', onPress: () => run(() => commerceApi.cancel(order.id), 'Annulation impossible') },
     ]);
@@ -105,7 +106,7 @@ export default function CommandeScreen() {
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <Header onBack={back} code={order.code} />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-        <View style={[styles.hero, done && { backgroundColor: colors.success }, (ended || pending) && { backgroundColor: ended ? colors.muted2 : colors.warning }]} accessibilityLiveRegion="polite">
+        <View style={[styles.hero, done && { backgroundColor: colors.successText }, (ended || pending) && { backgroundColor: ended ? colors.muted2 : colors.accent }]} accessibilityLiveRegion="polite">
           <View style={styles.heroIcon}>
             <PopOnChange id={order.status}>
               <Ionicons
@@ -119,9 +120,11 @@ export default function CommandeScreen() {
           <Text style={styles.heroText}>
             {order.business.name} ·{' '}
             {order.status === 'refused'
-              ? `${order.refusal ?? ''} Tu es remboursé.`
+              ? `${order.refusal ?? ''}${order.method === 'cash' ? '' : ' Tu es remboursé.'}`
               : order.status === 'cancelled'
-                ? 'Tu es remboursé sur ton numéro.'
+                ? order.method === 'cash'
+                  ? 'Commande annulée, rien n’a été payé.'
+                  : 'Tu es remboursé sur ton numéro.'
                 : ended
                   ? 'Rien n’a été débité.'
                   : pending
@@ -141,6 +144,9 @@ export default function CommandeScreen() {
         </View>
 
         {pending && order.payment && <PrimaryButton label={`Payer ${formatFcfa(order.total)}`} loading={busy} onPress={resume} />}
+
+        {/* Handed over: « Noter Khoulé & Frère » (optional). */}
+        {done && <RatingCard subject="order" id={order.id} />}
 
         {!ended && !pending && (
           <View style={[styles.card, shadow.card]}>
@@ -202,7 +208,9 @@ export default function CommandeScreen() {
           )}
           <View style={styles.divider} />
           <View style={styles.rowBetween}>
-            <Text style={styles.total}>{order.refunded ? 'Total · remboursé' : 'Total payé'}</Text>
+            <Text style={styles.total}>
+              {order.method === 'cash' ? (order.status === 'completed' ? 'Total payé en espèces' : `À payer en espèces ${order.mode === 'delivery' ? 'au livreur' : 'au retrait'}`) : order.refunded ? 'Total · remboursé' : 'Total payé'}
+            </Text>
             <Text style={styles.totalValue}>{formatFcfa(order.total)}</Text>
           </View>
         </View>
@@ -250,7 +258,8 @@ const styles = StyleSheet.create({
   hero: { backgroundColor: colors.primary, borderRadius: radii.lg, padding: 20, alignItems: 'center', gap: 6 },
   heroIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
   heroTitle: { ...typo.h2, color: '#fff' },
-  heroText: { ...typo.body, color: 'rgba(255,255,255,0.85)', textAlign: 'center' },
+  // Full white: on the orange (payment to finish) and green (done) banners, a tint would drop below 4.5:1.
+  heroText: { ...typo.body, color: '#fff', textAlign: 'center' },
   note: { flexDirection: 'row', gap: 10, padding: 14, borderRadius: radii.md, backgroundColor: colors.warningBg },
   noteText: { ...typo.small, flex: 1, color: colors.warningText, lineHeight: 18 },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 16 },

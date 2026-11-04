@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton, Field, LabeledField, PrimaryButton, TextButton } from '@/components/ui';
@@ -12,6 +13,7 @@ import { readMyCardPhoto, saveIdentity } from '@/features/lost/api';
 import { CardVisual } from '@/features/lost/CardVisual';
 import { CAMPUSES } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
+import { toast } from '@/lib/toast';
 
 /** "2002-03-12" ⇄ "12/03/2002". */
 const toFr = (iso: string | null) => (iso ? iso.split('-').reverse().join('/') : '');
@@ -79,7 +81,7 @@ export default function MaCarte() {
       await saveIdentity({ birthDate: toIso(birthDate), birthPlace: birthPlace.trim() || null, nationality: nationality.trim() || null, fromCard: true });
       await reloadAccount();
       setEditing(false);
-      Alert.alert('Profil complété', 'Tes informations sont enregistrées et vérifiées avec ta carte.');
+      toast('Profil complété : tes informations sont vérifiées avec ta carte.');
     } catch (err) {
       Alert.alert('Enregistrement impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
     } finally {
@@ -94,8 +96,7 @@ export default function MaCarte() {
         <Text style={styles.h1}>Ma carte étudiant</Text>
         <View style={{ width: 44 }} />
       </View>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <CardVisual
             type="student"
             holder={{
@@ -161,8 +162,7 @@ export default function MaCarte() {
               <TextButton label="Annuler" style={{ alignSelf: 'center' }} onPress={() => setEditing(false)} />
             </>
           )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
@@ -175,7 +175,7 @@ function Info({ icon, label, value }: { icon: keyof typeof Ionicons.glyphMap; la
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.infoLabel}>{label}</Text>
-        <Text style={[styles.infoValue, !value && { color: colors.muted }]}>{value ?? 'À compléter'}</Text>
+        <Text style={[styles.infoValue, !value && { color: colors.muted2 }]}>{value ?? 'À compléter'}</Text>
       </View>
     </View>
   );

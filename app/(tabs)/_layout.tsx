@@ -34,9 +34,12 @@ export default function TabLayout() {
       <Tabs
         screenOptions={({ route }) => ({
           headerShown: false,
+          // Typing: the tab bar steps aside (on Android it would sit over the field above the keyboard).
+          tabBarHideOnKeyboard: true,
           tabBarShowLabel: true,
           tabBarActiveTintColor: colors.primary,
-          tabBarInactiveTintColor: colors.tabInactive,
+          // Inactive labels must stay readable (11 px): muted2, 4.9:1.
+          tabBarInactiveTintColor: colors.muted2,
           tabBarStyle: [styles.bar, { height: 62 + bottom, paddingBottom: bottom }],
           tabBarLabel: ({ focused, color }) => Label(TITLES[route.name] ?? route.name, focused, String(color)),
           tabBarLabelStyle: styles.label,

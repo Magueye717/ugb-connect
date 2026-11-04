@@ -1,9 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ErrorState } from '@/components/states';
 import { Field, LabeledField, PrimaryButton, TextButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
@@ -11,6 +13,7 @@ import { passwordRules, validatePassword } from '@/features/register/validation'
 import { teamApi, type Assignment, type OrgSpace, type TeamMember, type TeamSpace } from '@/features/team/api';
 import { MemberCard, SpaceTile } from '@/features/team/MemberCard';
 import { ApiError } from '@/lib/api';
+import { toast } from '@/lib/toast';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
 const digits = (v: string) => v.replace(/\D/g, '');
@@ -30,6 +33,8 @@ export function TeamScreen({ orgId, name, intro }: { orgId: string; name: string
   const { user } = useAuth();
   const [spaces, setSpaces] = useState<TeamSpace[]>([]);
   const [members, setMembers] = useState<TeamMember[] | null>(null);
+  // The first load failed (no network…): « Impossible de charger », with « Réessayer » (not an empty list).
+  const [loadFailed, setLoadFailed] = useState(false);
   const [phone, setPhone] = useState('');
   const [checking, setChecking] = useState(false);
   const [target, setTarget] = useState<Target | null>(null);
@@ -40,12 +45,13 @@ export function TeamScreen({ orgId, name, intro }: { orgId: string; name: string
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(() => {
+    setLoadFailed(false);
     teamApi.team(orgId).then(
       (r) => {
         setSpaces(r.spaces);
         setMembers(r.members);
       },
-      () => setMembers((m) => m ?? []),
+      () => setLoadFailed(true),
     );
   }, [orgId]);
   useFocusEffect(load);
@@ -100,10 +106,9 @@ export function TeamScreen({ orgId, name, intro }: { orgId: string; name: string
         ...(target.kind === 'member' ? { userId: target.member.userId } : { phone: target.phone }),
         ...(target.kind === 'new' ? { firstName: firstName.trim(), lastName: lastName.trim(), password: password.trim() } : {}),
       });
-      Alert.alert(
-        target.kind === 'member' ? 'Rôles enregistrés' : 'Ajouté à l’équipe',
-        target.kind === 'new' ? 'Le compte est créé : donne-lui son mot de passe pour qu’il se connecte.' : 'La personne est prévenue de ses nouveaux rôles et trouve les espaces dans « Mes espaces ».',
-      );
+      // A new account: a step to do (give the password), so a dialog. Otherwise a short confirmation.
+      if (target.kind === 'new') Alert.alert('Ajouté à l’équipe', 'Le compte est créé : donne-lui son mot de passe pour qu’il se connecte.');
+      else toast(target.kind === 'member' ? 'Rôles enregistrés : la personne est prévenue.' : 'Ajouté à l’équipe : la personne est prévenue.');
       restart();
       load();
     } catch (err) {
@@ -137,13 +142,13 @@ export function TeamScreen({ orgId, name, intro }: { orgId: string; name: string
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <Text style={styles.h1}>Mon équipe</Text>
           <Text style={styles.sub}>{intro}</Text>
           {spaces.length > 1 && <Text style={styles.muted}>{`${name} : ${spaces.map((s) => s.label).join(', ')}. Une même personne peut avoir un rôle dans chaque espace.`}</Text>}
 
-          {!members && <ActivityIndicator color={colors.primary} />}
+          {!members && !loadFailed && <ActivityIndicator color={colors.primary} />}
+          {!members && loadFailed && <ErrorState onRetry={load} />}
           {!!members?.length && (
             <Text style={styles.section}>
               Membres · {members.length}
@@ -221,8 +226,7 @@ export function TeamScreen({ orgId, name, intro }: { orgId: string; name: string
               <TextButton label="Annuler" style={{ alignSelf: 'center' }} onPress={restart} />
             </>
           )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
@@ -230,7 +234,7 @@ export function TeamScreen({ orgId, name, intro }: { orgId: string; name: string
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 40 },
-  h1: { ...typo.h2, color: colors.navy },
+  h1: { ...typo.h1, color: colors.navy },
   sub: { ...typo.small, color: colors.muted2, marginTop: -6 },
   section: { ...typo.section, color: colors.navy, marginTop: 8 },
   label: { ...typo.bodyStrong, color: colors.navy },

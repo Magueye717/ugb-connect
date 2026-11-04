@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BackButton, Field, PrimaryButton, StatusChip } from '@/components/ui';
+import { BackButton, Chip, Field, PrimaryButton, SafeBottom, StatusChip } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
@@ -84,7 +85,7 @@ export default function CommandeRecue() {
             </View>
           )}
           <View style={styles.line}>
-            <Text style={[styles.total, { flex: 1 }]}>Total payé</Text>
+            <Text style={[styles.total, { flex: 1 }]}>{o.method === 'cash' ? 'À encaisser en espèces' : `Total payé · ${o.methodLabel}`}</Text>
             <Text style={styles.total}>{formatFcfa(o.total)}</Text>
           </View>
           {o.note && <Text style={styles.note}>Note du client : « {o.note} »</Text>}
@@ -124,15 +125,13 @@ export default function CommandeRecue() {
 
       <Modal visible={refusing} transparent animationType="slide" onRequestClose={() => setRefusing(false)}>
         <Pressable style={styles.backdrop} onPress={() => setRefusing(false)} />
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
           <View style={styles.sheet}>
             <Text style={styles.sheetTitle}>Refuser la commande {o.code}</Text>
-            <Text style={styles.muted}>Le client est remboursé ({formatFcfa(o.total)}) et reçoit ton motif.</Text>
+            <Text style={styles.muted}>{o.method === 'cash' ? 'Le client reçoit ton motif (rien n’a été payé).' : `Le client est remboursé (${formatFcfa(o.total)}) et reçoit ton motif.`}</Text>
             <View style={styles.chips}>
               {REFUSALS.map((r) => (
-                <Pressable key={r} onPress={() => setReason(r)} style={[styles.chip, reason === r && styles.chipOn]}>
-                  <Text style={[styles.chipText, reason === r && { color: '#fff' }]}>{r}</Text>
-                </Pressable>
+                <Chip key={r} label={r} selected={reason === r} onPress={() => setReason(r)} />
               ))}
             </View>
             <Field placeholder="Ou écris le motif" value={reason} onChangeText={setReason} maxLength={200} />
@@ -148,6 +147,7 @@ export default function CommandeRecue() {
                 })
               }
             />
+            <SafeBottom />
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -194,6 +194,4 @@ const styles = StyleSheet.create({
   sheetTitle: { ...typo.h3, color: colors.navy },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingHorizontal: 12, minHeight: 36, borderRadius: radii.pill, backgroundColor: colors.bg, justifyContent: 'center' },
-  chipOn: { backgroundColor: colors.danger },
-  chipText: { ...typo.smallStrong, color: colors.navy },
 });

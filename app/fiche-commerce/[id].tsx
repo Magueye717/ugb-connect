@@ -1,13 +1,16 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ErrorState } from '@/components/states';
 import { BackButton, Segmented } from '@/components/ui';
 import { colors, typo } from '@/constants/theme';
-import { commerceApi, type BusinessDto, type BusinessTarget, type CommerceReference } from '@/features/commerce/api';
+import { commerceApi, type BusinessDto, type BusinessTarget } from '@/features/commerce/api';
 import { BusinessProfileForm } from '@/features/commerce/BusinessProfileForm';
 import { CatalogEditor } from '@/features/commerce/CatalogEditor';
+import { useCommerceReference } from '@/features/commerce/useCommerceReference';
 import { ApiError } from '@/lib/api';
 
 type Tab = 'profile' | 'catalog';
@@ -20,7 +23,7 @@ export default function FicheCommerce() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const target: BusinessTarget = { editorOf: id };
   const [b, setB] = useState<BusinessDto | null>(null);
-  const [ref, setRef] = useState<CommerceReference | null>(null);
+  const { reference: ref, failed: refFailed, retry: retryRef } = useCommerceReference();
   const [tab, setTab] = useState<Tab>('profile');
   const back = () => (router.canGoBack() ? router.back() : router.replace('/(staff)/commerces'));
 
@@ -29,7 +32,6 @@ export default function FicheCommerce() {
       Alert.alert('Ouverture impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
       back();
     });
-    commerceApi.reference().then(setRef, () => undefined);
   }, [id]);
 
   return (
@@ -53,17 +55,17 @@ export default function FicheCommerce() {
           onChange={setTab}
         />
       </View>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          {!b || !ref ? (
+      <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          {b && !ref && refFailed ? (
+            <ErrorState onRetry={retryRef} />
+          ) : !b || !ref ? (
             <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />
           ) : tab === 'profile' ? (
             <BusinessProfileForm key={b.id} b={b} target={target} reference={ref} onSaved={setB} editor />
           ) : (
             <CatalogEditor key={b.id} target={target} kind={b.kind} canManage title={b.kind === 'shop' ? 'Articles' : 'Menus et boissons'} />
           )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }

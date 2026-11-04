@@ -1,16 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { EmptyState } from '@/components/states';
-import { Field, PrimaryButton, Segmented, TextButton } from '@/components/ui';
+import { EmptyState, ErrorState } from '@/components/states';
+import { Field, PrimaryButton, TextButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCampus } from '@/context/CampusContext';
-import { currentMeal, hmLabel, MEAL_LABEL, staffApi, type DishDto, type DishInput, type DishStatus, type Meal, type PublicRestoDto, type StaffRestoDto } from '@/features/restos/api';
+import { currentMeal, hmLabel, MEAL_LABEL, staffApi, type CatalogueDish, type DishDto, type DishInput, type DishStatus, type Meal, type PublicRestoDto, type StaffRestoDto } from '@/features/restos/api';
 import { ApiError } from '@/lib/api';
 import { haptics } from '@/lib/haptics';
+import { fold, matches } from '@/lib/search';
 import { useNow } from '@/lib/useNow';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
@@ -30,6 +32,12 @@ const LEVELS: { status: DishStatus; label: string; bg: string; fg: string }[] = 
 export default function MenusDuJour() {
   const { restos: day, refresh } = useCampus();
   const [mine, setMine] = useState<StaffRestoDto[] | null>(null);
+  // The first load failed (no network…): « Impossible de charger », with « Réessayer » (not "no restaurant").
+  const [loadFailed, setLoadFailed] = useState(false);
+  const loadMine = useCallback(() => {
+    setLoadFailed(false);
+    staffApi.restos().then((r) => setMine(r.items.filter((x) => x.status === 'active')), () => setLoadFailed(true));
+  }, []);
   const [restoId, setRestoId] = useState<string | null>(null);
   const meal = currentMeal(useNow(), day?.restos ?? []);
   const [shown, setShown] = useState<Meal | null>(null);
@@ -37,9 +45,9 @@ export default function MenusDuJour() {
 
   useFocusEffect(
     useCallback(() => {
-      staffApi.restos().then((r) => setMine(r.items.filter((x) => x.status === 'active')), () => setMine((m) => m ?? []));
+      loadMine();
       refresh();
-    }, [refresh]),
+    }, [loadMine, refresh]),
   );
   const pull = () => {
     setRefreshing(true);
@@ -52,8 +60,7 @@ export default function MenusDuJour() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={pull} />}>
+      <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={pull} />}>
           <Text style={styles.h1}>Menus du jour</Text>
           <View style={[styles.now, meal.live && styles.nowLive]}>
             <Ionicons name={meal.live ? 'restaurant' : 'time-outline'} size={16} color={meal.live ? colors.successText : colors.muted2} />
@@ -62,41 +69,76 @@ export default function MenusDuJour() {
             </Text>
           </View>
 
-          {!mine && <ActivityIndicator color={colors.primary} />}
+          {!mine && !loadFailed && <ActivityIndicator color={colors.primary} />}
+          {!mine && loadFailed && <ErrorState onRetry={loadMine} />}
           {mine?.length === 0 && <EmptyState icon="restaurant-outline" title="Aucun restaurant" text="Le super administrateur t’attribue tes restaurants depuis son espace Équipe." />}
           {mine && mine.length > 1 && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-              {mine.map((r) => {
-                const on = r.id === current?.id;
-                return (
-                  <Pressable key={r.id} onPress={() => setRestoId(r.id)} style={[styles.chip, on && styles.chipOn]} accessibilityRole="tab" accessibilityState={{ selected: on }}>
-                    <Text style={[styles.chipText, on && { color: '#fff' }]}>{r.name}</Text>
-                  </Pressable>
-                );
-              })}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} accessibilityRole="tablist">
+              {mine.map((r) => (
+                <RestoTab key={r.id} resto={r} menus={day?.restos.find((x) => x.id === r.id)?.menus} on={r.id === current?.id} onPress={() => setRestoId(r.id)} />
+              ))}
             </ScrollView>
           )}
 
           {current && day && (
             <>
-              <Segmented
-                options={(['lunch', 'dinner'] as const).map((x) => ({ value: x, label: `${MEAL_LABEL[x]} · ${hmLabel(current.services[x].start)}` }))}
-                value={m}
-                onChange={setShown}
-              />
+              <View style={styles.meals} accessibilityRole="tablist">
+                {(['lunch', 'dinner'] as const).map((x) => (
+                  <MealTab key={x} meal={x} resto={current} published={!!resto?.menus[x]} live={meal.live && meal.key === x} on={m === x} onPress={() => setShown(x)} />
+                ))}
+              </View>
               <MealCard key={`${current.id}-${m}-${resto?.menus[m]?.updatedAt ?? 'none'}`} resto={current} menu={resto?.menus[m] ?? null} meal={m} date={day.date} onChanged={refresh} />
             </>
           )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
     </SafeAreaView>
+  );
+}
+
+/** A restaurant to work on: its name, where it is, and how many of today's two menus are published. */
+function RestoTab({ resto, menus, on, onPress }: { resto: StaffRestoDto; menus?: PublicRestoDto['menus']; on: boolean; onPress: () => void }) {
+  const done = (['lunch', 'dinner'] as const).filter((x) => menus?.[x]).length;
+  const tone = done === 2 ? colors.successText : done === 1 ? colors.warningText : colors.muted2;
+  return (
+    <Pressable style={[styles.restoTab, on && styles.tabOn]} onPress={onPress} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={`${resto.name}, ${done} menu${done > 1 ? 's' : ''} publié${done > 1 ? 's' : ''} sur 2`}>
+      <View style={[styles.restoIcon, on && { backgroundColor: colors.primary }]}>
+        <Ionicons name="restaurant" size={15} color={on ? '#fff' : colors.primary} />
+      </View>
+      <View style={{ flexShrink: 1 }}>
+        <Text style={[styles.restoName, on && { color: colors.primary }]} numberOfLines={1}>
+          {resto.name}
+        </Text>
+        <Text style={[styles.tabMeta, { color: tone }]} numberOfLines={1}>
+          {done === 2 ? 'Menus publiés' : done === 1 ? '1 menu sur 2' : 'Rien de publié'}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+/** Lunch or dinner: the meal, its service hours, and whether its menu is out (or being served right now). */
+function MealTab({ meal, resto, published, live, on, onPress }: { meal: Meal; resto: StaffRestoDto; published: boolean; live: boolean; on: boolean; onPress: () => void }) {
+  const hours = `${hmLabel(resto.services[meal].start)} – ${hmLabel(resto.services[meal].end)}`;
+  return (
+    <Pressable style={[styles.mealTab, on && styles.tabOn]} onPress={onPress} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={`${MEAL_LABEL[meal]}, ${hours}, ${published ? 'publié' : 'à composer'}`}>
+      <View style={styles.mealHead}>
+        <Ionicons name={meal === 'lunch' ? 'sunny-outline' : 'moon-outline'} size={18} color={on ? colors.primary : colors.muted2} />
+        <Text style={[styles.mealName, on && { color: colors.primary }]}>{MEAL_LABEL[meal]}</Text>
+        {live && <View style={styles.liveDot} />}
+      </View>
+      <Text style={styles.mealHours}>{hours}</Text>
+      <View style={[styles.badge, { backgroundColor: published ? colors.successBg : colors.warningBg }]}>
+        <Ionicons name={published ? 'checkmark-circle' : 'create-outline'} size={12} color={published ? colors.successText : colors.warningText} />
+        <Text style={[styles.badgeText, { color: published ? colors.successText : colors.warningText }]}>{published ? 'Publié' : 'À composer'}</Text>
+      </View>
+    </Pressable>
   );
 }
 
 /** One meal of one restaurant: compose and publish it, or (published) the stock level of each dish. */
 function MealCard({ resto, menu, meal, date, onChanged }: { resto: StaffRestoDto; menu: PublicRestoDto['menus'][Meal]; meal: Meal; date: string; onChanged: () => Promise<void> }) {
   const [editing, setEditing] = useState(!menu);
-  const [dishes, setDishes] = useState<DishInput[]>(() => (menu?.dishes.length ? menu.dishes.map((d) => ({ id: d.id, name: d.name, detail: d.detail })) : [{ name: '', detail: '' }]));
+  const [dishes, setDishes] = useState<DishInput[]>(() => (menu?.dishes.length ? menu.dishes.map((d) => ({ id: d.id, name: d.name, detail: d.detail })) : []));
   const [saving, setSaving] = useState(false);
   const label = MEAL_LABEL[meal].toLowerCase();
 
@@ -129,19 +171,21 @@ function MealCard({ resto, menu, meal, date, onChanged }: { resto: StaffRestoDto
           {resto.name} · {hmLabel(resto.services[meal].start)}-{hmLabel(resto.services[meal].end)}
         </Text>
         {dishes.map((d, i) => (
-          <View key={i} style={styles.dishEdit}>
+          <View key={`${d.name}-${i}`} style={styles.dishEdit}>
             <View style={{ flex: 1, gap: 6 }}>
-              <Field placeholder={`Plat ${i + 1} (ex. Thiébou dieun)`} value={d.name} onChangeText={(v) => set(i, { name: v })} maxLength={60} autoCapitalize="sentences" />
+              <Text style={styles.dishName}>{d.name}</Text>
               <Field placeholder="Détail (facultatif) : riz au poisson" value={d.detail ?? ''} onChangeText={(v) => set(i, { detail: v })} maxLength={80} autoCapitalize="sentences" />
             </View>
-            {dishes.length > 1 && (
-              <Pressable onPress={() => setDishes((list) => list.filter((_, j) => j !== i))} hitSlop={8} style={styles.remove} accessibilityRole="button" accessibilityLabel={`Retirer le plat ${i + 1}`}>
-                <Ionicons name="trash-outline" size={18} color={colors.dangerText} />
-              </Pressable>
-            )}
+            <Pressable onPress={() => setDishes((list) => list.filter((_, j) => j !== i))} hitSlop={8} style={styles.remove} accessibilityRole="button" accessibilityLabel={`Retirer ${d.name}`}>
+              <Ionicons name="trash-outline" size={18} color={colors.dangerText} />
+            </Pressable>
           </View>
         ))}
-        {dishes.length < 12 && <TextButton label="Ajouter un plat" icon="add-circle-outline" onPress={() => setDishes((list) => [...list, { name: '', detail: '' }])} />}
+        {dishes.length < MAX_DISHES ? (
+          <DishPicker meal={meal} taken={dishes.map((d) => d.name)} onPick={(d) => setDishes((list) => [...list, d])} />
+        ) : (
+          <Text style={styles.muted}>{MAX_DISHES} plats au plus.</Text>
+        )}
         <PrimaryButton label={menu ? `Republier le ${label}` : `Publier le ${label}`} disabled={!filled.length || saving} loading={saving} onPress={publish} />
         {menu && <TextButton label="Annuler" style={{ alignSelf: 'center' }} onPress={() => setEditing(false)} />}
       </View>
@@ -161,6 +205,87 @@ function MealCard({ resto, menu, meal, date, onChanged }: { resto: StaffRestoDto
         <DishRow key={d.id} dish={d} resto={resto.name} onSet={(status, notify) => staffApi.setDishStatus(resto.id, date, meal, d.id, status, notify).then(onChanged)} />
       ))}
       <TextButton label={`Retirer le menu du ${label}`} tone="danger" icon="eye-off-outline" style={{ alignSelf: 'center' }} onPress={unpublish} />
+    </View>
+  );
+}
+
+const MAX_DISHES = 12;
+/** Without a search, the most likely dishes only: a search finds the others. */
+const SUGGESTED = 12;
+
+/**
+ * The dishes to add to the menu: the catalogue (the usual dishes and every dish already published, this meal's
+ * first), searchable; a dish not in it is added as typed, and joins it when the menu is published. A long press
+ * takes a dish typed with a mistake out of the suggestions.
+ */
+function DishPicker({ meal, taken, onPick }: { meal: Meal; taken: string[]; onPick: (d: DishInput) => void }) {
+  const [all, setAll] = useState<CatalogueDish[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [query, setQuery] = useState('');
+  const load = useCallback(() => staffApi.dishes(meal).then((r) => setAll(r.items), () => setFailed(true)), [meal]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const retry = () => {
+    setFailed(false);
+    load();
+  };
+
+  const q = query.trim().replace(/\s+/g, ' ');
+  const used = new Set(taken.map(fold));
+  const left = (all ?? []).filter((d) => !used.has(fold(d.name)));
+  const shown = q ? left.filter((d) => matches(q, [d.name, d.detail])) : left.slice(0, SUGGESTED);
+  // Typed by hand: offered when no dish of the catalogue (or the menu) has exactly this name.
+  const fresh = q.length >= 2 && !used.has(fold(q)) && !(all ?? []).some((d) => fold(d.name) === fold(q));
+  const pick = (d: DishInput) => {
+    onPick(d);
+    setQuery('');
+    haptics.select();
+  };
+  const forget = (d: CatalogueDish) =>
+    Alert.alert(`Retirer « ${d.name} » des suggestions ?`, 'Pour un plat mal écrit ou plus servi. Les menus déjà publiés ne changent pas.', [
+      { text: 'Garder', style: 'cancel' },
+      { text: 'Retirer', style: 'destructive', onPress: () => staffApi.removeDish(d.id).then(() => setAll((list) => list?.filter((x) => x.id !== d.id) ?? null), fail('Retrait impossible')) },
+    ]);
+
+  return (
+    <View style={styles.picker}>
+      <Text style={styles.pickerTitle}>Ajouter un plat</Text>
+      <Field
+        icon="search"
+        placeholder="Chercher ou écrire un plat"
+        value={query}
+        onChangeText={setQuery}
+        maxLength={60}
+        autoCapitalize="sentences"
+        returnKeyType="done"
+        onSubmitEditing={() => fresh && pick({ name: q, detail: '' })}
+        accessibilityLabel="Chercher ou écrire un plat"
+      />
+      {fresh && <TextButton label={`Ajouter « ${q} »`} icon="add-circle-outline" onPress={() => pick({ name: q, detail: '' })} />}
+      {!all && !failed && <ActivityIndicator color={colors.primary} />}
+      {failed && <TextButton label="Liste indisponible : réessayer" icon="refresh-outline" onPress={retry} />}
+      {all && (
+        <View style={styles.wrap}>
+          {shown.map((d) => (
+            <Pressable
+              key={d.id}
+              style={({ pressed }) => [styles.suggestion, pressed && { opacity: 0.7 }]}
+              onPress={() => pick({ name: d.name, detail: d.detail })}
+              onLongPress={() => forget(d)}
+              accessibilityRole="button"
+              accessibilityLabel={`Ajouter ${d.name}${d.detail ? `, ${d.detail}` : ''}`}
+              accessibilityHint="Appui long : retirer des suggestions">
+              <Ionicons name="add" size={14} color={colors.primary} />
+              <Text style={styles.suggestionText} numberOfLines={1}>
+                {d.name}
+              </Text>
+            </Pressable>
+          ))}
+          {!q && left.length > shown.length && <Text style={styles.muted}>+{left.length - shown.length} autres : cherche-les.</Text>}
+          {q && !shown.length && !fresh && <Text style={styles.muted}>Déjà au menu.</Text>}
+        </View>
+      )}
     </View>
   );
 }
@@ -220,14 +345,25 @@ function DishRow({ dish, resto, onSet }: { dish: DishDto; resto: string; onSet: 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
-  h1: { ...typo.h2, color: colors.navy },
+  h1: { ...typo.h1, color: colors.navy },
   now: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, paddingHorizontal: 12, borderRadius: radii.md, backgroundColor: colors.card, alignSelf: 'flex-start' },
   nowLive: { backgroundColor: colors.successBg },
   nowText: { ...typo.smallStrong, color: colors.muted2 },
   chips: { gap: 8 },
+  restoTab: { flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 150, maxWidth: 220, paddingVertical: 10, paddingHorizontal: 12, borderRadius: radii.lg, backgroundColor: colors.card, borderWidth: 1.5, borderColor: colors.border },
+  tabOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  restoIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  restoName: { ...typo.bodyStrong, color: colors.navy },
+  tabMeta: { ...typo.captionStrong },
+  meals: { flexDirection: 'row', gap: 10 },
+  mealTab: { flex: 1, gap: 4, padding: 12, borderRadius: radii.lg, backgroundColor: colors.card, borderWidth: 1.5, borderColor: colors.border },
+  mealHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  mealName: { ...typo.bodyStrong, color: colors.navy },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.success },
+  mealHours: { ...typo.caption, color: colors.muted2 },
+  badge: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', marginTop: 2, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.pill },
+  badgeText: { ...typo.label },
   chip: { paddingHorizontal: 14, minHeight: 36, borderRadius: radii.pill, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, justifyContent: 'center' },
-  chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  chipText: { ...typo.smallStrong, color: colors.navy },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14, gap: 12 },
   cardTitle: { ...typo.section, color: colors.navy },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -236,7 +372,12 @@ const styles = StyleSheet.create({
   remove: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.dangerBg, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
   dish: { gap: 8, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   dishName: { ...typo.bodyStrong, color: colors.text },
-  dishOut: { textDecorationLine: 'line-through', color: colors.muted },
+  dishOut: { textDecorationLine: 'line-through', color: colors.muted2 },
+  picker: { gap: 10, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  pickerTitle: { ...typo.smallStrong, color: colors.navy },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
+  suggestion: { flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: '100%', minHeight: 36, paddingHorizontal: 12, borderRadius: radii.pill, backgroundColor: colors.primarySoft },
+  suggestionText: { ...typo.smallStrong, color: colors.primary, flexShrink: 1 },
   levels: { flexDirection: 'row', gap: 6 },
   level: { flex: 1, minHeight: 34, borderRadius: radii.sm, borderWidth: 1.5, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
   levelText: { ...typo.captionStrong, color: colors.muted2 },

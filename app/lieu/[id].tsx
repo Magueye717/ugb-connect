@@ -16,9 +16,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ErrorState } from '@/components/states';
 import { PrimaryButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { placeIcon, placesApi, placeTone, usePlaces, type PlaceDto } from '@/features/places/api';
+import { ApiError } from '@/lib/api';
 import { openDirections } from '@/lib/maps';
 
 const HERO_HEIGHT = 280;
@@ -30,18 +32,21 @@ export default function LieuScreen() {
   const { places } = usePlaces();
   const [fetched, setFetched] = useState<PlaceDto | null>(null);
   const [missing, setMissing] = useState(false);
+  // No network (not "not found"): say so, with « Réessayer ».
+  const [failed, setFailed] = useState(false);
   // From the list when it's there (instant), and read again when the screen shows.
-  useFocusEffect(
-    useCallback(() => {
-      if (id) placesApi.get(id).then(setFetched, () => setMissing(true));
-    }, [id]),
-  );
+  const load = useCallback(() => {
+    if (!id) return;
+    setFailed(false);
+    placesApi.get(id).then(setFetched, (err) => (err instanceof ApiError && err.status === 404 ? setMissing(true) : setFailed(true)));
+  }, [id]);
+  useFocusEffect(load);
   const p = fetched ?? places?.find((x) => x.id === id) ?? null;
   const back = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/lieux'));
   if (!p) {
     return (
       <View style={[styles.root, { paddingTop: insets.top + 60, alignItems: 'center', gap: 10 }]}>
-        {missing ? <Text style={styles.note}>Lieu introuvable.</Text> : <ActivityIndicator color={colors.primary} />}
+        {missing ? <Text style={styles.note}>Lieu introuvable.</Text> : failed ? <ErrorState onRetry={load} /> : <ActivityIndicator color={colors.primary} />}
         <Pressable onPress={back} style={[styles.back, { top: insets.top + 8 }]} accessibilityRole="button" accessibilityLabel="Retour">
           <Ionicons name="arrow-back" size={20} color={colors.navy} />
         </Pressable>

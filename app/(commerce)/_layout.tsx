@@ -26,6 +26,9 @@ const activeIcons: Record<string, keyof typeof Ionicons.glyphMap> = {
 
 export default function CommerceTabLayout() {
   const { business } = useAuth();
+  // The business's tab is named after what it holds (its profile, then the account): "Boutique" or "Restaurant".
+  const own = business?.kind === 'restaurant' ? 'Restaurant' : 'Boutique';
+  const titleOf = (name: string) => (name === 'commerce' ? own : (TITLES[name] ?? name));
   // Android edge-to-edge: the system navigation bar sits over the app, so the tab bar grows by its height.
   const insets = useSafeAreaInsets();
   const bottom = Math.max(insets.bottom, 10);
@@ -35,11 +38,14 @@ export default function CommerceTabLayout() {
       <Tabs
         screenOptions={({ route }) => ({
           headerShown: false,
+          // Typing: the tab bar steps aside (on Android it would sit over the field above the keyboard).
+          tabBarHideOnKeyboard: true,
           tabBarShowLabel: true,
           tabBarActiveTintColor: colors.primary,
-          tabBarInactiveTintColor: colors.tabInactive,
+          // Inactive labels must stay readable (11 px): muted2, 4.9:1.
+          tabBarInactiveTintColor: colors.muted2,
           tabBarStyle: [styles.bar, { height: 62 + bottom, paddingBottom: bottom }],
-          tabBarLabel: ({ focused, color }) => Label(TITLES[route.name] ?? route.name, focused, String(color)),
+          tabBarLabel: ({ focused, color }) => Label(titleOf(route.name), focused, String(color)),
           tabBarLabelStyle: styles.label,
           tabBarIcon: ({ focused, color }) => {
             const name = focused ? activeIcons[route.name] : icons[route.name];
@@ -52,7 +58,7 @@ export default function CommerceTabLayout() {
         })}>
         <Tabs.Screen name="commandes" options={{ title: 'Commandes' }} />
         <Tabs.Screen name="catalogue" options={{ title: 'Catalogue' }} />
-        <Tabs.Screen name="commerce" options={{ title: 'Commerce' }} />
+        <Tabs.Screen name="commerce" options={{ title: own }} />
         {/* The team is the owner's: members never see this tab. */}
         <Tabs.Screen name="equipe" options={{ title: 'Équipe', href: isOwner(business?.roles) ? undefined : null }} />
       </Tabs>

@@ -1,20 +1,24 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MultiSelect } from '@/components/Select';
-import { BackButton, Field, LabeledField, PrimaryButton, Segmented } from '@/components/ui';
+import { ErrorState } from '@/components/states';
+import { BackButton, Field, LabeledField, PrimaryButton, Segmented, TextButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { ownShop, useAuth } from '@/context/AuthContext';
-import { commerceApi, type BusinessDto, type BusinessRef, type CommerceReference } from '@/features/commerce/api';
+import { commerceApi, type BusinessDto, type BusinessRef } from '@/features/commerce/api';
 import { BusinessProfileForm } from '@/features/commerce/BusinessProfileForm';
 import { CatalogEditor } from '@/features/commerce/CatalogEditor';
+import { useCommerceReference } from '@/features/commerce/useCommerceReference';
 import { api, ApiError } from '@/lib/api';
 import { pickPhoto } from '@/lib/pickPhoto';
 import { uploadImage } from '@/lib/upload';
+import { toast } from '@/lib/toast';
 
 /**
  * "Ma boutique": a student's own shop, inside the student space. Without one: the form to open it (name, what they
@@ -33,17 +37,18 @@ function MyShop({ orgId, spaceKey }: { orgId: string; spaceKey: string }) {
   const { openSpace } = useAuth();
   const target: BusinessRef = { orgId, kind: 'shop' };
   const [b, setB] = useState<BusinessDto | null>(null);
-  const [ref, setRef] = useState<CommerceReference | null>(null);
+  // The shop couldn't be loaded (no network…): an error with « Réessayer » instead of an endless spinner.
+  const [failed, setFailed] = useState(false);
+  const { reference: ref, failed: refFailed, retry: retryRef } = useCommerceReference();
   const [tab, setTab] = useState<Tab>('items');
   const [saving, setSaving] = useState(false);
   const back = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profil'));
 
-  useFocusEffect(
-    useCallback(() => {
-      commerceApi.mine({ orgId, kind: 'shop' }).then(setB, () => undefined);
-      commerceApi.reference().then(setRef, () => undefined);
-    }, [orgId]),
-  );
+  const load = useCallback(() => {
+    setFailed(false);
+    commerceApi.mine({ orgId, kind: 'shop' }).then(setB, () => setFailed(true));
+  }, [orgId]);
+  useFocusEffect(load);
 
   // Away for a few days: the shop stays listed, orders are paused.
   const pause = async (accepting: boolean) => {
@@ -64,10 +69,9 @@ function MyShop({ orgId, spaceKey }: { orgId: string; spaceKey: string }) {
         <BackButton onPress={back} />
         <Text style={styles.h1}>Ma boutique</Text>
       </View>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           {!b ? (
-            <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />
+            failed ? <ErrorState onRetry={load} /> : <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />
           ) : (
             <>
               <View style={[styles.banner, shadow.card]}>
@@ -109,28 +113,26 @@ function MyShop({ orgId, spaceKey }: { orgId: string; spaceKey: string }) {
                 <CatalogEditor target={target} kind="shop" canManage title="Mes articles" />
               ) : ref ? (
                 <BusinessProfileForm key={b.id} b={b} target={target} reference={ref} onSaved={setB} />
+              ) : refFailed ? (
+                <ErrorState onRetry={retryRef} />
               ) : (
                 <ActivityIndicator color={colors.primary} />
               )}
             </>
           )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
 
 function OpenShop() {
   const { reloadAccount } = useAuth();
-  const [ref, setRef] = useState<CommerceReference | null>(null);
+  const { reference: ref, failed: refFailed, retry: retryRef } = useCommerceReference();
   const [name, setName] = useState('');
   const [specialties, setSpecialties] = useState<string[]>([]);
   const [description, setDescription] = useState('');
   const [photo, setPhoto] = useState<{ id: string; url: string } | null>(null);
   const [busy, setBusy] = useState<'photo' | 'save' | null>(null);
-  useEffect(() => {
-    commerceApi.reference().then(setRef, () => undefined);
-  }, []);
   const back = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profil'));
 
   const pick = async () => {
@@ -153,7 +155,7 @@ function OpenShop() {
       const shop = await api<BusinessDto>('POST', '/me/shop', { auth: true, body: { name: name.trim(), specialties, description: description.trim(), ...(photo ? { photoId: photo.id } : {}) } });
       // The page turns into the shop itself (its articles first).
       await reloadAccount();
-      Alert.alert('Ta boutique est ouverte', `${shop.name} : ajoute tes articles, ils apparaissent dans Campus › Boutiques.`);
+      toast(`${shop.name} est ouverte : ajoute tes articles.`);
     } catch (err) {
       Alert.alert('Ouverture impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
     } finally {
@@ -167,8 +169,7 @@ function OpenShop() {
         <BackButton onPress={back} />
         <Text style={styles.h1}>Vendre sur le campus</Text>
       </View>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={[styles.intro, shadow.card]}>
             <Ionicons name="storefront-outline" size={22} color={colors.primary} />
             <Text style={styles.introText}>Tes produits ou tes services (tresses, cours, snacks…) dans la rubrique Boutiques. Les étudiants commandent et paient en ligne ; l’argent arrive sur ton numéro.</Text>
@@ -185,13 +186,13 @@ function OpenShop() {
           </LabeledField>
           <LabeledField label="Ce que tu vends">
             <MultiSelect icon="pricetag-outline" title="Ce que tu vends" placeholder="Choisir (un ou plusieurs)" values={specialties} options={ref?.specialties.shop ?? []} max={ref?.maxSpecialties ?? 1} onChange={setSpecialties} disabled={!ref} />
+            {refFailed && <TextButton label="Liste indisponible : réessayer" icon="refresh-outline" onPress={retryRef} />}
           </LabeledField>
           <LabeledField label="Présentation (facultatif)">
             <Field placeholder="Où te trouver, tes horaires, ce qui te rend unique…" value={description} onChangeText={setDescription} maxLength={500} multiline />
           </LabeledField>
           <PrimaryButton label="Ouvrir ma boutique" disabled={name.trim().length < 2 || !specialties.length || !!busy} loading={busy === 'save'} onPress={open} />
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }

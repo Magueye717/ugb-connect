@@ -35,7 +35,7 @@ export default function ProfilScreen() {
       title: 'Mes activités',
       rows: [
         { icon: 'ticket-outline', label: 'Mes billets', href: '/mes-billets' },
-        { icon: 'cube-outline', label: 'Mes objets perdus', href: { pathname: '/(tabs)/lieux', params: { vue: 'objets' } } },
+        { icon: 'cube-outline', label: 'Mes objets perdus', href: '/mes-objets' },
         { icon: 'bag-handle-outline', label: 'Mon panier', href: '/panier' },
         { icon: 'sparkles-outline', label: 'Mes événements', href: '/mes-evenements' },
         { icon: 'megaphone-outline', label: 'Mes publicités', href: '/mes-publicites' },

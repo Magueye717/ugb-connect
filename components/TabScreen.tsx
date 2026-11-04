@@ -1,13 +1,26 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ScreenHeader } from '@/components/ui';
 import { colors, motion, typo } from '@/constants/theme';
 import { haptics } from '@/lib/haptics';
+
+/** Translucent: the content (a map) shows through the header. */
+const GLASS = 'rgba(236,239,244,0.86)';
+
+type Immersive = { on: boolean; set: (on: boolean) => void; top: number };
+const ImmersiveContext = createContext<Immersive>({ on: false, set: () => undefined, top: 0 });
+
+/**
+ * For a section that wants the whole screen (the campus map): `set(true)` and the section starts at the very top of
+ * the screen, under the header and the section tabs, which turn translucent. `top`: their height, to keep the
+ * section's own controls below them.
+ */
+export const useImmersive = () => useContext(ImmersiveContext);
 
 type View_<K extends string> = { key: K; label: string; icon: keyof typeof Ionicons.glyphMap; subtitle: string; render: () => ReactNode };
 
@@ -33,21 +46,43 @@ export function TabScreen<K extends string>({ title, views }: { title: string; v
     if (fromParam) open(fromParam);
   }
   const view = views.find((v) => v.key === current) ?? views[0];
+  // The section that asked for the whole screen (it stays so while the others are shown: only the current one counts).
+  const [immersiveKey, setImmersiveKey] = useState<K | null>(null);
+  const immersive = immersiveKey === current;
+  const [chrome, setChrome] = useState(0);
+  const insets = useSafeAreaInsets();
 
-  return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+  const head = (
+    <>
       <ScreenHeader title={title} subtitle={view.subtitle} />
       {/* One view: no strip. */}
       {views.length > 1 && <SectionTabs views={views} value={current} onChange={open} />}
+    </>
+  );
+
+  return (
+    <SafeAreaView style={styles.safe} edges={immersive ? [] : ['top']}>
+      {immersive ? (
+        <View style={[styles.glass, { paddingTop: insets.top }]} onLayout={(e) => setChrome(e.nativeEvent.layout.height)}>
+          {head}
+        </View>
+      ) : (
+        head
+      )}
       {views
         .filter((v) => opened.includes(v.key))
         .map((v) => (
-          <View key={v.key} style={[styles.page, v.key !== current && styles.hidden]}>
-            {v.render()}
-          </View>
+          <ImmersiveSection key={v.key} k={v.key} on={immersiveKey === v.key} top={chrome} setKey={setImmersiveKey}>
+            <View style={[styles.page, v.key !== current && styles.hidden]}>{v.render()}</View>
+          </ImmersiveSection>
         ))}
     </SafeAreaView>
   );
+}
+
+function ImmersiveSection<K extends string>({ k, on, top, setKey, children }: { k: K; on: boolean; top: number; setKey: (fn: (cur: K | null) => K | null) => void; children: ReactNode }) {
+  const value = useMemo<Immersive>(() => ({ on, top, set: (yes) => setKey((cur) => (yes ? k : cur === k ? null : cur)) }), [on, top, k, setKey]);
+  return <ImmersiveContext.Provider value={value}>{children}</ImmersiveContext.Provider>;
 }
 
 /** The sections of a tab: icon and label, an underline that slides to the chosen one. */
@@ -99,11 +134,13 @@ function SectionTabs<K extends string>({ views, value, onChange }: { views: View
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   strip: { flexDirection: 'row', marginTop: 10, marginHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-  tab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 44, paddingHorizontal: 4 },
+  tab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 44, paddingHorizontal: 4 },
   tabText: { ...typo.smallStrong, color: colors.muted2, flexShrink: 1 },
   tabTextOn: { color: colors.primary },
   lineBox: { position: 'absolute', left: 0, bottom: -1, alignItems: 'center' },
   line: { width: '60%', height: 3, borderRadius: 2, backgroundColor: colors.primary },
   page: { flex: 1 },
+  // Above the section (which starts at the top of the screen), see-through.
+  glass: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2, paddingBottom: 2, backgroundColor: GLASS },
   hidden: { display: 'none' },
 });

@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandLogo } from '@/components/BrandLogo';
@@ -41,7 +42,7 @@ export default function LoginScreen() {
         <Text style={styles.tagline}>Ton campus dans ta poche</Text>
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheet}>
+      <KeyboardAvoidingView behavior="padding" style={styles.sheet}>
         <ScrollView contentContainerStyle={styles.sheetInner} keyboardShouldPersistTaps="handled">
           <Text style={styles.title}>Se connecter</Text>
           <Text style={styles.subtitle}>Bon retour sur le campus !</Text>

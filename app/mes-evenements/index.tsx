@@ -6,7 +6,7 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, T
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { eventWhen } from '@/components/home';
-import { EmptyState } from '@/components/states';
+import { EmptyState, ErrorState } from '@/components/states';
 import { BackButton, StatusChip } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { EVENT_STATUS, eventsApi, type OrgEventDto } from '@/features/events/api';
@@ -14,8 +14,11 @@ import { EVENT_STATUS, eventsApi, type OrgEventDto } from '@/features/events/api
 /** "Mes événements": the events a student organizes, where each one stands (validation, corrections, on sale). */
 export default function MesEvenements() {
   const [items, setItems] = useState<OrgEventDto[] | null>(null);
+  // The first load failed (no network…): « Impossible de charger », with « Réessayer » (not an empty list).
+  const [loadFailed, setLoadFailed] = useState(false);
   const load = useCallback(() => {
-    eventsApi.mine().then((r) => setItems(r.items), () => setItems((x) => x ?? []));
+    setLoadFailed(false);
+    eventsApi.mine().then((r) => setItems(r.items), () => setLoadFailed(true));
   }, []);
   useFocusEffect(load);
   const back = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profil'));
@@ -39,7 +42,8 @@ export default function MesEvenements() {
           <Ionicons name="chevron-forward" size={18} color={colors.muted} />
         </Pressable>
 
-        {!items && <ActivityIndicator color={colors.primary} />}
+        {!items && !loadFailed && <ActivityIndicator color={colors.primary} />}
+        {!items && loadFailed && <ErrorState onRetry={load} />}
         {items?.length === 0 && <EmptyState icon="sparkles-outline" title="Aucun événement" text="Crée ton premier événement : il sera vérifié avant d’être publié." />}
         {items?.map((e) => {
           const s = EVENT_STATUS[e.status];

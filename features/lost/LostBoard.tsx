@@ -22,9 +22,12 @@ function chip(o: LostItemDto): { label: string; tone: 'success' | 'warning' | 'd
   return o.holder === 'office' ? { label: 'Au bureau', tone: 'warning' } : { label: 'Chez l’étudiant', tone: 'success' };
 }
 
-/** Screen content without header or safe area: used by a tab and by its standalone page. */
-export function LostBoard() {
-  const [tab, setTab] = useState<Tab>('found');
+/**
+ * Screen content without header or safe area: used by Campus › Objets perdus and, with `only="mine"`, by Profil ›
+ * Mes objets perdus (the student's own declarations, without the Trouvés / Perdus switch).
+ */
+export function LostBoard({ only }: { only?: 'mine' } = {}) {
+  const [tab, setTab] = useState<Tab>(only ?? 'found');
   const { items: loaded, refresh } = useLost();
   const items = loaded ?? [];
   const now = useNow();
@@ -43,7 +46,7 @@ export function LostBoard() {
     .filter((o) => inTab(o, tab) && search(o))
     .sort((a, b) => Number(!!a.returned) - Number(!!b.returned));
   // Nothing here but results elsewhere: say where, rather than a dead end.
-  const elsewhere = (['found', 'lost', 'mine'] as Tab[])
+  const elsewhere = (only ? [] : (['found', 'lost', 'mine'] as Tab[]))
     .filter((t) => t !== tab)
     .map((t) => ({ t, n: items.filter((o) => inTab(o, t) && search(o)).length }))
     .filter((x) => x.n > 0);
@@ -94,15 +97,17 @@ export function LostBoard() {
           }
         />
 
-        <Segmented
-          options={[
-            { value: 'found', label: TAB_LABELS.found },
-            { value: 'lost', label: TAB_LABELS.lost },
-            { value: 'mine', label: TAB_LABELS.mine },
-          ]}
-          value={tab}
-          onChange={setTab}
-        />
+        {!only && (
+          <Segmented
+            options={[
+              { value: 'found', label: TAB_LABELS.found },
+              { value: 'lost', label: TAB_LABELS.lost },
+              { value: 'mine', label: TAB_LABELS.mine },
+            ]}
+            value={tab}
+            onChange={setTab}
+          />
+        )}
 
         {query.trim() !== '' && list.length > 0 && (
           <Text style={styles.results}>

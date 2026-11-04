@@ -83,7 +83,8 @@ export function MemberCard({
                       key={r.value}
                       style={({ pressed }) => [styles.pill, { backgroundColor: look.bg }, pressed && { opacity: 0.7 }]}
                       onPress={() => onRemove(s, r)}
-                      hitSlop={6}
+                      // 22 px pill, 44 px to the touch.
+                      hitSlop={{ top: 11, bottom: 11, left: 4, right: 4 }}
                       accessibilityRole="button"
                       accessibilityLabel={`Retirer le rôle ${r.label}, ${s.label}`}>
                       <Text style={[styles.pillText, { color: look.tint }]}>{r.label}</Text>

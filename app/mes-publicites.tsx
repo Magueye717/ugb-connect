@@ -5,7 +5,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { EmptyState } from '@/components/states';
+import { EmptyState, ErrorState } from '@/components/states';
 import { BackButton, StatusChip, TextButton } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
@@ -18,8 +18,11 @@ const day = (iso: string) => new Date(iso).toLocaleDateString('fr-FR', { day: 'n
 /** "Mes publicités": the banners I paid for, where they stand (validation, diffusion, refund). */
 export default function MesPublicites() {
   const [items, setItems] = useState<BannerDto[] | null>(null);
+  // The first load failed (no network…): « Impossible de charger », with « Réessayer » (not an empty list).
+  const [loadFailed, setLoadFailed] = useState(false);
   const load = useCallback(() => {
-    bannersApi.mine().then((r) => setItems(r.items), () => setItems((x) => x ?? []));
+    setLoadFailed(false);
+    bannersApi.mine().then((r) => setItems(r.items), () => setLoadFailed(true));
   }, []);
   useFocusEffect(load);
   const back = () => (router.canGoBack() ? router.back() : router.replace('/'));
@@ -50,7 +53,8 @@ export default function MesPublicites() {
           <Ionicons name="chevron-forward" size={18} color={colors.muted} />
         </Pressable>
 
-        {!items && <ActivityIndicator color={colors.primary} />}
+        {!items && !loadFailed && <ActivityIndicator color={colors.primary} />}
+        {!items && loadFailed && <ErrorState onRetry={load} />}
         {items?.length === 0 && <EmptyState icon="megaphone-outline" title="Aucune bannière" text="Elle passe par une validation de l’équipe UGB Campus avant de s’afficher." />}
         {items?.map((b) => {
           const s = BANNER_STATUS[b.status];

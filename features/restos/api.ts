@@ -85,12 +85,18 @@ export const restosApi = {
 /** A restaurant as its staff and the super admin see it (no menus). */
 export type StaffRestoDto = Omit<PublicRestoDto, 'menus'> & { campus: string | null; sortOrder: number; status: string };
 export type DishInput = { id?: string; name: string; detail?: string };
+/** A dish of the catalogue the staff pick from: predefined, or published once by someone. */
+export type CatalogueDish = { id: string; name: string; detail: string; meals: Meal[]; uses: number };
 
 export const staffApi = {
   /** The super admin: every restaurant. A menu publisher: the ones assigned to them. */
   restos: () => api<{ items: StaffRestoDto[] }>('GET', '/admin/public-restos', auth),
   /** Lunch and dinner are published separately (dinner is often known later in the day). */
   putMenu: (restoId: string, date: string, meal: Meal, dishes: DishInput[]) => api<MenuDto>('PUT', `/admin/public-restos/${restoId}/menus/${date}/${meal}`, { ...auth, body: { dishes } }),
+  /** The dishes to pick from, those of `meal` first then the most served. Publishing a menu adds its new dishes. */
+  dishes: (meal: Meal) => api<{ items: CatalogueDish[] }>('GET', `/admin/public-dishes?meal=${meal}`, auth),
+  /** Out of the suggestions (a typo…); published menus keep it. */
+  removeDish: (id: string) => api<void>('DELETE', `/admin/public-dishes/${id}`, auth),
   deleteMenu: (restoId: string, date: string, meal: Meal) => api<void>('DELETE', `/admin/public-restos/${restoId}/menus/${date}/${meal}`, auth),
   /** `notify` (with a rupture): a push to everyone with the app, on top of the home screen alert. */
   setDishStatus: (restoId: string, date: string, meal: Meal, dishId: string, status: DishStatus, notify = false) =>

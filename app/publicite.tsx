@@ -5,11 +5,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ErrorState } from '@/components/states';
 import { eventWhen, openCta } from '@/components/home';
 import { PaymentLogo } from '@/components/PaymentLogo';
-import { BackButton, Field, LabeledField, PrimaryButton, Segmented } from '@/components/ui';
+import { BackButton, Chip, Field, LabeledField, PrimaryButton, Segmented, TextButton } from '@/components/ui';
 import { formatFcfa, paymentMethods } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
@@ -53,6 +55,8 @@ export default function NouvellePublicite() {
   const canPromote = isManager || !!fromEvent;
   const [kind, setKind] = useState<Kind>(fromEvent ? 'event' : 'ad');
   const [packages, setPackages] = useState<BannerPackageDto[] | null>(null);
+  // The packages couldn't be loaded: say so with « Réessayer » (nothing could be bought otherwise, silently).
+  const [packagesFailed, setPackagesFailed] = useState(false);
   const [events, setEvents] = useState<OrgEventDto[]>([]);
   // Events already on the carousel (or about to be): eventId → last day. A new banner once it has ended.
   const [promoted, setPromoted] = useState<Record<string, string>>({});
@@ -69,14 +73,17 @@ export default function NouvellePublicite() {
   const [startsOn, setStartsOn] = useState<string>(ymd(startDays()[0]!));
   const [method, setMethod] = useState(paymentMethods[0].id);
   const [paying, setPaying] = useState(false);
+  // The events to promote couldn't be loaded: a retry instead of "no published event".
+  const [eventsFailed, setEventsFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    bannersApi.packages().then((r) => setPackages(r.items), () => setPackages([]));
+    bannersApi.packages().then((r) => setPackages(r.items), () => setPackagesFailed(true));
     // Only published events still to come can be promoted.
     const promotable = (e: OrgEventDto) => e.status === 'published' && Date.parse(e.endsAt) > Date.now();
     const add = (list: OrgEventDto[]) => setEvents((cur) => [...cur, ...list.filter((e) => promotable(e) && !cur.some((x) => x.id === e.id))]);
-    if (isManager && organizer) eventsApi.ofOrg(organizer.orgId).then((r) => add(r.items), () => undefined);
-    if (fromEvent) eventsApi.mineOne(fromEvent).then((e) => add([e]), () => undefined);
+    if (isManager && organizer) eventsApi.ofOrg(organizer.orgId).then((r) => add(r.items), () => setEventsFailed(true));
+    if (fromEvent) eventsApi.mineOne(fromEvent).then((e) => add([e]), () => setEventsFailed(true));
     bannersApi.mine().then(
       (r) =>
         setPromoted(
@@ -88,7 +95,7 @@ export default function NouvellePublicite() {
         ),
       () => undefined,
     );
-  }, [isManager, organizer, fromEvent]);
+  }, [isManager, organizer, fromEvent, attempt]);
 
   const back = () => (router.canGoBack() ? router.back() : router.replace('/mes-publicites'));
   const event = events.find((e) => e.id === eventId && !promoted[e.id]) ?? null;
@@ -157,7 +164,7 @@ export default function NouvellePublicite() {
   const previewImage = image?.url ?? (kind === 'event' ? event?.images[0] : undefined);
   const previewTitle = title.trim() || (kind === 'event' ? (event?.title ?? 'Ton événement') : 'Ton titre');
   const previewText = kind === 'event' ? (event ? `${eventWhen(event.startsAt)} · ${event.minPrice ? `Dès ${formatFcfa(event.minPrice)}` : 'Gratuit'}` : 'Date · prix') : description.trim() || 'Ta description courte';
-  const previewAction = kind === 'event' ? 'Voir l’événement' : withCta ? ctaLabel.trim() || 'Voir' : null;
+  const previewAction = kind === 'event' ? 'Réserver un ticket' : withCta ? ctaLabel.trim() || 'Voir' : null;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -166,7 +173,7 @@ export default function NouvellePublicite() {
         <Text style={styles.h1}>Nouvelle bannière</Text>
         <View style={{ width: 44 }} />
       </View>
-      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" bottomOffset={24}>
         {canPromote && (
           <Segmented
             options={[
@@ -184,38 +191,41 @@ export default function NouvellePublicite() {
           <View style={styles.tag}>
             <Text style={styles.tagText}>{kind === 'event' ? 'ÉVÉNEMENT' : 'SPONSORISÉ'}</Text>
           </View>
-          <View style={{ paddingRight: previewAction ? 110 : 0 }}>
+          <View>
             <Text style={styles.previewTitle} numberOfLines={2}>
               {previewTitle}
             </Text>
-            <Text style={styles.previewText} numberOfLines={1}>
-              {previewText}
-            </Text>
-          </View>
-          {previewAction && (
-            <Pressable
-              style={styles.previewBtn}
-              onPress={() => {
-                // Try it: the event page, or the ad's link / WhatsApp / call.
-                if (kind === 'event') {
-                  if (event) router.push({ pathname: '/evenement/[id]', params: { id: event.id } });
-                  else Alert.alert('Choisis ton événement', 'Le bouton ouvrira la page de l’événement choisi.');
-                } else if (ctaValue.trim().length > 3) openCta({ target: ctaTarget, value: ctaValue.trim() });
-                else Alert.alert('Complète le bouton', ctaTarget === 'url' ? 'Ajoute le lien à ouvrir.' : 'Ajoute le numéro.');
-              }}
-              accessibilityRole="button">
-              <Text style={styles.previewBtnText} numberOfLines={1}>
-                {previewAction}
+            <View style={styles.previewFoot}>
+              <Text style={styles.previewText} numberOfLines={2}>
+                {previewText}
               </Text>
-            </Pressable>
-          )}
+              {previewAction && (
+                <Pressable
+                  style={styles.previewBtn}
+                  onPress={() => {
+                    // Try it: the event page, or the ad's link / WhatsApp / call.
+                    if (kind === 'event') {
+                      if (event) router.push({ pathname: '/evenement/[id]', params: { id: event.id } });
+                      else Alert.alert('Choisis ton événement', 'Le bouton ouvrira la page de l’événement choisi.');
+                    } else if (ctaValue.trim().length > 3) openCta({ target: ctaTarget, value: ctaValue.trim() });
+                    else Alert.alert('Complète le bouton', ctaTarget === 'url' ? 'Ajoute le lien à ouvrir.' : 'Ajoute le numéro.');
+                  }}
+                  accessibilityRole="button">
+                  <Text style={styles.previewBtnText} numberOfLines={1}>
+                    {previewAction}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
         </View>
         <Text style={styles.hint}>Aperçu : ce que les étudiants verront sur l’accueil.</Text>
 
         {kind === 'event' ? (
           <View style={{ gap: 10 }}>
             <Text style={styles.label}>Ton événement</Text>
-            {events.length === 0 && <Text style={styles.hint}>Aucun événement publié à venir. Crée et publie d’abord ton événement depuis « Mes événements ».</Text>}
+            {events.length === 0 && eventsFailed && <TextButton label="Tes événements n’ont pas pu être chargés : réessayer" icon="refresh-outline" onPress={() => (setEventsFailed(false), setAttempt((a) => a + 1))} />}
+            {events.length === 0 && !eventsFailed && <Text style={styles.hint}>Aucun événement publié à venir. Crée et publie d’abord ton événement depuis « Mes événements ».</Text>}
             {events.map((e) => {
               const busy = promoted[e.id];
               const on = !busy && e.id === eventId;
@@ -290,7 +300,8 @@ export default function NouvellePublicite() {
         )}
 
         <Text style={styles.label}>Formule</Text>
-        {!packages && <ActivityIndicator color={colors.primary} />}
+        {!packages && !packagesFailed && <ActivityIndicator color={colors.primary} />}
+        {!packages && packagesFailed && <ErrorState text="Les durées et leurs prix n’ont pas pu être chargés." onRetry={() => (setPackagesFailed(false), setAttempt((a) => a + 1))} />}
         {packages?.map((p) => {
           const ok = fits(p.days);
           const on = ok && p.code === pkg;
@@ -331,11 +342,7 @@ export default function NouvellePublicite() {
             const key = ymd(d);
             const on = key === startsOn;
             return (
-              <Pressable key={key} onPress={() => setStartsOn(key)} style={[styles.chip, on && styles.chipOn]}>
-                <Text style={[styles.chipText, on && { color: colors.primary }]}>
-                  {key === ymd(new Date()) ? 'Aujourd’hui' : `${DAYS[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`}
-                </Text>
-              </Pressable>
+              <Chip key={key} label={key === ymd(new Date()) ? 'Aujourd’hui' : `${DAYS[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`} selected={on} onPress={() => setStartsOn(key)} />
             );
           })}
         </ScrollView>
@@ -358,7 +365,7 @@ export default function NouvellePublicite() {
         })}
 
         <PrimaryButton label={chosen ? `Payer ${formatFcfa(chosen.price)}` : picked ? 'Choisis une formule plus courte' : 'Choisis une formule'} disabled={!ready} loading={paying} onPress={submit} />
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
@@ -374,8 +381,9 @@ const styles = StyleSheet.create({
   tag: { alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.24)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.pill },
   tagText: { ...typo.label, color: '#fff', letterSpacing: 0.3 },
   previewTitle: { ...typo.h3, color: '#fff', lineHeight: 23 },
-  previewText: { ...typo.caption, color: 'rgba(255,255,255,0.92)', marginTop: 4 },
-  previewBtn: { position: 'absolute', right: 14, bottom: 16, maxWidth: 140, backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8, borderRadius: radii.pill },
+  previewText: { ...typo.caption, color: 'rgba(255,255,255,0.92)', flex: 1 },
+  previewFoot: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6 },
+  previewBtn: { flexShrink: 0, maxWidth: 150, backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8, borderRadius: radii.pill },
   previewBtnText: { ...typo.captionStrong, color: colors.navy },
   hint: { ...typo.caption, color: colors.muted2, lineHeight: 17 },
   label: { ...typo.title, color: colors.navy, marginTop: 6 },

@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
-import { BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandLogo } from '@/components/BrandLogo';
@@ -119,8 +120,7 @@ export default function ForgotScreen() {
       </SafeAreaView>
 
       <View style={styles.sheet}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <ScrollView
+        <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24}
             contentContainerStyle={[styles.content, { paddingBottom: 48 + insets.bottom }]}
             keyboardShouldPersistTaps="handled">
             {stage === 'phone' && (
@@ -214,8 +214,7 @@ export default function ForgotScreen() {
                 />
               </>
             )}
-          </ScrollView>
-        </KeyboardAvoidingView>
+          </KeyboardAwareScrollView>
       </View>
     </View>
   );

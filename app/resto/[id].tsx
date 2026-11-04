@@ -21,6 +21,7 @@ import { formatFcfa } from '@/constants/data';
 import { useCart } from '@/context/CartContext';
 import { colors, motion, radii, shadow, typo } from '@/constants/theme';
 import { commerceApi, type BusinessDetail, type ItemDto } from '@/features/commerce/api';
+import { ReviewsSection } from '@/features/ratings/Reviews';
 import { ApiError } from '@/lib/api';
 import { haptics } from '@/lib/haptics';
 import { openDirections } from '@/lib/maps';
@@ -54,9 +55,15 @@ export default function BusinessScreen() {
   const basket = useCart();
   // Tabs jump to their section in the single scroll.
   const scroll = useRef<ScrollViewInstance>(null);
+  // Where the reviews start in the page: the rating under the name scrolls there.
+  const reviewsY = useRef(0);
   const bodyY = useRef(0);
   const sectionY = useRef<Record<string, number>>({});
   const [tab, setTab] = useState<string | null>(null);
+  // The section filter sticks under the status bar once the page scrolls past it.
+  const barY = useRef(0);
+  const [barH, setBarH] = useState(0);
+  const [stuck, setStuck] = useState(false);
 
   if (!b) {
     return (
@@ -81,15 +88,31 @@ export default function BusinessScreen() {
         { key: 'drink', title: 'Boissons', items: b.items.filter((i) => i.section === 'drink'), grid: true },
       ].filter((s) => s.items.length);
   const current = tab ?? sections[0]?.key;
+  // Under the stuck filter bar: a section's title shows just below it.
+  const sectionTop = (key: string) => bodyY.current + (sectionY.current[key] ?? 0) - barH - insets.top - 8;
   const goTo = (key: string) => {
     setTab(key);
-    scroll.current?.scrollTo({ y: bodyY.current + (sectionY.current[key] ?? 0) - 12, animated: true });
+    scroll.current?.scrollTo({ y: Math.max(0, sectionTop(key)), animated: true });
+  };
+  // The chip follows the reading: the last section whose title went under the bar.
+  const onScroll = (y: number) => {
+    const isStuck = sections.length > 1 && y >= barY.current - 1;
+    if (isStuck !== stuck) setStuck(isStuck);
+    if (sections.length < 2) return;
+    const reading = [...sections].reverse().find((sec) => y >= sectionTop(sec.key) - 4)?.key ?? sections[0]!.key;
+    if (reading !== current) setTab(reading);
   };
   const location = [b.address, b.campusLabel].filter(Boolean).join(' · ');
 
   return (
     <View style={styles.root}>
-      <ScrollView ref={scroll} contentContainerStyle={{ paddingBottom: count ? 120 : 48 }} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        ref={scroll}
+        contentContainerStyle={{ paddingBottom: count ? 120 : 48 }}
+        showsVerticalScrollIndicator={false}
+        stickyHeaderIndices={sections.length > 1 ? [2] : undefined}
+        scrollEventThrottle={32}
+        onScroll={(e) => onScroll(e.nativeEvent.contentOffset.y)}>
         <View style={[styles.hero, { backgroundColor: colors.primarySoft }]}>
           {b.photo ? <Image source={{ uri: b.photo }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} /> : <Ionicons name={isShop ? 'storefront' : 'restaurant'} size={56} color={colors.primary} />}
           <View style={[styles.heroBar, { top: insets.top + 8 }]}>
@@ -103,6 +126,19 @@ export default function BusinessScreen() {
 
         <View style={[styles.infoCard, shadow.raised]}>
           <Text style={styles.name}>{b.name}</Text>
+          {b.rating !== null && (
+            <Pressable
+              style={styles.metaItem}
+              hitSlop={8}
+              onPress={() => scroll.current?.scrollTo({ y: bodyY.current + reviewsY.current - 12, animated: true })}
+              accessibilityRole="button"
+              accessibilityLabel={`Noté ${b.rating} sur 5 par ${b.ratingCount} étudiant${b.ratingCount > 1 ? 's' : ''}. Voir les avis`}>
+              <Ionicons name="star" size={14} color={colors.warning} />
+              <Text style={[styles.metaText, styles.reviewsLink]}>
+                {b.rating.toFixed(1)} · {b.ratingCount} avis
+              </Text>
+            </Pressable>
+          )}
           <Text style={styles.sub}>
             {b.specialty}
             {location ? ` · ${location}` : ''}
@@ -126,6 +162,24 @@ export default function BusinessScreen() {
           </View>
         </View>
 
+        {/* The sections (Plats · Boissons, or a shop's aisles): sticky, the current one follows the scroll. */}
+        {sections.length > 1 ? (
+          <View
+            style={[styles.bar, stuck && { paddingTop: insets.top + 6, ...shadow.card }]}
+            onLayout={(e) => {
+              if (!stuck) barY.current = e.nativeEvent.layout.y;
+              setBarH(e.nativeEvent.layout.height);
+            }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
+              {sections.map((s) => (
+                <Tab key={s.key} label={s.key === 'menu' ? 'Plats' : s.title} count={s.items.length} on={current === s.key} onPress={() => goTo(s.key)} />
+              ))}
+            </ScrollView>
+          </View>
+        ) : (
+          <View />
+        )}
+
         <View style={styles.body} onLayout={(e) => (bodyY.current = e.nativeEvent.layout.y)}>
           {!b.open && (
             <View style={styles.closed}>
@@ -134,14 +188,6 @@ export default function BusinessScreen() {
             </View>
           )}
           {!b.items.length && <EmptyState icon={isShop ? 'pricetags-outline' : 'restaurant-outline'} title={isShop ? 'Pas encore d’articles' : 'Pas de menu aujourd’hui'} text="Repasse un peu plus tard." />}
-
-          {sections.length > 1 && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
-              {sections.map((s) => (
-                <Tab key={s.key} label={`${s.key === 'menu' ? 'Plats' : s.title} · ${s.items.length}`} on={current === s.key} onPress={() => goTo(s.key)} />
-              ))}
-            </ScrollView>
-          )}
 
           {sections.map((s) => (
             <View key={s.key} style={styles.section} onLayout={(e) => (sectionY.current[s.key] = e.nativeEvent.layout.y)}>
@@ -166,7 +212,7 @@ export default function BusinessScreen() {
                             {!!d.detail && <Text style={styles.drinkDetail}> · {d.detail.split(' · ').pop()}</Text>}
                           </Text>
                         </View>
-                        {qty > 0 ? (
+                        {!d.orderable ? null : qty > 0 ? (
                           <View style={styles.drinkStepper}>
                             <Pressable onPress={() => (haptics.select(), setQty(d.id, qty - 1))} hitSlop={8} style={styles.drinkStep} accessibilityLabel={`Retirer un ${d.name}`}>
                               <Ionicons name={qty === 1 ? 'trash-outline' : 'remove'} size={13} color={colors.navy} />
@@ -193,12 +239,23 @@ export default function BusinessScreen() {
                       <Text style={styles.dishName} numberOfLines={1}>
                         {m.name}
                       </Text>
-                      <Text style={styles.muted} numberOfLines={2}>
-                        {m.soldOut ? 'Épuisé' : m.stock !== null && m.stock <= 5 ? `Plus que ${m.stock}` : m.detail}
-                      </Text>
+                      {!!m.detail && (
+                        <Text style={styles.muted} numberOfLines={2}>
+                          {m.detail}
+                        </Text>
+                      )}
+                      {m.soldOut ? <Text style={styles.soldOut}>Épuisé</Text> : m.stock !== null && m.stock <= 5 && <Text style={styles.fewLeft}>Plus que {m.stock}</Text>}
                       <View style={styles.dishBottom}>
                         <Text style={styles.price}>{formatFcfa(m.price)}</Text>
-                        <QtyControl qty={cart[m.id] ?? 0} disabled={!b.open || m.soldOut} max={m.stock ?? undefined} name={m.name} onChange={(q) => setQty(m.id, q)} />
+                        {m.orderable ? (
+                          <QtyControl qty={cart[m.id] ?? 0} disabled={!b.open || m.soldOut} max={m.stock ?? undefined} name={m.name} onChange={(q) => setQty(m.id, q)} />
+                        ) : (
+                          // A service done on the spot (printing…): its price, for information; nothing to order.
+                          <View style={styles.onSite} accessibilityLabel={`${m.name} : sur place, sans commande`}>
+                            <Ionicons name="information-circle-outline" size={13} color={colors.muted2} />
+                            <Text style={styles.onSiteText}>Sur place</Text>
+                          </View>
+                        )}
                       </View>
                     </View>
                   </View>
@@ -206,6 +263,11 @@ export default function BusinessScreen() {
               )}
             </View>
           ))}
+
+          {/* What students who ordered here thought: anonymous, after the menu. */}
+          <View onLayout={(e) => (reviewsY.current = e.nativeEvent.layout.y)}>
+            <ReviewsSection businessId={b.id} />
+          </View>
         </View>
       </ScrollView>
 
@@ -244,10 +306,15 @@ function RoundButton({ icon, label, onPress }: { icon: keyof typeof Ionicons.gly
   );
 }
 
-function Tab({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
+function Tab({ label, count, on, onPress }: { label: string; count: number; on: boolean; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={[styles.tab, on && styles.tabOn]} accessibilityRole="tab" accessibilityState={{ selected: on }}>
-      <Text style={[styles.tabText, on && styles.tabTextOn]}>{label}</Text>
+    <Pressable onPress={onPress} style={[styles.tab, on && styles.tabOn]} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={`${label}, ${count}`}>
+      <Text style={[styles.tabText, on && styles.tabTextOn]} numberOfLines={1}>
+        {label}
+      </Text>
+      <View style={[styles.tabCount, on && styles.tabCountOn]}>
+        <Text style={[styles.tabCountText, on && { color: colors.primary }]}>{count}</Text>
+      </View>
     </Pressable>
   );
 }
@@ -360,7 +427,7 @@ const styles = StyleSheet.create({
   metaText: { ...typo.small, color: colors.muted2 },
   tagText: { fontSize: 12, fontWeight: '600', color: colors.muted2 },
   dot: { width: 7, height: 7, borderRadius: 4 },
-  body: { paddingHorizontal: PADDING, marginTop: 16, gap: 20 },
+  body: { paddingHorizontal: PADDING, marginTop: 8, gap: 20 },
   closed: {
     flexDirection: 'row',
     gap: 8,
@@ -369,12 +436,20 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warningBg,
   },
   closedText: { ...typo.small, flex: 1, color: colors.warningText },
-  tabs: { flexDirection: 'row', backgroundColor: colors.primarySoft, borderRadius: radii.pill, padding: 4, gap: 4 },
-  tab: { paddingHorizontal: 16, minHeight: 38, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center' },
-  tabOn: { backgroundColor: colors.card, ...shadow.card },
-  tabText: { ...typo.smallStrong, color: colors.muted2 },
-  tabTextOn: { color: colors.navy },
+  // Edge to edge, on the page's colour: the chips scroll under nothing, the bar covers the list when stuck.
+  bar: { backgroundColor: colors.bg, paddingTop: 14, paddingBottom: 10 },
+  tabs: { flexDirection: 'row', gap: 8, paddingHorizontal: PADDING },
+  tab: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 14, paddingRight: 6, minHeight: 38, maxWidth: 200, borderRadius: radii.pill, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+  tabOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  tabText: { ...typo.smallStrong, color: colors.navy, flexShrink: 1 },
+  tabTextOn: { color: '#fff' },
+  tabCount: { minWidth: 24, height: 24, paddingHorizontal: 6, borderRadius: 12, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
+  tabCountOn: { backgroundColor: '#fff' },
+  tabCountText: { ...typo.captionStrong, color: colors.muted2 },
+  soldOut: { ...typo.captionStrong, color: colors.dangerText, marginTop: 2 },
+  fewLeft: { ...typo.captionStrong, color: colors.orangeText, marginTop: 2 },
   section: { gap: 12 },
+  reviewsLink: { color: colors.navy, fontWeight: '700', textDecorationLine: 'underline' },
   sectionTitle: { ...typo.section, color: colors.navy },
   muted: { ...typo.caption, color: colors.muted2, marginTop: 2 },
   dish: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 10, flexDirection: 'row', gap: 12 },
@@ -416,6 +491,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  onSite: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, minHeight: 30, borderRadius: radii.pill, backgroundColor: colors.bg },
+  onSiteText: { ...typo.captionStrong, color: colors.muted2 },
   qty: { fontWeight: '700', color: colors.navy, minWidth: 12, textAlign: 'center' },
   add: {
     flexDirection: 'row',

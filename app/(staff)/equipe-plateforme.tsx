@@ -1,10 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Field, LabeledField, PrimaryButton, TextButton } from '@/components/ui';
+import { ErrorState } from '@/components/states';
+import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, TextButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { passwordRules, validatePassword } from '@/features/register/validation';
@@ -23,20 +25,29 @@ const digits = (v: string) => v.replace(/\D/g, '');
 export default function EquipePlateforme() {
   const { user } = useAuth();
   const [members, setMembers] = useState<PlatformMember[] | null>(null);
+  // The first load failed (no network…): « Impossible de charger », with « Réessayer » (not an empty list).
+  const [loadFailed, setLoadFailed] = useState(false);
   const [roles, setRoles] = useState<PlatformRole[]>([]);
   const [restos, setRestos] = useState<StaffRestoDto[]>([]);
+  // The restaurants couldn't be loaded: the sheet offers a retry instead of an empty choice.
+  const [restosFailed, setRestosFailed] = useState(false);
+  const loadRestos = useCallback(() => {
+    setRestosFailed(false);
+    staffApi.restos().then((r) => setRestos(r.items), () => setRestosFailed(true));
+  }, []);
   const [editing, setEditing] = useState<PlatformMember | 'new' | null>(null);
 
   const load = useCallback(() => {
+    setLoadFailed(false);
     platformTeamApi.list().then(
       (r) => {
         setMembers(r.items);
         setRoles(r.roles);
       },
-      () => setMembers((m) => m ?? []),
+      () => setLoadFailed(true),
     );
-    staffApi.restos().then((r) => setRestos(r.items), () => undefined);
-  }, []);
+    loadRestos();
+  }, [loadRestos]);
   useFocusEffect(load);
 
   const label = (r: string) => roles.find((x) => x.value === r)?.label ?? r;
@@ -61,7 +72,8 @@ export default function EquipePlateforme() {
           </Pressable>
         </View>
 
-        {!members && <ActivityIndicator color={colors.primary} />}
+        {!members && !loadFailed && <ActivityIndicator color={colors.primary} />}
+        {!members && loadFailed && <ErrorState onRetry={load} />}
         {members?.map((m) => (
           <Pressable key={m.userId} style={({ pressed }) => [styles.card, shadow.card, pressed && { opacity: 0.85 }]} onPress={() => setEditing(m)} accessibilityRole="button" accessibilityLabel={`Modifier ${m.firstName} ${m.lastName}`}>
             <View style={styles.avatar}>
@@ -100,6 +112,8 @@ export default function EquipePlateforme() {
           member={editing === 'new' ? null : editing}
           roles={roles}
           restos={restos}
+          restosFailed={restosFailed}
+          onRetryRestos={loadRestos}
           self={editing !== 'new' && editing.userId === user?.id}
           onClose={() => setEditing(null)}
           onDone={() => {
@@ -112,7 +126,7 @@ export default function EquipePlateforme() {
   );
 }
 
-function MemberSheet({ member, roles, restos, self, onClose, onDone }: { member: PlatformMember | null; roles: PlatformRole[]; restos: StaffRestoDto[]; self: boolean; onClose: () => void; onDone: () => void }) {
+function MemberSheet({ member, roles, restos, restosFailed, onRetryRestos, self, onClose, onDone }: { member: PlatformMember | null; roles: PlatformRole[]; restos: StaffRestoDto[]; restosFailed: boolean; onRetryRestos: () => void; self: boolean; onClose: () => void; onDone: () => void }) {
   const [phone, setPhone] = useState('');
   const [found, setFound] = useState<PlatformLookup | null>(null);
   const [picked, setPicked] = useState<string[]>(member?.roles ?? []);
@@ -165,7 +179,7 @@ function MemberSheet({ member, roles, restos, self, onClose, onDone }: { member:
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <ScrollView style={styles.sheet} contentContainerStyle={{ gap: 12, paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
           <Text style={styles.sheetTitle}>{member ? `${member.firstName} ${member.lastName}` : 'Ajouter à l’équipe'}</Text>
 
@@ -227,13 +241,12 @@ function MemberSheet({ member, roles, restos, self, onClose, onDone }: { member:
               {picked.includes('resto_u_staff') && (
                 <>
                   <Text style={styles.section}>Restaurants qu’il gère</Text>
+                  {restosFailed && !restos.length && <TextButton label="Restaurants indisponibles : réessayer" icon="refresh-outline" onPress={onRetryRestos} />}
                   <View style={styles.tags}>
                     {restos.map((r) => {
                       const on = restoIds.includes(r.id);
                       return (
-                        <Pressable key={r.id} onPress={() => setRestoIds((l) => toggle(l, r.id))} style={[styles.chip, on && styles.chipOn]} accessibilityRole="checkbox" accessibilityState={{ checked: on }}>
-                          <Text style={[styles.chipText, on && { color: '#fff' }]}>{r.name}</Text>
-                        </Pressable>
+                        <Chip key={r.id} label={r.name} selected={on} onPress={() => setRestoIds((l) => toggle(l, r.id))} role="checkbox" />
                       );
                     })}
                   </View>
@@ -243,6 +256,7 @@ function MemberSheet({ member, roles, restos, self, onClose, onDone }: { member:
               {member && !self && <TextButton label="Retirer de l’équipe" tone="danger" icon="person-remove-outline" style={{ alignSelf: 'center' }} onPress={remove} />}
             </>
           )}
+          <SafeBottom />
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
@@ -255,7 +269,7 @@ const styles = StyleSheet.create({
   deleteBtn: { backgroundColor: colors.dangerBg },
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
-  h1: { ...typo.h2, color: colors.navy },
+  h1: { ...typo.h1, color: colors.navy },
   sub: { ...typo.small, color: colors.muted2 },
   section: { ...typo.section, color: colors.navy, marginTop: 4 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -271,13 +285,10 @@ const styles = StyleSheet.create({
   tagAdmin: { backgroundColor: colors.navy },
   tagText: { ...typo.label, color: colors.primary },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,27,76,0.35)' },
-  sheet: { maxHeight: 700, backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20 },
+  sheet: { flexShrink: 1, maxHeight: 700, backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20 },
   sheetTitle: { ...typo.h3, color: colors.navy },
   found: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: radii.md },
   foundText: { ...typo.smallStrong, flex: 1 },
   role: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: radii.md, borderWidth: 1.5, borderColor: colors.border },
   roleOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
-  chip: { paddingHorizontal: 14, minHeight: 36, borderRadius: radii.pill, backgroundColor: colors.bg, justifyContent: 'center' },
-  chipOn: { backgroundColor: colors.primary },
-  chipText: { ...typo.smallStrong, color: colors.navy },
 });

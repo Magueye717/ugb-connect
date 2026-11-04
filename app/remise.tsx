@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton, Field, LabeledField, OutlineButton, PrimaryButton } from '@/components/ui';
@@ -53,8 +54,7 @@ export default function Remise() {
         <Text style={styles.h1}>Remettre une commande</Text>
         <View style={{ width: 44 }} />
       </View>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
           {done ? (
             <View style={[styles.card, shadow.card, { alignItems: 'center' }]}>
               <View style={styles.okIcon}>
@@ -118,8 +118,7 @@ export default function Remise() {
               <OutlineButton label="Remettre la commande" disabled={code.trim().length < 5 || busy} onPress={() => handover(code)} />
             </>
           )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }

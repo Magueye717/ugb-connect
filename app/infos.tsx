@@ -1,18 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, StyleSheet, Switch, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { OtpInput } from '@/components/OtpInput';
 import { Select } from '@/components/Select';
-import { BackButton, Field, LabeledField, PrimaryButton, TextButton } from '@/components/ui';
+import { BackButton, Chip, Field, LabeledField, PrimaryButton, TextButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { profileApi } from '@/features/profile/api';
 import { sendOtp, verifyOtp, type OtpChallenge } from '@/features/register/auth';
 import { CAMPUSES, VILLAGES } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
+import { toast } from '@/lib/toast';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
 const digits = (v: string) => v.replace(/\D/g, '');
@@ -29,13 +31,11 @@ export default function Infos() {
         <BackButton onPress={back} />
         <Text style={styles.h1}>Informations personnelles</Text>
       </View>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <Residence onSaved={reloadAccount} />
           <Phone current={user.phone} onSaved={reloadAccount} />
           <Email current={user.email} onSaved={reloadAccount} />
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
@@ -55,7 +55,7 @@ function Residence({ onSaved }: { onSaved: () => Promise<void> }) {
     try {
       await profileApi.setResidence({ campus, onCampus, ...(onCampus ? { village, room: room.trim() } : {}) });
       await onSaved();
-      Alert.alert('Enregistré', 'Ton campus et ta chambre sont à jour (livraisons, annonces de ton campus).');
+      toast('Logement enregistré : livraisons et annonces de ton campus à jour.');
     } catch (err) {
       fail('Enregistrement impossible')(err);
     } finally {
@@ -68,17 +68,10 @@ function Residence({ onSaved }: { onSaved: () => Promise<void> }) {
       <Text style={styles.section}>Logement</Text>
       <View style={styles.row}>
         {CAMPUSES.map((c) => (
-          <Pressable
-            key={c.key}
-            onPress={() => {
+          <Chip key={c.key} label={c.label} selected={campus === c.key} onPress={() => {
               setCampus(c.key);
               if (village && !VILLAGES[c.key].includes(village)) setVillage(null);
-            }}
-            style={[styles.chip, campus === c.key && styles.chipOn]}
-            accessibilityRole="radio"
-            accessibilityState={{ checked: campus === c.key }}>
-            <Text style={[styles.chipText, campus === c.key && { color: '#fff' }]}>{c.label}</Text>
-          </Pressable>
+            }} />
         ))}
       </View>
       <View style={styles.switchRow}>
@@ -236,7 +229,4 @@ const styles = StyleSheet.create({
   muted: { ...typo.caption, color: colors.muted2 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  chip: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: radii.pill, backgroundColor: colors.bg },
-  chipOn: { backgroundColor: colors.primary },
-  chipText: { ...typo.smallStrong, color: colors.navy },
 });

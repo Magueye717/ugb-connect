@@ -157,6 +157,6 @@ const styles = StyleSheet.create({
   otherBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 42, borderRadius: radii.pill, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.primary },
   otherOn: { borderStyle: 'solid', backgroundColor: colors.primarySoft },
   picked: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: radii.lg, borderWidth: 1.5, backgroundColor: colors.card },
-  change: { paddingHorizontal: 12, height: 32, borderRadius: radii.pill, backgroundColor: colors.primarySoft, justifyContent: 'center' },
+  change: { paddingHorizontal: 12, minHeight: 32, borderRadius: radii.pill, backgroundColor: colors.primarySoft, justifyContent: 'center' },
   changeText: { ...typo.smallStrong, color: colors.primary },
 });

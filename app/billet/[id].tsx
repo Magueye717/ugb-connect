@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Image } from 'expo-image';
 import QRCode from 'react-native-qrcode-svg';
 import Animated from 'react-native-reanimated';
@@ -9,15 +10,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { OrganizerLine } from '@/components/caravan';
 import { popIn, riseIn } from '@/components/motion';
-import { BackButton, Field, LabeledField, PrimaryButton } from '@/components/ui';
+import { BackButton, Field, LabeledField, PrimaryButton, SafeBottom } from '@/components/ui';
 import { formatDateTime, formatFcfa } from '@/constants/data';
 import { colors, motion, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useCaravans } from '@/context/CaravansContext';
 import { caravansApi, dayLabel, hourLabel, isCaravanTicket, isEventTicket, toOrganizer, type EventTicketDto, type TicketDto } from '@/features/caravans/api';
 import { methodLabel } from '@/features/payments/checkout';
+import { RatingCard } from '@/features/ratings/RatingCard';
 import { ApiError } from '@/lib/api';
 import { useNow } from '@/lib/useNow';
+import { toast } from '@/lib/toast';
 
 /** "06h15" → "06h00": students wait at the stop 15 min before the bus. */
 function minus15(time: string) {
@@ -189,6 +192,8 @@ export default function Billet() {
       <Header onBack={back} />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <StatusBanner {...banner} />
+        {/* The trip is over: « Noter Sunu Voyage » (optional). */}
+        {active && !companion && <RatingCard subject="caravan" id={d.departureId} />}
 
         {group.length > 1 && (
           <TicketSwitcher
@@ -371,7 +376,7 @@ function TicketActions({
             await transfer(ticket.id, phone);
             setOpen(false);
             load();
-            Alert.alert('Billet proposé', `Ton ami (${phone}) reçoit le billet dans son app et doit l’accepter.`);
+            toast(`Billet proposé à ${phone} : il doit l’accepter dans son app.`);
           } catch (err) {
             fail('Transfert impossible')(err);
           }
@@ -428,6 +433,7 @@ function EventBillet({ ticket, fresh, onBack, load }: { ticket: EventTicketDto; 
       <Header onBack={onBack} />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <StatusBanner {...banner} />
+        {active && <RatingCard subject="event" id={d.eventId} />}
 
         {group.length > 1 && <TicketSwitcher current={ticket.id} items={group.map((t) => ({ id: t.id, title: t.details.typeName, sub: formatFcfa(t.price) }))} />}
 
@@ -556,7 +562,7 @@ function TransferSheet({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <View style={styles.sheet}>
           <Text style={styles.sheetTitle}>Transférer le billet</Text>
           <Text style={styles.actionSub}>
@@ -581,6 +587,7 @@ function TransferSheet({
               onConfirm(`+221 ${shown}`).finally(() => setSending(false));
             }}
           />
+          <SafeBottom />
         </View>
       </KeyboardAvoidingView>
     </Modal>

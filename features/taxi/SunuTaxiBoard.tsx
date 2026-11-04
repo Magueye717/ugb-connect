@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Animated, { LayoutAnimationConfig } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Field, LabeledField, PrimaryButton } from '@/components/ui';
+import { Chip, Field, LabeledField, PrimaryButton } from '@/components/ui';
 import { PopOnChange, popIn } from '@/components/motion';
 import { EmptyState, ErrorState, SkeletonCard } from '@/components/states';
 import { formatFcfa, TAXI_LOCK_MIN, TAXI_STRIKES_LIMIT, taxiSeatPrice } from '@/constants/data';
@@ -125,7 +126,7 @@ export function SunuTaxiBoard() {
             onPay={() => resumePayment(t)}
             onLeave={(locked) => leave(t, locked)}
             onCancel={(locked) => cancel(t, locked)}
-            onCheckIn={() => taxi.checkIn(t.id).catch(() => undefined)}
+            onCheckIn={() => taxi.checkIn(t.id).catch((err) => Alert.alert('Pointage impossible', err instanceof ApiError ? err.message : 'Vérifie ta connexion et réessaie.'))}
             onDepart={() => depart(t)}
             onClaim={() => claim(t)}
             messageCount={taxi.unreadFor(t.id)}
@@ -448,7 +449,7 @@ export function Rule({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; tex
 export function Avatar({ initials, small, highlight, here }: { initials: string; small?: boolean; highlight?: boolean; here?: boolean }) {
   return (
     <View style={[styles.avatar, small && styles.avatarSmall, highlight && styles.avatarMe, here && styles.avatarHere]}>
-      <Text style={[styles.avatarText, small && { fontSize: 9 }]}>{initials}</Text>
+      <Text style={[styles.avatarText, small && { fontSize: 11 }]} maxFontSizeMultiplier={small ? 1.1 : 1.3}>{initials}</Text>
     </View>
   );
 }
@@ -497,7 +498,7 @@ function NewTripSheet({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <SafeAreaView edges={['bottom']} style={styles.sheet}>
           <View style={styles.handle} />
           <Text style={styles.sheetTitle}>Proposer un trajet</Text>
@@ -560,9 +561,7 @@ function Chips<T extends number>({
       {options.map((o) => {
         const on = o === value;
         return (
-          <Pressable key={o} onPress={() => onChange(o)} style={[styles.chip, on && styles.chipOn]}>
-            <Text style={[styles.chipText, on && styles.chipTextOn]}>{label(o)}</Text>
-          </Pressable>
+          <Chip key={o} label={label(o)} selected={on} onPress={() => onChange(o)} />
         );
       })}
     </View>
@@ -691,9 +690,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  chipText: { fontWeight: '600', color: colors.navy },
-  chipTextOn: { color: '#fff' },
   fcfa: { color: colors.muted2, fontWeight: '600' },
   hint: { ...typo.caption, color: colors.muted2, marginTop: -6 },
   error: { fontSize: 13, fontWeight: '600', color: colors.danger, textAlign: 'center' },

@@ -2,12 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { eventWhen } from '@/components/home';
-import { EmptyState } from '@/components/states';
-import { Field, LabeledField, PrimaryButton, Segmented } from '@/components/ui';
+import { EmptyState, ErrorState } from '@/components/states';
+import { Field, LabeledField, PrimaryButton, SafeBottom, Segmented } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { eventsApi, type OrgEventDto } from '@/features/events/api';
@@ -23,10 +24,13 @@ type Queue = 'pending_review' | 'changes_requested' | 'rejected';
 export default function EvenementsAValider() {
   const [queue, setQueue] = useState<Queue>('pending_review');
   const [items, setItems] = useState<OrgEventDto[] | null>(null);
+  // The first load failed (no network…): « Impossible de charger », with « Réessayer » (not an empty list).
+  const [loadFailed, setLoadFailed] = useState(false);
   const [writing, setWriting] = useState<{ event: OrgEventDto; action: 'changes' | 'reject' } | null>(null);
 
   const load = useCallback(() => {
-    eventsApi.reviewQueue(queue).then((r) => setItems(r.items), () => setItems((x) => x ?? []));
+    setLoadFailed(false);
+    eventsApi.reviewQueue(queue).then((r) => setItems(r.items), () => setLoadFailed(true));
   }, [queue]);
   useFocusEffect(load);
   const fail = (err: unknown) => Alert.alert('Action impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
@@ -47,7 +51,8 @@ export default function EvenementsAValider() {
             setQueue(q);
           }}
         />
-        {!items && <ActivityIndicator color={colors.primary} />}
+        {!items && !loadFailed && <ActivityIndicator color={colors.primary} />}
+        {!items && loadFailed && <ErrorState onRetry={load} />}
         {items?.length === 0 && <EmptyState icon="sparkles-outline" title="Rien ici" text={queue === 'pending_review' ? 'Les événements créés par les étudiants arrivent ici avant leur publication.' : undefined} />}
         {items?.map((e) => (
           <View key={e.id} style={[styles.card, shadow.card]}>
@@ -124,7 +129,7 @@ function MessageSheet(p: { title: string; note: string; placeholder: string; con
   return (
     <Modal visible transparent animationType="slide" onRequestClose={p.onClose}>
       <Pressable style={styles.backdrop} onPress={p.onClose} accessibilityLabel="Fermer" />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <View style={styles.sheet}>
           <Text style={styles.sheetTitle}>{p.title}</Text>
           <Text style={styles.meta}>{p.note}</Text>
@@ -140,6 +145,7 @@ function MessageSheet(p: { title: string; note: string; placeholder: string; con
               p.onConfirm(message.trim()).finally(() => setSending(false));
             }}
           />
+          <SafeBottom />
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -158,7 +164,7 @@ const styles = StyleSheet.create({
   meta: { ...typo.caption, color: colors.muted2, lineHeight: 17 },
   actions: { flexDirection: 'row', gap: 8, marginTop: 6 },
   btn: { flexDirection: 'row', gap: 6, minHeight: 42, paddingHorizontal: 14, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center' },
-  btnOk: { flex: 1, backgroundColor: colors.success },
+  btnOk: { flex: 1, backgroundColor: colors.successText },
   btnOkText: { color: '#fff', fontWeight: '700' },
   btnEdit: { flex: 1, borderWidth: 1.5, borderColor: colors.warningText },
   btnEditText: { color: colors.warningText, fontWeight: '700' },

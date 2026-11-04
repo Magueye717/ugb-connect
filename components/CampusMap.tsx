@@ -46,7 +46,7 @@ const SAND = '#E2BE7E';
  * the camera kept on the campus. Villages are written on the map, places are icons (named when zoomed in), restaurants
  * and shops too. Tapping one shows its card: directions, or open it. Native only (see CampusMap.web.tsx).
  */
-export function CampusMap({ pins, campus, onOpen, style }: { pins: MapPin[]; campus?: Campus | null; onOpen: (pin: MapPin) => void; style?: object }) {
+export function CampusMap({ pins, campus, onOpen, style, insetTop = 0 }: { pins: MapPin[]; campus?: Campus | null; onOpen: (pin: MapPin) => void; style?: object; insetTop?: number }) {
   const ref = useRef<MapView>(null);
   // Satellite first: the buildings and their names (G1, G2…) are what students recognise.
   const [satellite, setSatellite] = useState(true);
@@ -99,7 +99,7 @@ export function CampusMap({ pins, campus, onOpen, style }: { pins: MapPin[]; cam
   };
   const recenter = () => {
     setSelected(null);
-    ref.current?.fitToCoordinates(corners, { edgePadding: PADDING, animated: true });
+    ref.current?.fitToCoordinates(corners, { edgePadding: { ...PADDING, top: PADDING.top + insetTop }, animated: true });
   };
 
   const shown = selected && pins.find((p) => p.id === selected.id);
@@ -111,6 +111,8 @@ export function CampusMap({ pins, campus, onOpen, style }: { pins: MapPin[]; cam
       <MapView
         ref={ref}
         style={StyleSheet.absoluteFill}
+        // Full screen under translucent controls: the camera centres on the visible part.
+        mapPadding={{ top: insetTop, right: 0, bottom: 0, left: 0 }}
         initialRegion={
           campus
             ? { latitude: campus.start.lat, longitude: campus.start.lng, latitudeDelta: campus.start.delta, longitudeDelta: campus.start.delta }
@@ -170,12 +172,12 @@ export function CampusMap({ pins, campus, onOpen, style }: { pins: MapPin[]; cam
         })}
       </MapView>
 
-      <View style={styles.title} pointerEvents="none">
+      <View style={[styles.title, { top: 14 + insetTop }]} pointerEvents="none">
         <Text style={styles.titleText}>Université Gaston Berger</Text>
         <Text style={styles.titleSub}>Campus de Sanar · Saint-Louis</Text>
       </View>
 
-      <View style={styles.tools}>
+      <View style={[styles.tools, { top: 12 + insetTop }]}>
         <Pressable style={styles.tool} onPress={() => setSatellite((s) => !s)} accessibilityRole="button" accessibilityLabel={satellite ? 'Vue plan' : 'Vue satellite'}>
           <Ionicons name={satellite ? 'map-outline' : 'earth-outline'} size={18} color="#fff" />
           <Text style={styles.toolText}>{satellite ? 'Plan' : 'Satellite'}</Text>
@@ -269,7 +271,7 @@ const styles = StyleSheet.create({
   cardSub: { ...typo.small, color: '#AAB4C3', marginTop: 2 },
   close: { alignSelf: 'flex-start', width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
   cardActions: { flexDirection: 'row', gap: 10 },
-  action: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 46, borderRadius: radii.pill, backgroundColor: 'rgba(255,255,255,0.1)' },
+  action: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 46, borderRadius: radii.pill, backgroundColor: 'rgba(255,255,255,0.1)' },
   actionGo: { backgroundColor: SAND },
   actionText: { ...typo.bodyStrong, color: '#fff' },
 });

@@ -76,33 +76,39 @@ export const placeIcon = (name: string) => name as keyof typeof Ionicons.glyphMa
 // One list for the whole app (tab, map, place page, lost-and-found picker), fetched once and refreshed on demand.
 let cache: PlaceDto[] | null = null;
 const listeners = new Set<(p: PlaceDto[]) => void>();
+// The last fetch failed (no network…): screens without a list yet show an error with « Réessayer ».
+const failListeners = new Set<(failed: boolean) => void>();
 let inflight: Promise<void> | null = null;
 function fetchPlaces() {
+  failListeners.forEach((l) => l(false));
   inflight ??= placesApi
     .list()
     .then((r) => {
       cache = r.items;
       listeners.forEach((l) => l(r.items));
     })
-    .catch(() => undefined)
+    .catch(() => failListeners.forEach((l) => l(true)))
     .finally(() => {
       inflight = null;
     });
   return inflight;
 }
 
-/** The campus places; null until loaded. */
+/** The campus places (null until loaded), and whether the last load failed. */
 export function usePlaces() {
   const [places, setPlaces] = useState<PlaceDto[] | null>(cache);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     listeners.add(setPlaces);
+    failListeners.add(setFailed);
     if (!cache) fetchPlaces();
     return () => {
       listeners.delete(setPlaces);
+      failListeners.delete(setFailed);
     };
   }, []);
   const refresh = useCallback(() => fetchPlaces(), []);
-  return { places, refresh };
+  return { places, failed, refresh };
 }
 
 // The outline never changes while the app runs: fetched once.

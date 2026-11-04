@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ErrorState } from '@/components/states';
 import { BackButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { profileApi, type Support } from '@/features/profile/api';
@@ -20,9 +21,16 @@ const FAQ: { q: string; a: string }[] = [
 export default function Aide() {
   const [support, setSupport] = useState<Support | null>(null);
   const [open, setOpen] = useState<number | null>(null);
-  useEffect(() => {
-    profileApi.support().then(setSupport, () => undefined);
+  // The contacts couldn't be loaded: say so, with « Réessayer » (not an endless spinner).
+  const [failed, setFailed] = useState(false);
+  const load = useCallback(() => {
+    profileApi.support().then(setSupport, () => setFailed(true));
   }, []);
+  useEffect(load, [load]);
+  const retry = () => {
+    setFailed(false);
+    load();
+  };
   const back = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profil'));
   const intl = (n: string) => `221${n.replace(/\D/g, '')}`;
 
@@ -48,7 +56,7 @@ export default function Aide() {
 
         <Text style={styles.section}>Contacter l’équipe</Text>
         {!support ? (
-          <ActivityIndicator color={colors.primary} />
+          failed ? <ErrorState onRetry={retry} /> : <ActivityIndicator color={colors.primary} />
         ) : (
           <View style={{ gap: 10 }}>
             <Contact icon="call" tint={colors.primary} bg={colors.primarySoft} title="Appeler" value={support.phone} onPress={() => Linking.openURL(`tel:+${intl(support.phone)}`)} />

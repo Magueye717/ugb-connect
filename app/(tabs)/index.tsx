@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AdCarousel, AlertStrip, CaravanCard, EventCard, Headlines, OriginPrompt, RestoCard, TaxiCard } from '@/components/home';
 import { InProgress } from '@/components/InProgress';
+import { RatingPrompt } from '@/features/ratings/RatingPrompt';
 import { colors, radii, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { bellLabel, useNotifications } from '@/context/NotificationsContext';
@@ -14,18 +15,20 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { unreadCount } = useNotifications();
-  const name = user?.firstName ?? 'Awa';
+  // While the profile loads: a neutral greeting, never someone else's name.
 
   return (
     <View style={styles.root}>
+      {/* A trip, an event or an order just over and not rated: the question, once per session. */}
+      <RatingPrompt />
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={styles.row}>
           <Pressable style={styles.avatar} onPress={() => router.push('/(tabs)/profil')} accessibilityRole="button" accessibilityLabel="Mon profil">
-            {user?.avatarUrl ? <Image source={{ uri: user.avatarUrl }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Text style={styles.avatarText}>{user?.initials ?? 'AD'}</Text>}
+            {user?.avatarUrl ? <Image source={{ uri: user.avatarUrl }} style={StyleSheet.absoluteFill} contentFit="cover" /> : user?.initials ? <Text style={styles.avatarText}>{user.initials}</Text> : <Ionicons name="person" size={20} color="#fff" />}
           </Pressable>
           <View style={{ flex: 1 }}>
-            <Text style={styles.hello}>Bonjour, {name}</Text>
-            <Text style={styles.campus}>{user?.campus ?? 'UGB · Campus social'}</Text>
+            <Text style={styles.hello}>{user?.firstName ? `Bonjour, ${user.firstName}` : 'Bonjour'}</Text>
+            <Text style={styles.campus}>{user?.campus ?? 'UGB Campus'}</Text>
           </View>
           <Pressable
             onPress={() => router.push('/notifications')}

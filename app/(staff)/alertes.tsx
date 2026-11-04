@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { EmptyState } from '@/components/states';
-import { Field, LabeledField, PrimaryButton, Segmented } from '@/components/ui';
+import { EmptyState, ErrorState } from '@/components/states';
+import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, Segmented } from '@/components/ui';
 import { formatDateTime } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCampus } from '@/context/CampusContext';
@@ -77,11 +78,14 @@ const days = (extra?: Date | null) => {
 export default function Communication() {
   const { refresh: refreshHome } = useCampus();
   const [items, setItems] = useState<AdminAlertDto[] | null>(null);
+  // The first load failed (no network…): « Impossible de charger », with « Réessayer » (not an empty list).
+  const [loadFailed, setLoadFailed] = useState(false);
   const [placement, setPlacement] = useState<Placement>('headline');
   const [editing, setEditing] = useState<AdminAlertDto | 'new' | null>(null);
 
   const load = useCallback(() => {
-    staffApi.alerts().then((r) => setItems(r.items), () => setItems((x) => x ?? []));
+    setLoadFailed(false);
+    staffApi.alerts().then((r) => setItems(r.items), () => setLoadFailed(true));
   }, []);
   useFocusEffect(load);
 
@@ -133,7 +137,8 @@ export default function Communication() {
             : 'Court et urgent, tout en haut de l’accueil (coupure d’eau, fermeture…). Les ruptures des restos s’y ajoutent seules.'}
         </Text>
 
-        {!items && <ActivityIndicator color={colors.primary} />}
+        {!items && !loadFailed && <ActivityIndicator color={colors.primary} />}
+        {!items && loadFailed && <ErrorState onRetry={load} />}
         {items && mine.length === 0 && (
           <EmptyState icon={placement === 'headline' ? 'newspaper-outline' : 'megaphone-outline'} title="Rien pour l’instant" text="Prépare une annonce maintenant, publie-la quand tu veux." />
         )}
@@ -221,30 +226,18 @@ function AlertCard({ a, onEdit, onWithdraw }: { a: AdminAlertDto; onEdit?: () =>
   );
 }
 
-function Chip({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={[styles.chip, on && styles.chipOn]} accessibilityRole="checkbox" accessibilityState={{ checked: on }}>
-      {on && <Ionicons name="checkmark" size={14} color={colors.primary} />}
-      <Text style={[styles.chipText, on && { color: colors.primary }]}>{label}</Text>
-    </Pressable>
-  );
-}
 
 /** A row of day chips: the date pickers of the form. */
 function DayPicker({ list, value, onChange, none }: { list: Date[]; value: Date | null; onChange: (d: Date | null) => void; none?: string }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
       {none && (
-        <Pressable onPress={() => onChange(null)} style={[styles.chip, !value && styles.chipOn]} accessibilityRole="radio" accessibilityState={{ checked: !value }}>
-          <Text style={[styles.chipText, !value && { color: colors.primary }]}>{none}</Text>
-        </Pressable>
+        <Chip label={none} selected={!value} onPress={() => onChange(null)} />
       )}
       {list.map((d) => {
         const on = !!value && sameDay(d, value);
         return (
-          <Pressable key={d.toISOString()} onPress={() => onChange(d)} style={[styles.chip, on && styles.chipOn]} accessibilityRole="radio" accessibilityState={{ checked: on }}>
-            <Text style={[styles.chipText, on && { color: colors.primary }]}>{dayChip(d)}</Text>
-          </Pressable>
+          <Chip key={d.toISOString()} label={dayChip(d)} selected={on} onPress={() => onChange(d)} />
         );
       })}
     </ScrollView>
@@ -298,7 +291,7 @@ function Composer({ editing, placement: initial, onClose, onSaved }: { editing: 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <ScrollView style={styles.sheet} contentContainerStyle={{ gap: 12, paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
           <Text style={styles.sheetTitle}>{editing ? 'Modifier' : 'Nouvelle annonce'}</Text>
           {!editing && (
@@ -363,7 +356,7 @@ function Composer({ editing, placement: initial, onClose, onSaved }: { editing: 
               <Text style={styles.small}>UFR</Text>
               <View style={styles.wrap}>
                 {UFRS.map((u) => (
-                  <Chip key={u.code} label={u.code} on={audience.ufrs.includes(u.code)} onPress={() => toggle('ufrs', u.code)} />
+                  <Chip key={u.code} label={u.code} selected={audience.ufrs.includes(u.code)} onPress={() => toggle('ufrs', u.code)} role="checkbox" />
                 ))}
               </View>
               <Text style={styles.small}>Campus</Text>
@@ -372,13 +365,13 @@ function Composer({ editing, placement: initial, onClose, onSaved }: { editing: 
                   { key: 'campus1', label: 'Campus 1' },
                   { key: 'campus2', label: 'Campus 2' },
                 ].map((c) => (
-                  <Chip key={c.key} label={c.label} on={audience.campuses.includes(c.key)} onPress={() => toggle('campuses', c.key)} />
+                  <Chip key={c.key} label={c.label} selected={audience.campuses.includes(c.key)} onPress={() => toggle('campuses', c.key)} role="checkbox" />
                 ))}
               </View>
               <Text style={styles.small}>Région d’origine</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
                 {REGIONS.map((r) => (
-                  <Chip key={r} label={r} on={audience.regions.includes(r)} onPress={() => toggle('regions', r)} />
+                  <Chip key={r} label={r} selected={audience.regions.includes(r)} onPress={() => toggle('regions', r)} role="checkbox" />
                 ))}
               </ScrollView>
               <Text style={styles.meta}>
@@ -422,6 +415,7 @@ function Composer({ editing, placement: initial, onClose, onSaved }: { editing: 
             loading={sending}
             onPress={save}
           />
+          <SafeBottom />
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
@@ -447,7 +441,7 @@ const styles = StyleSheet.create({
   meta: { ...typo.caption, color: colors.muted2, flexShrink: 1 },
   pushLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,27,76,0.35)' },
-  sheet: { backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20, maxHeight: '88%' },
+  sheet: { flexShrink: 1, backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20, maxHeight: '88%' },
   sheetTitle: { ...typo.h3, color: colors.navy },
   label: { ...typo.smallStrong, color: colors.navy },
   chips: { flexDirection: 'row', gap: 8 },

@@ -3,7 +3,8 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useRef, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton, Field, LabeledField, OutlineButton, PrimaryButton, TextButton } from '@/components/ui';
@@ -48,7 +49,7 @@ export default function ScanCard() {
   const [handOver, setHandOver] = useState<HandOver>('office');
   const [sending, setSending] = useState(false);
 
-  const back = () => (router.canGoBack() ? router.back() : router.replace('/services/objets'));
+  const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/(tabs)/lieux', params: { vue: 'objets' } }));
   const restart = () => {
     setOwner(undefined);
     setCandidates(null);
@@ -142,8 +143,7 @@ export default function ScanCard() {
         <View style={{ width: 44 }} />
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           {/* 1. Photo, or type the number / a name. */}
           {owner === undefined && candidates === null && (
             <>
@@ -280,8 +280,7 @@ export default function ScanCard() {
               />
             </>
           )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }

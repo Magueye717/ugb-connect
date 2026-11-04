@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Chip } from '@/components/ui';
 import { useLiftSpaceButton } from '@/components/SpaceSwitcher';
-import { EmptyState } from '@/components/states';
+import { EmptyState, ErrorState, SkeletonCard } from '@/components/states';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCart } from '@/context/CartContext';
@@ -49,20 +50,25 @@ const RESTO_SORTS: { key: RestoSort; label: string; icon: keyof typeof Ionicons.
  */
 export function RestaurantList() {
   const [items, setItems] = useState<ListedBusiness[] | null>(null);
+  // Nothing loaded and the load failed (no network…): an error with « Réessayer », not "no restaurant".
+  const [loadFailed, setLoadFailed] = useState(false);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<FilterKey>('all');
   const [sort, setSort] = useState<RestoSort>('open');
   const [sorting, setSorting] = useState(false);
   const me = useMyPosition();
 
+  const load = useCallback(() => {
+    setLoadFailed(false);
+    commerceApi.list('restaurant').then((r) => setItems(r.items), () => setLoadFailed(true));
+  }, []);
   useFocusEffect(
     useCallback(() => {
-      const load = () => commerceApi.list('restaurant').then((r) => setItems(r.items), () => setItems((x) => x ?? []));
       load();
       // Open or closed follows the clock.
       const timer = setInterval(load, 60_000);
       return () => clearInterval(timer);
-    }, []),
+    }, [load]),
   );
 
   const distance = (b: BusinessDto) => (me && b.location ? metres(me, b.location) : null);
@@ -80,14 +86,20 @@ export function RestaurantList() {
         {FILTERS.map((f) => {
           const on = f.key === filter;
           return (
-            <Pressable key={f.key} onPress={() => setFilter(f.key)} style={[styles.chip, on && styles.chipOn]} accessibilityRole="radio" accessibilityState={{ checked: on }}>
-              <Text style={[styles.chipText, on && styles.chipTextOn]}>{f.label}</Text>
-            </Pressable>
+            <Chip key={f.key} label={f.label} selected={on} onPress={() => setFilter(f.key)} />
           );
         })}
       </ScrollView>
 
-      {!items && <ActivityIndicator color={colors.primary} style={{ marginTop: 16 }} />}
+      {/* The shape of the list while it loads: it appears in place, without a jump. */}
+      {!items && !loadFailed && (
+        <View style={{ gap: 10 }} accessibilityLabel="Chargement">
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </View>
+      )}
+      {!items && loadFailed && <ErrorState onRetry={load} />}
       {items && shown.length === 0 && (
         <EmptyState
           icon="restaurant-outline"
@@ -158,6 +170,7 @@ function RestaurantCard({ b, distance }: { b: ListedBusiness; distance: number |
         </Text>
         <View style={styles.factsRow}>
           <View style={styles.facts}>
+            {b.rating !== null && <Fact icon="star" text={b.rating.toFixed(1)} fixed />}
             <Fact icon="time-outline" text={shortStatus(b)} fixed />
             <Fact icon={b.deliveryFee !== null ? 'bicycle-outline' : 'walk-outline'} text={b.deliveryFee === null ? 'Retrait' : b.deliveryFee ? `${b.deliveryFee} F` : 'Gratuite'} fixed />
             <Fact icon="location-outline" text={distance !== null ? distanceLabel(distance) : (b.campusLabel ?? 'Campus')} />
@@ -201,15 +214,23 @@ export function MarketBoard() {
   // `?boutique=<id>`: opened on one shop (a student checking their own, as clients see it).
   const { boutique } = useLocalSearchParams<{ boutique?: string }>();
   const [shopId, setShopId] = useState<string | null>(boutique ?? null);
-  useEffect(() => {
+  // A new link to another shop (?boutique=) opens it: state adjusted during render, no effect.
+  const [seenBoutique, setSeenBoutique] = useState(boutique);
+  if (boutique !== seenBoutique) {
+    setSeenBoutique(boutique);
     if (boutique) setShopId(boutique);
-  }, [boutique]);
+  }
   const [aisle, setAisle] = useState<string | null>(null);
   const [sort, setSort] = useState<MarketSort>('relevance');
   const [sorting, setSorting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // Nothing loaded and the load failed: an error with « Réessayer », not an empty market.
+  const [loadFailed, setLoadFailed] = useState(false);
 
-  const load = useCallback(() => commerceApi.market('shop').then(setData, () => setData((d) => d ?? { businesses: [], items: [] })), []);
+  const load = useCallback(() => {
+    setLoadFailed(false);
+    return commerceApi.market('shop').then(setData, () => setLoadFailed(true));
+  }, []);
   useFocusEffect(
     useCallback(() => {
       load();
@@ -220,7 +241,16 @@ export function MarketBoard() {
   const cartShown = !!data && cart.count > 0 && !!cart.business && data.businesses.some((b) => b.id === cart.business!.id);
   useLiftSpaceButton(cartShown ? 64 + insets.bottom : 0);
 
-  if (!data) return <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />;
+  if (!data)
+    return loadFailed ? (
+      <ErrorState onRetry={load} />
+    ) : (
+      <View style={{ padding: 20, gap: 10 }} accessibilityLabel="Chargement">
+        <SkeletonCard />
+        <SkeletonCard />
+        <SkeletonCard />
+      </View>
+    );
   const shops = new Map(data.businesses.map((b) => [b.id, b]));
   const shop = shopId ? shops.get(shopId) : null;
   const inShop = data.items.filter((i) => !shopId || i.businessId === shopId);
@@ -269,9 +299,7 @@ export function MarketBoard() {
             {[null, ...aisles].map((a) => {
               const on = a === aisle;
               return (
-                <Pressable key={a ?? 'all'} onPress={() => setAisle(a)} style={[styles.chip, on && styles.chipOn]}>
-                  <Text style={[styles.chipText, on && styles.chipTextOn]}>{a ?? 'Tout'}</Text>
-                </Pressable>
+                <Chip key={a ?? 'all'} label={a ?? 'Tout'} selected={on} onPress={() => setAisle(a)} />
               );
             })}
           </ScrollView>
@@ -343,7 +371,12 @@ function ProductCard({ item, shop }: { item: MarketItem; shop: BusinessDto }) {
             <Text style={styles.closedText}>Épuisé</Text>
           </View>
         )}
-        {item.soldOut ? null : qty > 0 ? (
+        {!item.orderable ? (
+          // A service done on the spot (printing…): shown with its price, nothing to add to the basket.
+          <View style={styles.onSite}>
+            <Text style={styles.onSiteText}>Sur place</Text>
+          </View>
+        ) : item.soldOut ? null : qty > 0 ? (
           <View style={styles.stepper}>
             <Pressable onPress={() => set(qty - 1)} hitSlop={6} style={styles.stepBtn} accessibilityLabel={`Retirer un ${item.name}`}>
               <Ionicons name={qty === 1 ? 'trash-outline' : 'remove'} size={14} color="#fff" />
@@ -406,12 +439,9 @@ function SortSheet<K extends string>({ visible, options, value, onChange, onClos
 
 const styles = StyleSheet.create({
   studentTag: { marginTop: -6, paddingHorizontal: 6, paddingVertical: 1, borderRadius: radii.pill, backgroundColor: colors.purpleText },
-  studentTagText: { fontSize: 9, fontWeight: '800', color: '#fff' },
+  studentTagText: { fontSize: 11, fontWeight: '800', color: '#fff' },
   chips: { flexDirection: 'row', gap: 8, paddingRight: 8 },
-  chip: { height: 36, paddingHorizontal: 16, borderRadius: radii.pill, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },
-  chipOn: { backgroundColor: '#111318', ...shadow.card },
-  chipText: { fontSize: 14, color: colors.navy, fontWeight: '500' },
-  chipTextOn: { color: '#fff' },
+  chip: { minHeight: 36, paddingHorizontal: 16, borderRadius: radii.pill, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },
   // Restaurant card: the photo on its tile at the left, the facts at the right.
   card: { flexDirection: 'row', gap: 10, padding: 7, borderRadius: 20, backgroundColor: colors.card, borderWidth: 1, borderColor: '#EEF0F4' },
   tile: { width: 86, alignSelf: 'stretch', minHeight: 92, borderRadius: 15, backgroundColor: TILE, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
@@ -420,8 +450,8 @@ const styles = StyleSheet.create({
   info: { flex: 1, paddingVertical: 3, paddingRight: 3, gap: 1 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   name: { flex: 1, fontSize: 14.5, fontWeight: '700', color: colors.navy },
-  tag: { paddingHorizontal: 8, height: 21, borderRadius: radii.pill, borderWidth: 1, borderColor: '#F4E3D9', backgroundColor: colors.card, justifyContent: 'center' },
-  tagText: { fontSize: 10.5, fontWeight: '700', color: TAG },
+  tag: { paddingHorizontal: 8, minHeight: 21, borderRadius: radii.pill, borderWidth: 1, borderColor: '#F4E3D9', backgroundColor: colors.card, justifyContent: 'center' },
+  tagText: { fontSize: 11, fontWeight: '700', color: TAG },
   big: { fontSize: 17, fontWeight: '800', color: colors.navy },
   from: { fontSize: 12, fontWeight: '500', color: colors.muted2 },
   currency: { fontSize: 12, fontWeight: '500', color: colors.muted2 },
@@ -430,7 +460,7 @@ const styles = StyleSheet.create({
   facts: { flex: 1, flexDirection: 'row', gap: 4, overflow: 'hidden' },
   fact: { flexDirection: 'row', alignItems: 'center', gap: 3, height: 23, paddingHorizontal: 6, borderRadius: radii.pill, backgroundColor: TILE, flexShrink: 1 },
   factsRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
-  factText: { fontSize: 10.5, fontWeight: '500', color: colors.navy, flexShrink: 1 },
+  factText: { fontSize: 11, fontWeight: '500', color: colors.navy, flexShrink: 1 },
   board: { padding: 20, paddingTop: 16, paddingBottom: 32 },
   // Market
   marketBody: { padding: 20, paddingTop: 16, gap: 14 },
@@ -451,6 +481,8 @@ const styles = StyleSheet.create({
   // Wider than tall: two rows of products in view.
   productTile: { height: 96, borderRadius: 12, backgroundColor: TILE, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
   plus: { position: 'absolute', right: 5, bottom: 5, width: 30, height: 30, borderRadius: 15, backgroundColor: '#111318', alignItems: 'center', justifyContent: 'center' },
+  onSite: { position: 'absolute', right: 8, bottom: 8, paddingHorizontal: 9, paddingVertical: 4, borderRadius: radii.pill, backgroundColor: 'rgba(15,27,76,0.72)' },
+  onSiteText: { ...typo.label, color: '#fff' },
   stepper: { position: 'absolute', right: 5, bottom: 5, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 3, height: 30, borderRadius: 15, backgroundColor: '#111318' },
   stepBtn: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   stepQty: { ...typo.smallStrong, color: '#fff', minWidth: 12, textAlign: 'center' },

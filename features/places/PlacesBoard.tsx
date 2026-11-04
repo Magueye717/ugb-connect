@@ -2,10 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CampusMap, type MapPin } from '@/components/CampusMap';
-import { EmptyState } from '@/components/states';
+import { EmptyState, ErrorState, SkeletonCard } from '@/components/states';
+import { useImmersive } from '@/components/TabScreen';
 import { Field, FilterChips, TextButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { commerceApi, type ListedBusiness } from '@/features/commerce/api';
@@ -28,7 +29,7 @@ const LAYERS: { key: Layer; label: string; icon: keyof typeof Ionicons.glyphMap;
  * private restaurants and the shops. Screen content without header or safe area.
  */
 export function PlacesBoard() {
-  const { places, refresh } = usePlaces();
+  const { places, failed: placesFailed, refresh } = usePlaces();
   const campus = useCampusOutline();
   const [view, setView] = useState<View_>('list');
   const [filter, setFilter] = useState<Filter>('Tout');
@@ -36,6 +37,9 @@ export function PlacesBoard() {
   const [layers, setLayers] = useState<Layer[]>(['place', 'restaurant', 'shop']);
   const [businesses, setBusinesses] = useState<ListedBusiness[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  // The map takes the whole screen, the header and the search over it, translucent.
+  const immersive = useImmersive();
+  const [controls, setControls] = useState(0);
   const q = query.trim();
 
   // Restaurants and shops are on the map too.
@@ -64,56 +68,66 @@ export function PlacesBoard() {
   ];
   const toggle = (l: Layer) => setLayers((cur) => (cur.includes(l) ? cur.filter((x) => x !== l) : [...cur, l]));
 
+  const switchView = (v: View_) => {
+    setView(v);
+    immersive.set(v === 'map');
+  };
+
+  const search = (
+    <View style={styles.search}>
+      <View style={{ flex: 1 }}>
+        <Field
+          icon="search"
+          placeholder="BU, Rectorat, Village E…"
+          value={query}
+          onChangeText={setQuery}
+          autoCorrect={false}
+          returnKeyType="search"
+          accessibilityLabel="Rechercher un lieu"
+          right={
+            query ? (
+              <Pressable onPress={() => setQuery('')} hitSlop={10} accessibilityLabel="Effacer la recherche">
+                <Ionicons name="close-circle" size={18} color={colors.muted} />
+              </Pressable>
+            ) : null
+          }
+        />
+      </View>
+      {/* List or map: one button, it shows where it takes you. */}
+      <Pressable
+        style={[styles.viewBtn, view === 'map' && styles.viewBtnOn]}
+        onPress={() => switchView(view === 'map' ? 'list' : 'map')}
+        accessibilityRole="button"
+        accessibilityLabel={view === 'map' ? 'Voir la liste' : 'Voir la carte du campus'}>
+        <Ionicons name={view === 'map' ? 'list' : 'map'} size={18} color={view === 'map' ? '#fff' : colors.primary} />
+        <Text style={[styles.viewBtnText, view === 'map' && { color: '#fff' }]}>{view === 'map' ? 'Liste' : 'Carte'}</Text>
+      </Pressable>
+    </View>
+  );
+
   return (
     <>
-      <View style={styles.search}>
-        <View style={{ flex: 1 }}>
-          <Field
-            icon="search"
-            placeholder="BU, Rectorat, Village E…"
-            value={query}
-            onChangeText={setQuery}
-            autoCorrect={false}
-            returnKeyType="search"
-            accessibilityLabel="Rechercher un lieu"
-            right={
-              query ? (
-                <Pressable onPress={() => setQuery('')} hitSlop={10} accessibilityLabel="Effacer la recherche">
-                  <Ionicons name="close-circle" size={18} color={colors.muted} />
-                </Pressable>
-              ) : null
-            }
-          />
-        </View>
-        {/* List or map: one button, it shows where it takes you. */}
-        <Pressable
-          style={[styles.viewBtn, view === 'map' && styles.viewBtnOn]}
-          onPress={() => setView(view === 'map' ? 'list' : 'map')}
-          accessibilityRole="button"
-          accessibilityLabel={view === 'map' ? 'Voir la liste' : 'Voir la carte du campus'}>
-          <Ionicons name={view === 'map' ? 'list' : 'map'} size={18} color={view === 'map' ? '#fff' : colors.primary} />
-          <Text style={[styles.viewBtnText, view === 'map' && { color: '#fff' }]}>{view === 'map' ? 'Liste' : 'Carte'}</Text>
-        </Pressable>
-      </View>
-
       {view === 'map' ? (
         <View style={{ flex: 1 }}>
-          {/* flexGrow 0: a ScrollView fills the free space by default, the map must get it. */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={styles.layers}>
-            {LAYERS.map((l) => {
-              const on = layers.includes(l.key);
-              return (
-                <Pressable key={l.key} onPress={() => toggle(l.key)} style={[styles.layer, on && { backgroundColor: l.color, borderColor: l.color }]} accessibilityRole="checkbox" accessibilityState={{ checked: on }}>
-                  <Ionicons name={l.icon} size={14} color={on ? '#fff' : l.color} />
-                  <Text style={[styles.layerText, on && { color: '#fff' }]}>{l.label}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-          <CampusMap pins={pins} campus={campus} style={styles.map} onOpen={(pin) => (pin.kind === 'place' ? open(pin.id) : router.push(`/resto/${pin.id}`))} />
+          <CampusMap pins={pins} campus={campus} insetTop={immersive.top + controls} style={StyleSheet.absoluteFill} onOpen={(pin) => (pin.kind === 'place' ? open(pin.id) : router.push(`/resto/${pin.id}`))} />
+          <View style={[styles.overlay, { top: immersive.top }]} onLayout={(e) => setControls(e.nativeEvent.layout.height)}>
+            {search}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.layers}>
+              {LAYERS.map((l) => {
+                const on = layers.includes(l.key);
+                return (
+                  <Pressable key={l.key} onPress={() => toggle(l.key)} style={[styles.layer, on && { backgroundColor: l.color, borderColor: l.color }]} accessibilityRole="checkbox" accessibilityState={{ checked: on }}>
+                    <Ionicons name={l.icon} size={14} color={on ? '#fff' : l.color} />
+                    <Text style={[styles.layerText, on && { color: '#fff' }]}>{l.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
         </View>
       ) : (
         <>
+          {search}
           <View style={{ marginTop: 12 }}>
             <FilterChips options={FILTERS} value={filter} onChange={setFilter} />
           </View>
@@ -129,7 +143,14 @@ export function PlacesBoard() {
               )}
             </View>
 
-            {!places && <ActivityIndicator color={colors.primary} style={{ marginTop: 16 }} />}
+            {!places && !placesFailed && (
+              <View style={{ gap: 10 }} accessibilityLabel="Chargement">
+                <SkeletonCard />
+                <SkeletonCard />
+                <SkeletonCard />
+              </View>
+            )}
+            {!places && placesFailed && <ErrorState onRetry={refresh} />}
             {places && list.length === 0 && (
               <EmptyState
                 icon="search-outline"
@@ -206,14 +227,14 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
   search: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, marginTop: 14, gap: 10 },
-  viewBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 56, paddingHorizontal: 14, borderRadius: radii.md, backgroundColor: colors.primarySoft },
+  viewBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 56, paddingHorizontal: 14, borderRadius: radii.md, backgroundColor: colors.primarySoft },
   viewBtnOn: { backgroundColor: colors.primary },
   viewBtnText: { ...typo.smallStrong, color: colors.primary },
   layers: { flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 10 },
-  layer: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 12, borderRadius: radii.pill, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.card },
+  layer: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 34, paddingHorizontal: 12, borderRadius: radii.pill, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.card },
   layerText: { ...typo.smallStrong, color: colors.navy },
-  // Takes the rest of the screen: the whole university at a glance.
-  map: { flex: 1, marginHorizontal: 12, marginBottom: 12, borderRadius: radii.xl },
+  // The search and the layers over the full-screen map, translucent like the header above them.
+  overlay: { position: 'absolute', left: 0, right: 0, paddingTop: 2, backgroundColor: 'rgba(236,239,244,0.86)' },
   sectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
   section: { ...typo.section, color: colors.navy },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -237,6 +258,6 @@ const styles = StyleSheet.create({
   catText: { ...typo.label },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   metaText: { ...typo.caption, flex: 1, color: colors.muted2 },
-  go: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', marginTop: 4, height: 32, paddingHorizontal: 14, borderRadius: radii.pill, backgroundColor: colors.primary },
+  go: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', marginTop: 4, minHeight: 32, paddingHorizontal: 14, borderRadius: radii.pill, backgroundColor: colors.primary },
   goText: { ...typo.smallStrong, color: '#fff' },
 });

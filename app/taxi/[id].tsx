@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/states';
@@ -10,6 +10,7 @@ import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useTaxi } from '@/context/TaxiContext';
 import { Avatar, ChatButton, Rule, TripCard, useNow } from '@/features/taxi/SunuTaxiBoard';
 import { useTaxiActions } from '@/features/taxi/useTaxiActions';
+import { ApiError } from '@/lib/api';
 
 // One Sunu Taxi trip: every action, who's in and who's already at the meeting point.
 export default function TaxiTripScreen() {
@@ -47,7 +48,7 @@ export default function TaxiTripScreen() {
             onPay={() => actions.resumePayment(t)}
             onLeave={(locked) => actions.leave(t, locked)}
             onCancel={(locked) => actions.cancel(t, locked)}
-            onCheckIn={() => taxi.checkIn(t.id).catch(() => undefined)}
+            onCheckIn={() => taxi.checkIn(t.id).catch((err) => Alert.alert('Pointage impossible', err instanceof ApiError ? err.message : 'Vérifie ta connexion et réessaie.'))}
             onDepart={() => actions.depart(t)}
             onClaim={() => actions.claim(t)}
             messageCount={taxi.unreadFor(t.id)}

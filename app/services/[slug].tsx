@@ -54,7 +54,7 @@ export default function ServiceScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   head: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingTop: 8 },
-  h1: { ...typo.h2, color: colors.navy },
+  h1: { ...typo.h3, color: colors.navy, flex: 1 },
   icon: { width: 72, height: 72, borderRadius: radii.lg, alignItems: 'center', justifyContent: 'center', marginTop: 24 },
   body: { color: colors.muted2, textAlign: 'center', lineHeight: 22, fontSize: 16, paddingHorizontal: 12 },
 });

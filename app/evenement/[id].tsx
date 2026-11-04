@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, type ScrollViewInstance, Text, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { HoldCountdown } from '@/components/HoldCountdown';
 import { OrganizerLine } from '@/components/caravan';
 import { eventWhen } from '@/components/home';
 import { PaymentLogo } from '@/components/PaymentLogo';
@@ -144,7 +145,8 @@ export default function Evenement() {
             <Text style={styles.chipText}>{e.categoryLabel.toUpperCase()}</Text>
           </View>
           <Text style={styles.title}>{e.title}</Text>
-          <OrganizerLine organizer={toOrganizer(e.organizer)} />
+          {/* An entity (association, company) by its name; a student organizing on their own: no name shown. */}
+          {!!e.organizer.name && <OrganizerLine organizer={toOrganizer(e.organizer)} />}
 
           {e.status === 'cancelled' && (
             <Banner tone="danger" icon="close-circle" text={`Événement annulé${e.cancellation ? ` : ${e.cancellation.reason}` : ''}. Les billets sont remboursés.`} />
@@ -172,11 +174,12 @@ export default function Evenement() {
             <View style={[styles.card, shadow.card, styles.held]}>
               <Ionicons name="time-outline" size={26} color={colors.primary} />
               <Text style={styles.heldTitle}>Billets gardés pour toi</Text>
+              <HoldCountdown until={e.myBooking.holdExpiresAt} />
               <Text style={styles.muted}>Termine le paiement avant {formatDateTime(Date.parse(e.myBooking.holdExpiresAt))}.</Text>
               <Pressable style={styles.heldBtn} onPress={resume} disabled={paying}>
                 <Text style={styles.heldBtnText}>{paying ? 'Paiement…' : `Payer ${formatFcfa(e.myBooking.total)}`}</Text>
               </Pressable>
-              <TextButton label="Libérer les places" tone="accent" style={{ alignSelf: 'center' }} onPress={() => eventsApi.release(e.myBooking!.id).then(load, () => undefined)} />
+              <TextButton label="Libérer les places" tone="accent" style={{ alignSelf: 'center' }} onPress={() => eventsApi.release(e.myBooking!.id).then(load, (err) => Alert.alert('Libération impossible', err instanceof ApiError ? err.message : 'Vérifie ta connexion et réessaie.'))} />
             </View>
           ) : (
             e.status === 'published' && (

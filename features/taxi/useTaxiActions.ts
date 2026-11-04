@@ -4,6 +4,7 @@ import { formatFcfa, TAXI_STRIKES_LIMIT } from '@/constants/data';
 import { useTaxi, type JoinOutcome, type TaxiTrip } from '@/context/TaxiContext';
 import { methodLabel, type PaymentMethod } from '@/features/taxi/api';
 import { ApiError } from '@/lib/api';
+import { toast } from '@/lib/toast';
 
 const hhmm = (at: number) => {
   const d = new Date(at);
@@ -32,7 +33,7 @@ export function useTaxiActions() {
 
   const tellOutcome = (t: TaxiTrip, outcome: JoinOutcome | undefined) => {
     const price = formatFcfa(t.seatPrice);
-    if (outcome === 'joined') Alert.alert('Place réservée', `${price} payés. Remboursé si tu quittes avant ${hhmm(t.lockAt)}.`);
+    if (outcome === 'joined') toast(`Place réservée : ${price} payés. Remboursé si tu quittes avant ${hhmm(t.lockAt)}.`);
     else if (outcome === 'refunded') Alert.alert('Plus de place', `Le paiement est arrivé trop tard : ${price} te sont remboursés.`);
     else if (outcome === 'failed') Alert.alert('Paiement non effectué', 'Ta place a été libérée. Tu peux réessayer.');
     else if (outcome === 'pending') Alert.alert('Paiement en attente', 'Ta place est gardée 10 min. Appuie sur « Payer » pour terminer.');
@@ -107,7 +108,7 @@ export function useTaxiActions() {
     const amount = t.claim?.amount ? formatFcfa(t.claim.amount) : 'l’argent des places';
     const send = async (method: PaymentMethod) => {
       const payout = await attempt(() => taxi.claim(t.id, method));
-      if (payout) Alert.alert('Versement demandé', `${formatFcfa(payout.amount)} sur ton ${methodLabel[method]} (${payout.phoneMasked}).`);
+      if (payout) toast(`Versement demandé : ${formatFcfa(payout.amount)} sur ton ${methodLabel[method]} (${payout.phoneMasked}).`);
     };
     Alert.alert(`Récupérer ${amount}`, 'Les places payées, pour payer le chauffeur. Sur quel compte ?', [
       { text: 'Plus tard', style: 'cancel' },

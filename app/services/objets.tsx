@@ -1,16 +1,6 @@
-import { router } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Redirect } from 'expo-router';
 
-import { ScreenHeader } from '@/components/ui';
-import { colors } from '@/constants/theme';
-import { LostBoard } from '@/features/lost/LostBoard';
-
-// Standalone page (deep links, notifications). Same content as Campus › Objets.
+/** Old links: Objets perdus lives in Campus › Objets perdus (with the tab bar, the same Back everywhere). */
 export default function ObjetsPerdusScreen() {
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top', 'bottom']}>
-      <ScreenHeader title="Objets perdus" subtitle="Retrouve ou déclare un objet" onBack={() => router.back()} />
-      <LostBoard />
-    </SafeAreaView>
-  );
+  return <Redirect href={{ pathname: '/(tabs)/lieux', params: { vue: 'objets' } }} />;
 }

@@ -5,6 +5,8 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CaravanSummary, FillBar, OrganizerLine } from '@/components/caravan';
+import { HoldCountdown } from '@/components/HoldCountdown';
+import { ErrorState } from '@/components/states';
 import { BackButton } from '@/components/ui';
 import { caravanState, formatDateTime, formatFcfa, paymentMethods, type Caravan, type CaravanStop } from '@/constants/data';
 import { PaymentLogo } from '@/components/PaymentLogo';
@@ -49,10 +51,16 @@ export default function CaravaneReservation() {
   const [paying, setPaying] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // The seat plan couldn't be loaded: say so in the plan, with « Réessayer » (not an empty bus).
+  const [seatsFailed, setSeatsFailed] = useState(false);
   const loadSeats = useCallback(() => {
     if (!id) return;
-    caravansApi.seats(id).then(setMap, () => undefined);
+    caravansApi.seats(id).then(setMap, () => setSeatsFailed(true));
   }, [id]);
+  const retrySeats = () => {
+    setSeatsFailed(false);
+    loadSeats();
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -239,11 +247,12 @@ export default function CaravaneReservation() {
                   Place {x.seat} : {x.passenger!.name}
                 </Text>
               ))}
+            <HoldCountdown until={held.holdExpiresAt} />
             <Text style={styles.alreadyText}>Termine le paiement avant {formatDateTime(Date.parse(held.holdExpiresAt))}, sinon elles sont rendues aux autres.</Text>
             <Pressable style={styles.alreadyBtn} onPress={resumePayment} disabled={paying}>
               <Text style={styles.alreadyBtnText}>{paying ? 'Paiement…' : `Payer ${formatFcfa(heldTotal)}`}</Text>
             </Pressable>
-            <Pressable onPress={() => release(held.id).then(loadSeats, () => undefined)} hitSlop={8} accessibilityRole="button">
+            <Pressable onPress={() => release(held.id).then(loadSeats, (err) => Alert.alert('Libération impossible', err instanceof ApiError ? err.message : 'Vérifie ta connexion et réessaie.'))} hitSlop={8} accessibilityRole="button">
               <Text style={styles.change}>{held.seats.length > 1 ? 'Libérer les places' : 'Libérer la place'}</Text>
             </Pressable>
           </View>
@@ -413,7 +422,8 @@ export default function CaravaneReservation() {
                   <Ionicons name="bus-outline" size={12} color={colors.primary} />
                   <Text style={styles.frontText}>Avant du bus</Text>
                 </View>
-                {!map && <ActivityIndicator color={colors.primary} />}
+                {!map && !seatsFailed && <ActivityIndicator color={colors.primary} />}
+                {!map && seatsFailed && <ErrorState text="Le plan des places n’a pas pu être chargé." onRetry={retrySeats} />}
                 {rows.map((row) => (
                   <View key={row[0]} style={styles.seatRow}>
                     {row.map((n, i) => {

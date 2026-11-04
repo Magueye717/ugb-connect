@@ -125,9 +125,11 @@ export function SpaceSwitcher() {
   );
 }
 
+/** The halo has been shown this session. */
+let haloShown = false;
+
 /**
- * The button itself, alive but quiet: it pops in, a soft halo pulses a few times so it gets noticed (again after a
- * space change), it glides up and down above a screen's pinned bar, squeezes when pressed, and its ⇄ badge turns when
+ * The button itself, alive but quiet: it pops in, a soft halo pulses a few times once per session so it gets noticed, it glides up and down above a screen's pinned bar, squeezes when pressed, and its ⇄ badge turns when
  * the space changes. Transform and opacity only; no halo when the system asks to reduce motion.
  */
 function FabButton({
@@ -155,25 +157,27 @@ function FabButton({
     lift.set(withSpring(raised, motion.glide));
   }, [raised, lift]);
 
-  // Each space (and the first appearance): three soft pulses, then the badge's half-turn.
+  // The halo pulses three times once per session (to be noticed), not at every space change: animation only where it
+  // helps. A space change just turns the badge.
   useEffect(() => {
-    if (!reduced) {
-      halo.set(0);
-      halo.set(
-        withRepeat(
-          withTiming(1, { duration: 1300, easing: Easing.out(Easing.quad) }),
-          3,
-          false,
-        ),
-      );
-    }
+    if (reduced || haloShown) return;
+    haloShown = true;
+    halo.set(
+      withRepeat(
+        withTiming(1, { duration: 1300, easing: Easing.out(Easing.quad) }),
+        3,
+        false,
+      ),
+    );
+  }, [reduced, halo]);
+  useEffect(() => {
     turn.set(
       withSequence(
         withTiming(0, { duration: 0 }),
         withSpring(180, motion.spring),
       ),
     );
-  }, [spaceKey, reduced, halo, turn]);
+  }, [spaceKey, turn]);
 
   const wrap = useAnimatedStyle(() => ({
     transform: [{ translateY: -lift.get() }, { scale: press.get() }],

@@ -2,18 +2,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AvatarPicker } from '@/components/AvatarPicker';
 import { SpacesList } from '@/components/SpacesList';
+import { ErrorState } from '@/components/states';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { isOwner, useAuth } from '@/context/AuthContext';
-import { commerceApi, type BusinessDto, type CommerceReference } from '@/features/commerce/api';
+import { commerceApi, type BusinessDto } from '@/features/commerce/api';
 import { BusinessProfileForm } from '@/features/commerce/BusinessProfileForm';
-import { ApiError } from '@/lib/api';
+import { useCommerceReference } from '@/features/commerce/useCommerceReference';
 
-const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
 
 /**
  * What students see of the business: its picture, where it is (GPS point for directions, in words, campus), its
@@ -22,15 +23,16 @@ const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanc
 export default function Commerce() {
   const { business, user, logout } = useAuth();
   const [b, setB] = useState<BusinessDto | null>(null);
-  const [ref, setRef] = useState<CommerceReference | null>(null);
+  // Couldn't be loaded (no network…): an error with « Réessayer » instead of an endless spinner.
+  const [failed, setFailed] = useState(false);
+  const { reference: ref, failed: refFailed, retry: retryRef } = useCommerceReference();
 
-  useFocusEffect(
-    useCallback(() => {
-      if (!business) return;
-      commerceApi.mine(business).then(setB, fail('Chargement impossible'));
-      commerceApi.reference().then(setRef, () => undefined);
-    }, [business]),
-  );
+  const load = useCallback(() => {
+    if (!business) return;
+    setFailed(false);
+    commerceApi.mine(business).then(setB, () => setFailed(true));
+  }, [business]);
+  useFocusEffect(load);
 
   if (!business) return null;
   const confirmLogout = () =>
@@ -42,8 +44,7 @@ export default function Commerce() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={styles.headRow}>
             <Text style={[styles.h1, { flex: 1 }]}>{business.kind === 'restaurant' ? 'Mon restaurant' : 'Ma boutique'}</Text>
             {/* Always in sight, not only under the form. */}
@@ -52,7 +53,14 @@ export default function Commerce() {
               <Text style={styles.headLogoutText}>Déconnexion</Text>
             </Pressable>
           </View>
-          {!b || (canEdit && !ref) ? (
+          {(!b && failed) || (canEdit && !ref && refFailed) ? (
+            <ErrorState
+              onRetry={() => {
+                if (!b) load();
+                if (!ref) retryRef();
+              }}
+            />
+          ) : !b || (canEdit && !ref) ? (
             <ActivityIndicator color={colors.primary} />
           ) : canEdit ? (
             <BusinessProfileForm key={b.id} b={b} target={business} reference={ref!} onSaved={setB} />
@@ -71,12 +79,7 @@ export default function Commerce() {
             </View>
           </View>
           <SpacesList />
-          <Pressable onPress={confirmLogout} style={styles.logout} accessibilityRole="button">
-            <Ionicons name="log-out-outline" size={18} color={colors.dangerText} />
-            <Text style={styles.logoutText}>Se déconnecter</Text>
-          </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
@@ -100,7 +103,7 @@ function ProfileView({ b }: { b: BusinessDto }) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 40 },
-  h1: { ...typo.h2, color: colors.navy },
+  h1: { ...typo.h1, color: colors.navy },
   section: { ...typo.section, color: colors.navy, marginTop: 10 },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14, gap: 8 },
   cardTitle: { ...typo.title, color: colors.navy },
@@ -111,6 +114,4 @@ const styles = StyleSheet.create({
   headLogout: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 36, paddingHorizontal: 12, borderRadius: radii.pill, backgroundColor: colors.dangerBg },
   headLogoutText: { ...typo.smallStrong, color: colors.dangerText },
   lock: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-  logout: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 48 },
-  logoutText: { ...typo.bodyStrong, color: colors.dangerText },
 });

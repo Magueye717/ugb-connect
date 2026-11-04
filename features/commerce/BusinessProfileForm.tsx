@@ -5,14 +5,16 @@ import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { MultiSelect } from '@/components/Select';
-import { Field, LabeledField, PrimaryButton, TextButton } from '@/components/ui';
+import { Chip, Field, LabeledField, PrimaryButton, TextButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
-import { commerceApi, type BusinessDto, type BusinessTarget, type CommerceReference, type DeliveryZone } from '@/features/commerce/api';
+import { commerceApi, type BusinessDto, type BusinessTarget, type CommerceReference, type DeliveryZone, type OrderMethod } from '@/features/commerce/api';
 import { CAMPUSES } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
 import { openDirections } from '@/lib/maps';
 import { pickPhoto } from '@/lib/pickPhoto';
 import { uploadImage } from '@/lib/upload';
+import { toast } from '@/lib/toast';
+import { askToRelocate } from '@/lib/relocate';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
 const HHMM = /^\d{2}:\d{2}$/;
@@ -40,6 +42,9 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
     campus2: b.deliveryFees.campus2 === null ? '' : String(b.deliveryFees.campus2),
     outside: b.deliveryFees.outside === null ? '' : String(b.deliveryFees.outside),
   });
+  // How students may pay (cash, Wave, Orange Money): at least one.
+  const [methods, setMethods] = useState<OrderMethod[]>(b.paymentMethods.map((m) => m.value));
+  const toggleMethod = (m: OrderMethod) => setMethods((list) => (list.includes(m) ? (list.length > 1 ? list.filter((x) => x !== m) : list) : [...list, m]));
   const [saving, setSaving] = useState(false);
 
   const pick = async () => {
@@ -71,6 +76,12 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
       setLocating(false);
     }
   };
+  // Another campus for something already placed: ask at once whether its position on the map changed too.
+  const pickCampus = (key: 'campus1' | 'campus2', label: string) => {
+    const next = campus === key ? null : key;
+    setCampus(next);
+    if (next && next !== campus && (campus !== null || !!(lat && lng))) askToRelocate(label, here);
+  };
 
   const location = lat && lng ? { lat: Number(lat), lng: Number(lng) } : null;
   const locationOk = (!lat && !lng) || (!!location && Math.abs(location.lat) <= 90 && Math.abs(location.lng) <= 180);
@@ -84,10 +95,11 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
         ...(editor && name.trim() !== b.name ? { name: name.trim() } : {}),
         ...(photo.id ? { photoId: photo.id } : {}),
         specialties, description: description.trim(), address: address.trim(), campus, phone: phone.trim(), location, services,
+        paymentMethods: methods,
         deliveryFees: { campus1: fees.campus1 === '' ? null : Number(fees.campus1), campus2: fees.campus2 === '' ? null : Number(fees.campus2), outside: fees.outside === '' ? null : Number(fees.outside) },
       });
       onSaved(saved);
-      Alert.alert('Enregistré', editor ? 'Les étudiants voient les changements tout de suite.' : 'Les étudiants voient tes changements tout de suite.');
+      toast('Enregistré : les étudiants le voient tout de suite.');
     } catch (err) {
       fail('Enregistrement impossible')(err);
     } finally {
@@ -133,9 +145,7 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
       </LabeledField>
       <View style={styles.row}>
         {CAMPUSES.map((c) => (
-          <Pressable key={c.key} onPress={() => setCampus(campus === c.key ? null : c.key)} style={[styles.chip, campus === c.key && styles.chipOn]}>
-            <Text style={[styles.chipText, campus === c.key && { color: '#fff' }]}>{c.label}</Text>
-          </Pressable>
+          <Chip key={c.key} label={c.label} selected={campus === c.key} onPress={() => pickCampus(c.key, c.label)} />
         ))}
       </View>
       <View style={styles.row}>
@@ -180,7 +190,7 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
           )}
         </View>
       ))}
-      {services.length < 4 && (
+      {services.length < 3 && (
         <TextButton label="Ajouter un service" icon="add-circle-outline" onPress={() => setServices((list) => [...list, { start: '19:00', end: '22:00' }])} />
       )}
       {!servicesOk && <Text style={styles.warn}>Horaires au format 12:00, la fin après le début.</Text>}
@@ -205,6 +215,14 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
         })}
       </View>
 
+      <Text style={styles.section}>Paiements acceptés</Text>
+      <Text style={styles.muted}>Ce que les étudiants peuvent choisir. Espèces : payé au livreur ou au retrait (rien ne passe par l’app).</Text>
+      <View style={styles.row}>
+        {reference.paymentMethods.map((m) => (
+          <Chip key={m.value} label={m.label} selected={methods.includes(m.value)} onPress={() => toggleMethod(m.value)} role="checkbox" icon={m.value === 'cash' ? 'cash-outline' : 'phone-portrait-outline'} />
+        ))}
+      </View>
+
       <PrimaryButton label="Enregistrer" disabled={!ready} loading={saving} onPress={save} />
     </View>
   );
@@ -220,9 +238,6 @@ const styles = StyleSheet.create({
   coverPick: { height: 170, borderRadius: radii.lg, backgroundColor: colors.primarySoft, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   coverBadge: { position: 'absolute', right: 10, bottom: 10, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: radii.pill, backgroundColor: 'rgba(10,16,40,0.65)' },
   coverBadgeText: { ...typo.captionStrong, color: '#fff' },
-  chip: { paddingHorizontal: 14, minHeight: 36, borderRadius: radii.pill, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, justifyContent: 'center' },
-  chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  chipText: { ...typo.smallStrong, color: colors.navy },
   locBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, minHeight: 38, borderRadius: radii.pill, backgroundColor: colors.primarySoft },
   locText: { ...typo.smallStrong, color: colors.primary },
   zone: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 64 },

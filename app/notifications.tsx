@@ -85,7 +85,7 @@ export default function NotificationsScreen() {
       <View style={styles.head}>
         <BackButton onPress={() => router.back()} />
         <View style={{ flex: 1 }}>
-          <Text style={styles.h1}>{scope ? 'Notifications commandes' : 'Notifications'}</Text>
+          <Text style={styles.h1} numberOfLines={1}>{scope ? 'Notifications commandes' : 'Notifications'}</Text>
           <Text style={styles.sub}>{fresh ? `${fresh} nouvelle${fresh > 1 ? 's' : ''}` : 'Tout est lu'}</Text>
         </View>
         <Pressable style={styles.gear} onPress={() => setSettings(true)} accessibilityRole="button" accessibilityLabel="Préférences de notification">
@@ -202,7 +202,7 @@ function Preferences({ onClose }: { onClose: () => void }) {
 }
 
 const styles = StyleSheet.create({
-  gear: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 36, paddingHorizontal: 12, borderRadius: radii.pill, backgroundColor: colors.card, ...shadow.card },
+  gear: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 36, paddingHorizontal: 12, borderRadius: radii.pill, backgroundColor: colors.card, ...shadow.card },
   gearText: { ...typo.smallStrong, color: colors.navy },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,27,76,0.35)' },
   sheet: { backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20, paddingBottom: 36, gap: 12 },
@@ -213,7 +213,7 @@ const styles = StyleSheet.create({
   prefTitle: { ...typo.bodyStrong, color: colors.navy },
   safe: { flex: 1, backgroundColor: colors.bg },
   head: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingTop: 8 },
-  h1: { ...typo.h1, color: colors.navy },
+  h1: { ...typo.h3, color: colors.navy },
   sub: { color: colors.muted2, marginTop: 2 },
   body: { padding: 20, gap: 16, paddingBottom: 32 },
   group: { ...typo.label, color: colors.muted2, letterSpacing: 0.5 },

@@ -15,6 +15,7 @@ import { useManifest, type OrgCaravan, type Passenger } from '@/features/organiz
 import { TicketScanner } from '@/features/organizer/TicketScanner';
 import { useTicketCheck } from '@/features/organizer/useTicketCheck';
 import { ApiError } from '@/lib/api';
+import { toast } from '@/lib/toast';
 
 type Tab = 'pickups' | 'dropoffs';
 
@@ -102,7 +103,7 @@ export default function Manifest() {
     if (!c.claim) return;
     const send = (method: PaymentMethod) =>
       m.claim(method).then(
-        (p) => p && Alert.alert('Versement demandé', `${formatFcfa(p.amount)} sur le ${methodLabel[method]} de l’organisation (${p.phoneMasked}).`),
+        (p) => p && toast(`Versement demandé : ${formatFcfa(p.amount)} sur le ${methodLabel[method]} de l’organisation (${p.phoneMasked}).`),
         fail('Versement impossible'),
       );
     Alert.alert(`Récupérer ${formatFcfa(c.claim.amount)}`, 'Les places payées de ce départ, sur le numéro de l’organisation. Une seule fois par départ.', [
@@ -359,7 +360,7 @@ function StopHead({ stop, count, badge, estimated }: { stop: CaravanStop; count:
 const STATUS = {
   boarded: { icon: 'checkmark-circle', color: colors.success, label: 'à bord' },
   absent: { icon: 'close-circle', color: colors.danger, label: 'absent' },
-  waiting: { icon: 'ellipse-outline', color: colors.muted, label: 'attendu' },
+  waiting: { icon: 'ellipse-outline', color: colors.muted2, label: 'attendu' },
 } as const;
 
 function PassengerRow({

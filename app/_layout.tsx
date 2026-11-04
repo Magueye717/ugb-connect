@@ -1,6 +1,7 @@
 import { Stack } from 'expo-router';
 import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 
 import { colors } from '@/constants/theme';
 import { AuthProvider, spaceHome, useAuth } from '@/context/AuthContext';
@@ -11,6 +12,7 @@ import { LostProvider } from '@/context/LostContext';
 import { NotificationsProvider } from '@/context/NotificationsContext';
 import { OrdersProvider } from '@/context/OrdersContext';
 import { OfflineBanner } from '@/components/states';
+import { Toaster } from '@/components/Toaster';
 import { TaxiProvider } from '@/context/TaxiContext';
 import { ChatsProvider } from '@/features/chat/ChatContext';
 import { setupNotifications, useNotificationRouting } from '@/lib/notifications';
@@ -51,6 +53,7 @@ function Screens() {
         <Stack.Screen name="ma-carte" />
         <Stack.Screen name="infos" />
         <Stack.Screen name="mes-billets" />
+        <Stack.Screen name="mes-objets" />
         <Stack.Screen name="ma-boutique" />
         <Stack.Screen name="evenement/[id]" />
         <Stack.Screen name="evenements" />
@@ -65,6 +68,7 @@ function Screens() {
         <Stack.Screen name="panier" />
         <Stack.Screen name="commande/[id]" />
         <Stack.Screen name="billet/[id]" />
+        <Stack.Screen name="noter/[subject]/[id]" options={{ presentation: 'transparentModal', animation: 'fade' }} />
         <Stack.Screen name="taxi/[id]" />
         <Stack.Screen name="trajet/[id]" />
         <Stack.Screen name="paiement/retour" options={{ animation: 'none' }} />
@@ -96,6 +100,10 @@ function Screens() {
 
 export default function RootLayout() {
   return (
+    // Keyboard handling for every form and sheet (react-native-keyboard-controller): inputs and buttons stay visible.
+    // The app is already edge-to-edge (Expo, Android): without these the library adds its own status-bar padding on
+    // top of the screens' safe areas, and every screen looks pushed down and cut at the top.
+    <KeyboardProvider statusBarTranslucent navigationBarTranslucent preserveEdgeToEdge>
     <AuthProvider>
       <NotificationsProvider>
         {/* Restaurants' menus and the home screen's alerts. */}
@@ -112,6 +120,8 @@ export default function RootLayout() {
                       <Screens />
                       {/* Above every screen while there's no connection. */}
                       <OfflineBanner />
+                      {/* Short confirmations (toast()). */}
+                      <Toaster />
                     </LostProvider>
                   </TaxiProvider>
                 </ChatsProvider>
@@ -121,5 +131,6 @@ export default function RootLayout() {
         </CampusProvider>
       </NotificationsProvider>
     </AuthProvider>
+    </KeyboardProvider>
   );
 }

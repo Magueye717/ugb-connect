@@ -2,10 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Field, OutlineButton, PrimaryButton } from '@/components/ui';
+import { Field, OutlineButton, PrimaryButton, SafeBottom } from '@/components/ui';
 import { lostCategory, lostOffice, lostSafetyTip, lostTone } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useLost } from '@/context/LostContext';
@@ -43,7 +44,7 @@ export default function ObjetScreen() {
     }, [id]),
   );
 
-  const back = () => (router.canGoBack() ? router.back() : router.replace('/services/objets'));
+  const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/(tabs)/lieux', params: { vue: 'objets' } }));
   if (!item) {
     return (
       <View style={[styles.root, styles.missing, { paddingTop: insets.top }]}>
@@ -271,7 +272,7 @@ function ClaimSheet({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} onShow={() => setProof('')}>
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <View style={styles.sheet}>
           <Text style={styles.sheetTitle}>Prouve que c’est à toi</Text>
           <Text style={styles.sheetText}>
@@ -295,6 +296,7 @@ function ClaimSheet({
               onSend(proof.trim()).finally(() => setSending(false));
             }}
           />
+          <SafeBottom />
         </View>
       </KeyboardAvoidingView>
     </Modal>

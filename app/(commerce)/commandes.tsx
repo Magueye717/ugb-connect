@@ -153,11 +153,17 @@ export default function Commandes() {
                 <Text style={[styles.muted, { flex: 1 }]} numberOfLines={1}>
                   {o.mode === 'delivery' ? [o.zoneLabel, o.address].filter(Boolean).join(' · ') : 'À emporter'} · {o.customer?.name}
                 </Text>
+                {o.method === 'cash' && (
+                  <View style={styles.cash}>
+                    <Ionicons name="cash-outline" size={13} color={colors.successText} />
+                    <Text style={styles.cashText}>Espèces</Text>
+                  </View>
+                )}
                 <Text style={styles.total}>{formatFcfa(o.total)}</Text>
               </View>
               {o.note && <Text style={styles.note}>« {o.note} »</Text>}
               {next && (
-                <Pressable style={[styles.next, o.status === 'placed' && { backgroundColor: colors.success }]} onPress={() => advance(o)} disabled={busy === o.id} accessibilityRole="button">
+                <Pressable style={[styles.next, o.status === 'placed' && { backgroundColor: colors.successText }]} onPress={() => advance(o)} disabled={busy === o.id} accessibilityRole="button">
                   {busy === o.id ? <ActivityIndicator color="#fff" /> : <Ionicons name={next.icon} size={18} color="#fff" />}
                   <Text style={styles.nextText}>{next.label}</Text>
                 </Pressable>
@@ -191,9 +197,12 @@ function OrderThumb({ order, kind }: { order: OrderDto; kind: 'restaurant' | 'sh
 }
 
 const styles = StyleSheet.create({
+  // A cash order: the money is collected at delivery or at the counter.
+  cash: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.pill, backgroundColor: colors.successBg },
+  cashText: { ...typo.captionStrong, color: colors.successText },
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
-  h1: { ...typo.h2, color: colors.navy },
+  h1: { ...typo.h1, color: colors.navy },
   sub: { ...typo.small, color: colors.muted2 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   head: { flexDirection: 'row', gap: 12 },
@@ -201,9 +210,9 @@ const styles = StyleSheet.create({
   more: { position: 'absolute', right: 4, bottom: 4, minWidth: 24, height: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: 'rgba(15,27,76,0.85)', alignItems: 'center', justifyContent: 'center' },
   moreText: { fontSize: 11, fontWeight: '800', color: '#fff' },
   bell: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center', ...shadow.card },
-  badge: { position: 'absolute', top: -2, right: -2, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, backgroundColor: colors.danger, borderWidth: 2, borderColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
-  badgeText: { fontSize: 10, fontWeight: '800', color: '#fff' },
-  scan: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 40, paddingHorizontal: 14, borderRadius: radii.pill, backgroundColor: colors.navy },
+  badge: { position: 'absolute', top: -3, right: -3, minWidth: 20, height: 20, paddingHorizontal: 4, borderRadius: 10, backgroundColor: colors.dangerText, borderWidth: 2, borderColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
+  badgeText: { fontSize: 11, fontWeight: '800', color: '#fff' },
+  scan: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40, paddingHorizontal: 14, borderRadius: radii.pill, backgroundColor: colors.navy },
   scanText: { ...typo.smallStrong, color: '#fff' },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14, gap: 8 },
   cardNew: { borderWidth: 2, borderColor: colors.success },

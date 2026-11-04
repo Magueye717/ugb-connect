@@ -16,11 +16,12 @@ import {
   type ScrollViewInstance,
 } from 'react-native';
 
-import { formatFcfa, schedule, weekDays } from '@/constants/data';
+import { caravanState, formatFcfa, schedule, weekDays } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useCampus } from '@/context/CampusContext';
 import { useCaravans } from '@/context/CaravansContext';
+import { OrganizerLine } from '@/components/caravan';
 import { type LiveBannerDto } from '@/features/banners/api';
 import { currentMeal, type AlertDto, type DishStatus } from '@/features/restos/api';
 import { useTaxi } from '@/context/TaxiContext';
@@ -158,7 +159,7 @@ export function AdCarousel() {
         onMomentumScrollEnd={onScrollEnd}
         style={styles.bannerTrack}>
         {banners.map((b) => {
-          const action = b.event ? 'Voir l’événement' : b.cta?.label;
+          const action = b.event ? 'Réserver un ticket' : b.cta?.label;
           return (
             <Pressable
               key={b.id}
@@ -173,21 +174,24 @@ export function AdCarousel() {
               <View style={styles.tag}>
                 <Text style={styles.tagText}>{b.event ? `ÉVÉNEMENT · ${b.event.categoryLabel.toUpperCase()}` : 'SPONSORISÉ'}</Text>
               </View>
-              <View style={{ paddingRight: action ? 110 : 0 }}>
+              {/* The title takes the whole width; the button sits beside the date and price, never over the text. */}
+              <View>
                 <Text style={styles.bannerTitle} numberOfLines={2}>
                   {b.title}
                 </Text>
-                <Text style={styles.bannerSub} numberOfLines={1}>
-                  {b.event ? `${eventWhen(b.event.startsAt)} · ${b.event.priceLabel}` : b.description}
-                </Text>
-              </View>
-              {action && (
-                <View style={styles.bannerBtn}>
-                  <Text style={styles.bannerBtnText} numberOfLines={1}>
-                    {action}
+                <View style={styles.bannerFoot}>
+                  <Text style={styles.bannerSub} numberOfLines={2}>
+                    {b.event ? `${eventWhen(b.event.startsAt)} · ${b.event.priceLabel}` : b.description}
                   </Text>
+                  {action && (
+                    <View style={styles.bannerBtn}>
+                      <Text style={styles.bannerBtnText} numberOfLines={1}>
+                        {action}
+                      </Text>
+                    </View>
+                  )}
                 </View>
-              )}
+              </View>
             </Pressable>
           );
         })}
@@ -226,15 +230,30 @@ function formatTimeLeft(ms: number) {
   return `Dans ${minutes} min`;
 }
 
+/** The campus, as the caravans name it. */
+const CAMPUS = 'UGB';
+/** "Plus que N places" from this many down. */
+const FEW_SEATS = 5;
+
+/**
+ * The next caravan to book. Usually the next departure from the campus; a student who already has a ticket out sees
+ * their way back instead (the next return to campus from that city, after their trip), and when nothing leaves the
+ * campus, the next return. Price, where to get on, stops on the way, organizer and whether the trip is confirmed: what
+ * a student checks before booking.
+ */
 export function CaravanCard() {
   const now = useNow();
   const { caravans } = useCaravans();
-  // Departures from campus that are still bookable, soonest first. Full buses are skipped.
-  const upcoming = caravans
-    .filter((c) => c.from === 'UGB' && c.seats > 0 && c.bookingOpen && c.departureAt > now)
-    .sort((a, b) => a.departureAt - b.departureAt);
-  const next = upcoming[0];
-  const othersThisWeek = upcoming.slice(1).filter((c) => c.departureAt - now < WEEK_MS).length;
+  const bookable = caravans.filter((c) => c.seats > 0 && c.bookingOpen && c.departureAt > now && !c.myTicketId).sort((a, b) => a.departureAt - b.departureAt);
+  const outbound = bookable.filter((c) => c.from === CAMPUS);
+  const returns = bookable.filter((c) => c.to === CAMPUS);
+  // My trip out (the latest one booked): its way back comes first.
+  const myTrip = caravans.filter((c) => c.from === CAMPUS && c.myTicketId && c.departureAt > now - WEEK_MS).sort((a, b) => b.departureAt - a.departureAt)[0];
+  const myReturns = myTrip ? returns.filter((c) => c.from === myTrip.to && c.departureAt > myTrip.departureAt) : [];
+  const list = myReturns.length ? myReturns : outbound.length ? outbound : returns;
+  const next = list[0];
+  const othersThisWeek = list.slice(1).filter((c) => c.departureAt - now < WEEK_MS).length;
+  const label = myReturns.length ? 'TON RETOUR AU CAMPUS' : next?.to === CAMPUS ? 'RETOUR AU CAMPUS' : 'PROCHAINE CARAVANE';
 
   if (!next) {
     return (
@@ -252,38 +271,65 @@ export function CaravanCard() {
   }
 
   const urgent = next.departureAt - now < URGENT_MS;
+  const state = caravanState(next);
+  const first = next.pickups[0];
+  // Stops on the way: where it also drops off before the end of the line.
+  const via = next.dropoffs.slice(0, -1).map((d) => d.place);
+  const few = next.seats <= FEW_SEATS;
 
   return (
-    <View style={[styles.infoCard, shadow.card]}>
+    <Pressable style={[styles.infoCard, shadow.card]} onPress={() => router.push(`/caravane/${next.id}`)} accessibilityRole="button" accessibilityLabel={`${next.from} vers ${next.to}, ${next.date} à ${next.time}, ${formatFcfa(next.price)}`}>
       {/* What + when */}
       <View style={styles.rowBetween}>
         <View style={styles.label}>
           <Ionicons name="bus-outline" size={12} color={colors.primary} />
-          <Text style={styles.labelText}>PROCHAINE CARAVANE</Text>
+          <Text style={styles.labelText}>{label}</Text>
         </View>
-        <Text style={[styles.timeLeft, urgent && { color: colors.orangeText }]}>
-          {formatTimeLeft(next.departureAt - now)}
-        </Text>
+        <Text style={[styles.timeLeft, urgent && { color: colors.orangeText }]}>{formatTimeLeft(next.departureAt - now)}</Text>
       </View>
 
-      {/* Where */}
-      <View style={styles.route}>
-        <Text style={styles.city}>{next.from}</Text>
-        <View style={styles.link}>
-          <Ionicons name="arrow-forward" size={12} color={colors.primary} />
-        </View>
-        <Text style={styles.city}>{next.to}</Text>
-      </View>
-
-      {/* Details + action */}
+      {/* Where, and the price */}
       <View style={styles.rowBetween}>
-        <View style={{ gap: 2 }}>
-          <Text style={styles.detail}>
-            {next.date} · {next.time}
+        <View style={[styles.route, { flexShrink: 1 }]}>
+          <Text style={styles.city} numberOfLines={1}>
+            {next.from}
           </Text>
-          <Text style={styles.seats}>{next.seats} places disponibles</Text>
+          <View style={styles.link}>
+            <Ionicons name="arrow-forward" size={12} color={colors.primary} />
+          </View>
+          <Text style={[styles.city, { flexShrink: 1 }]} numberOfLines={1}>
+            {next.to}
+          </Text>
         </View>
-        <Pressable style={styles.cta} onPress={() => router.push(`/caravane/${next.id}`)}>
+        <Text style={styles.caravanPrice}>{formatFcfa(next.price)}</Text>
+      </View>
+
+      {/* When, where to get on, the stops on the way */}
+      <View style={{ gap: 2 }}>
+        <Text style={styles.detail} numberOfLines={1}>
+          {next.date} · départ {first ? `${first.place} · ${first.time}` : next.time}
+        </Text>
+        {via.length > 0 && (
+          <Text style={styles.detail} numberOfLines={1}>
+            Via {via.join(', ')}
+          </Text>
+        )}
+      </View>
+
+      <OrganizerLine organizer={next.organizer} />
+
+      {/* Confirmed or not, seats left, and the action */}
+      <View style={styles.rowBetween}>
+        <View style={{ gap: 2, flexShrink: 1 }}>
+          <View style={styles.label}>
+            <Ionicons name={state.confirmed ? 'checkmark-circle' : 'time-outline'} size={13} color={state.confirmed ? colors.successText : colors.warningText} />
+            <Text style={[styles.caravanState, { color: state.confirmed ? colors.successText : colors.warningText }]} numberOfLines={1}>
+              {state.confirmed ? 'Départ confirmé' : `Encore ${state.missing} réservation${state.missing > 1 ? 's' : ''} pour confirmer`}
+            </Text>
+          </View>
+          <Text style={[styles.seats, few && { color: colors.orangeText }]}>{few ? `Plus que ${next.seats} place${next.seats > 1 ? 's' : ''}` : `${next.seats} places disponibles`}</Text>
+        </View>
+        <Pressable style={styles.cta} onPress={() => router.push(`/caravane/${next.id}`)} accessibilityRole="button">
           <Text style={styles.ctaText}>Réserver</Text>
         </Pressable>
       </View>
@@ -296,7 +342,7 @@ export function CaravanCard() {
           <Ionicons name="chevron-forward" size={14} color={colors.primary} />
         </Pressable>
       )}
-    </View>
+    </Pressable>
   );
 }
 
@@ -632,7 +678,7 @@ const styles = StyleSheet.create({
   newsTime: { fontSize: 11, color: colors.muted2 },
   newsTitle: { ...typo.bodyStrong, color: colors.navy },
   newsBody: { ...typo.small, color: colors.muted2, marginTop: 2 },
-  dishOut: { textDecorationLine: 'line-through', color: colors.muted },
+  dishOut: { textDecorationLine: 'line-through', color: colors.muted2 },
   alertSub: { ...typo.caption, color: colors.muted2, marginTop: 2 },
 
   bannerTrack: { borderRadius: radii.lg },
@@ -653,12 +699,11 @@ const styles = StyleSheet.create({
   },
   tagText: { ...typo.label, color: '#fff', letterSpacing: 0.3 },
   bannerTitle: { ...typo.h3, color: '#fff', lineHeight: 22 },
-  bannerSub: { ...typo.caption, color: 'rgba(255,255,255,0.92)', marginTop: 4 },
+  bannerFoot: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6 },
+  bannerSub: { ...typo.caption, color: 'rgba(255,255,255,0.92)', flex: 1 },
   bannerBtn: {
-    position: 'absolute',
-    right: 14,
-    bottom: 16,
-    maxWidth: 140,
+    flexShrink: 0,
+    maxWidth: 150,
     backgroundColor: '#fff',
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -689,6 +734,8 @@ const styles = StyleSheet.create({
   eventThumb: { width: 52, height: 52, borderRadius: radii.sm, backgroundColor: colors.border },
   eventTitle: { ...typo.title, color: colors.navy },
   seats: { fontSize: 12, fontWeight: '600', color: colors.successText },
+  caravanPrice: { ...typo.bodyStrong, color: colors.navy },
+  caravanState: { ...typo.captionStrong, flexShrink: 1 },
   more: {
     flexDirection: 'row',
     alignItems: 'center',

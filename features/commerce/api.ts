@@ -6,6 +6,8 @@ const auth = { auth: true } as const;
 
 export type BusinessKind = 'restaurant' | 'shop';
 /** A business's own space: its organization and its kind (one entity may run a restaurant and a shop). */
+/** How an order is paid: in cash to the business, or online. */
+export type OrderMethod = 'cash' | PaymentMethod;
 export type BusinessRef = { orgId: string; kind: BusinessKind };
 /** Whose profile and catalog: the business's own space, or Référencement (an editor, by the business's id). */
 /** An entity a number owns (Référencement): what it runs, and whether it is a student's own (their shop). */
@@ -20,7 +22,7 @@ export type DeliveryZone = 'campus1' | 'campus2' | 'outside';
 /** FCFA per zone, 0: free; null: no delivery there. All null: pickup only. */
 export type DeliveryFees = Record<DeliveryZone, number | null>;
 /** The pickers' lists, from the backend (GET /reference/commerce). */
-export type CommerceReference = { specialties: Record<BusinessKind, string[]>; /** How many a business may pick. */ maxSpecialties: number; zones: { value: DeliveryZone; label: string }[] };
+export type CommerceReference = { specialties: Record<BusinessKind, string[]>; /** How many a business may pick. */ maxSpecialties: number; paymentMethods: { value: OrderMethod; label: string }[]; zones: { value: DeliveryZone; label: string }[] };
 export type ItemSection = 'menu' | 'drink' | 'article';
 
 export type ItemDto = {
@@ -37,6 +39,8 @@ export type ItemDto = {
   stock: number | null;
   soldOut: boolean;
   available: boolean;
+  /** False: shown for information only (a service done on the spot: printing…), never added to an order. */
+  orderable: boolean;
 };
 
 export type BusinessDto = {
@@ -64,6 +68,11 @@ export type BusinessDto = {
   /** The lowest delivery price ("dès 200 F"); null: pickup only. */
   deliveryFee: number | null;
   acceptingOrders: boolean;
+  /** Students' average rating of its orders (1 decimal); null: not rated yet. */
+  rating: number | null;
+  ratingCount: number;
+  /** How students may pay it: cash (at delivery or at the counter), Wave, Orange Money. */
+  paymentMethods: { value: OrderMethod; label: string }[];
   active: boolean;
   /** A student's own shop. */
   byStudent: boolean;
@@ -94,6 +103,9 @@ export type OrderDto = {
   note: string | null;
   refusal: string | null;
   refunded: boolean;
+  /** `cash`: paid by hand at delivery or at the counter (no online payment). */
+  method: OrderMethod;
+  methodLabel: string;
   history: { status: OrderStatus; at: string }[];
   createdAt: string;
   payment: { reference: string; checkoutUrl: string | null } | null;
@@ -113,8 +125,9 @@ export type BusinessPatch = Partial<{
   services: { start: string; end: string }[];
   deliveryFees: DeliveryFees;
   acceptingOrders: boolean;
+  paymentMethods: OrderMethod[];
 }>;
-export type ItemInput = { section: ItemSection; category?: string | null; name: string; detail?: string; price: number; photoId?: string | null; stock?: number | null; available?: boolean };
+export type ItemInput = { section: ItemSection; category?: string | null; name: string; detail?: string; price: number; photoId?: string | null; stock?: number | null; available?: boolean; orderable?: boolean };
 
 /** The steps a student sees, by mode. */
 export function orderSteps(mode: OrderMode) {
@@ -153,8 +166,8 @@ export const commerceApi = {
   get: (id: string) => api<BusinessDetail>('GET', `/businesses/${id}`, auth),
   market: (kind: BusinessKind) => api<{ businesses: BusinessDto[]; items: MarketItem[] }>('GET', `/market?kind=${kind}`, auth),
   reference: () => api<CommerceReference>('GET', '/reference/commerce'),
-  order: (id: string, body: { lines: { itemId: string; qty: number }[]; mode: OrderMode; zone?: DeliveryZone | null; address?: string | null; note?: string | null; method: PaymentMethod }) =>
-    api<{ order: OrderDto; payment: PaymentDto }>('POST', `/businesses/${id}/orders`, { ...auth, body: { ...body, returnUrl: paymentReturnUrl() } }),
+  order: (id: string, body: { lines: { itemId: string; qty: number }[]; mode: OrderMode; zone?: DeliveryZone | null; address?: string | null; note?: string | null; method: OrderMethod }) =>
+    api<{ order: OrderDto; payment: PaymentDto | null }>('POST', `/businesses/${id}/orders`, { ...auth, body: { ...body, returnUrl: paymentReturnUrl() } }),
   myOrders: () => api<{ items: OrderDto[] }>('GET', '/me/orders', auth),
   myOrder: (id: string) => api<OrderDto>('GET', `/me/orders/${id}`, auth),
   cancel: (id: string) => api<OrderDto>('POST', `/me/orders/${id}/cancel`, auth),

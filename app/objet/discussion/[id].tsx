@@ -5,8 +5,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,6 +13,7 @@ import {
   View,
   type ScrollViewInstance,
 } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/ui';
@@ -24,6 +23,7 @@ import { useLost } from '@/context/LostContext';
 import { useConversation, type ChatMessage } from '@/features/chat/useConversation';
 import { lostApi, type ClaimDto } from '@/features/lost/api';
 import { ApiError } from '@/lib/api';
+import { toast } from '@/lib/toast';
 
 const time = (at: number) => {
   const d = new Date(at);
@@ -53,7 +53,7 @@ export default function ObjetDiscussion() {
     markRead();
   }, [markRead]);
 
-  const back = () => (router.canGoBack() ? router.back() : router.replace('/services/objets'));
+  const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/(tabs)/lieux', params: { vue: 'objets' } }));
   if (!claim || missing || chat.revoked) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -84,7 +84,7 @@ export default function ObjetDiscussion() {
     Alert.alert(claim.with, m.body, [
       {
         text: 'Signaler le message',
-        onPress: () => chat.report(m).then(() => Alert.alert('Message signalé', 'L’équipe va lire la conversation. Merci de garder le campus sûr.'), fail('Signalement non envoyé')),
+        onPress: () => chat.report(m).then(() => toast('Message signalé : l’équipe va lire la conversation.'), fail('Signalement non envoyé')),
       },
       {
         text: `Bloquer ${claim.with}`,
@@ -131,7 +131,7 @@ export default function ObjetDiscussion() {
         </Pressable>
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <ScrollView
           ref={scroll}
           contentContainerStyle={styles.thread}
@@ -142,7 +142,7 @@ export default function ObjetDiscussion() {
             <Text style={styles.safetyText}>{lostSafetyTip}</Text>
           </View>
           {chat.hasMore && (
-            <Pressable onPress={() => chat.loadOlder().catch(() => undefined)} style={styles.older} accessibilityRole="button">
+            <Pressable onPress={() => chat.loadOlder().catch((err) => Alert.alert('Messages indisponibles', err instanceof ApiError ? err.message : 'Vérifie ta connexion et réessaie.'))} style={styles.older} accessibilityRole="button">
               <Text style={styles.olderText}>Messages précédents</Text>
             </Pressable>
           )}
