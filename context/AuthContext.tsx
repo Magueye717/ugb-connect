@@ -40,6 +40,12 @@ export type Profile = {
   roles: string[];
   /** Birth date ("2002-03-12"), place of birth, nationality: optional, best read from the student card. */
   identity: { birthDate: string | null; birthPlace: string | null; nationality: string | null; fromCard: boolean } | null;
+  /**
+   * Given this academic year: what's filled changes from this date (the next rentrée), an empty field can still be
+   * filled. Null: free to change. UFR and region; the card's details.
+   */
+  originEditableFrom: string | null;
+  identityEditableFrom: string | null;
 };
 
 /** The organization this account manages. `orgId` (= `id`) is what /org/{orgId} calls use. */
@@ -114,7 +120,7 @@ type MeResponse = {
   lastName: string;
   initials: string;
   phoneMasked: string;
-  student: { studentNumber: string; campus: string; onCampus: boolean; village: string | null; room: string | null; ufr: string | null; region: string | null; filiere: string | null; niveau: string | null; identity?: { birthDate: string | null; birthPlace: string | null; nationality: string | null; fromCard: boolean } | null } | null;
+  student: { studentNumber: string; campus: string; onCampus: boolean; village: string | null; room: string | null; ufr: string | null; region: string | null; filiere: string | null; niveau: string | null; identity?: { birthDate: string | null; birthPlace: string | null; nationality: string | null; fromCard: boolean } | null; originEditableFrom?: string | null; identityEditableFrom?: string | null } | null;
   spaces: AppSpace[];
   platformRoles: string[];
   organizations: { id: string; name: string; category: string; level: string; roles: string[]; capabilities: string[]; space: string }[];
@@ -159,6 +165,8 @@ function toProfile(me: MeResponse): Profile {
     email: me.email?.address ?? null,
     roles: me.platformRoles,
     identity: s?.identity ?? null,
+    originEditableFrom: s?.originEditableFrom ?? null,
+    identityEditableFrom: s?.identityEditableFrom ?? null,
   };
 }
 

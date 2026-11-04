@@ -14,6 +14,7 @@ import { CardVisual } from '@/features/lost/CardVisual';
 import { CAMPUSES } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
 import { toast } from '@/lib/toast';
+import { rentreeLabel } from '@/lib/rentree';
 
 /** "2002-03-12" ⇄ "12/03/2002". */
 const toFr = (iso: string | null) => (iso ? iso.split('-').reverse().join('/') : '');
@@ -36,8 +37,11 @@ export default function MaCarte() {
   const { user, reloadAccount } = useAuth();
   const id = user?.identity ?? null;
   const [editing, setEditing] = useState(false);
-  // Saved from the card: locked.
-  const locked = !!id?.fromCard;
+  // Saved from the card this year: what's filled waits for the rentrée (new card); an empty detail can be completed.
+  const until = user?.identityEditableFrom ?? null;
+  const missing = !id?.birthDate || !id?.birthPlace || !id?.nationality;
+  const locked = !!until && !missing;
+  const keep = (v: string | null | undefined) => !!until && !!v;
   const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [birthDate, setBirthDate] = useState(toFr(id?.birthDate ?? null));
@@ -62,9 +66,10 @@ export default function MaCarte() {
     try {
       const r = await readMyCardPhoto(res.assets[0].uri);
       // What was read fills the form; what wasn't keeps what the student had.
-      if (r.birthDate) setBirthDate(toFr(r.birthDate));
-      if (r.birthPlace) setBirthPlace(r.birthPlace);
-      if (r.nationality) setNationality(r.nationality);
+      // Kept until the rentrée: what's already saved isn't replaced by the new reading.
+      if (r.birthDate && !keep(id?.birthDate)) setBirthDate(toFr(r.birthDate));
+      if (r.birthPlace && !keep(id?.birthPlace)) setBirthPlace(r.birthPlace);
+      if (r.nationality && !keep(id?.nationality)) setNationality(r.nationality);
       setEditing(true);
       if (!r.birthDate && !r.birthPlace && !r.nationality) Alert.alert('Rien de lisible', 'C’est bien ta carte, mais ces informations n’ont pas pu être lues. Complète-les ou réessaie avec une photo plus nette.');
     } catch (err) {
@@ -126,14 +131,14 @@ export default function MaCarte() {
               {locked ? (
                 <View style={[styles.notice, { backgroundColor: colors.successBg }]}>
                   <Ionicons name="lock-closed" size={16} color={colors.successText} />
-                  <Text style={[styles.noticeText, { color: colors.successText }]}>Enregistré depuis ta carte étudiant : ces informations ne peuvent plus être modifiées.</Text>
+                  <Text style={[styles.noticeText, { color: colors.successText }]}>Enregistré depuis ta carte étudiant cette année : modifiable à la rentrée, le {rentreeLabel(until!)}, avec ta nouvelle carte.</Text>
                 </View>
               ) : (
                 <>
                   <View style={styles.tip}>
                     <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
                     <Text style={styles.tipText}>
-                      Facultatif mais conseillé : photographie ta carte étudiant. Son numéro doit être le tien ({user.studentId}) ; on remplit tes informations, tu vérifies, puis tu enregistres une fois pour toutes. La photo n’est pas gardée.
+                      Facultatif mais conseillé : photographie ta carte étudiant. Son numéro doit être le tien ({user.studentId}) ; on remplit tes informations, tu vérifies, puis tu enregistres pour l’année (modifiable à chaque rentrée). La photo n’est pas gardée.
                     </Text>
                   </View>
                   <PrimaryButton label={reading ? 'Lecture de ta carte…' : 'Scanner ma carte étudiant'} loading={reading} disabled={reading} onPress={() => scan('camera')} />
@@ -146,17 +151,19 @@ export default function MaCarte() {
             <>
               <View style={[styles.notice, { backgroundColor: colors.successBg }]}>
                 <Ionicons name="checkmark-circle" size={18} color={colors.successText} />
-                <Text style={[styles.noticeText, { color: colors.successText }]}>C’est bien ta carte. Vérifie et corrige si besoin : une fois enregistré, ce ne sera plus modifiable.</Text>
+                <Text style={[styles.noticeText, { color: colors.successText }]}>
+                  {until ? 'C’est bien ta carte. Complète ce qui manque : le reste est gardé jusqu’à la rentrée.' : 'C’est bien ta carte. Vérifie et corrige si besoin : une fois enregistré, ce ne sera plus modifiable avant la prochaine rentrée.'}
+                </Text>
               </View>
               <LabeledField label="Date de naissance">
-                <Field icon="calendar-outline" placeholder="JJ/MM/AAAA" keyboardType="number-pad" value={birthDate} onChangeText={(v) => setBirthDate(maskDate(v))} maxLength={10} />
+                <Field icon={keep(id?.birthDate) ? 'lock-closed-outline' : 'calendar-outline'} editable={!keep(id?.birthDate)} placeholder="JJ/MM/AAAA" keyboardType="number-pad" value={birthDate} onChangeText={(v) => setBirthDate(maskDate(v))} maxLength={10} />
               </LabeledField>
               {!dateOk && birthDate.length === 10 && <Text style={styles.warn}>Date invalide : JJ/MM/AAAA.</Text>}
               <LabeledField label="Lieu de naissance">
-                <Field icon="location-outline" placeholder="Ex. Saint-Louis" autoCapitalize="words" value={birthPlace} onChangeText={setBirthPlace} maxLength={60} />
+                <Field icon={keep(id?.birthPlace) ? 'lock-closed-outline' : 'location-outline'} editable={!keep(id?.birthPlace)} placeholder="Ex. Saint-Louis" autoCapitalize="words" value={birthPlace} onChangeText={setBirthPlace} maxLength={60} />
               </LabeledField>
               <LabeledField label="Nationalité">
-                <Field icon="flag-outline" placeholder="Ex. Sénégalaise" autoCapitalize="words" value={nationality} onChangeText={setNationality} maxLength={40} />
+                <Field icon={keep(id?.nationality) ? 'lock-closed-outline' : 'flag-outline'} editable={!keep(id?.nationality)} placeholder="Ex. Sénégalaise" autoCapitalize="words" value={nationality} onChangeText={setNationality} maxLength={40} />
               </LabeledField>
               <PrimaryButton label="Enregistrer" loading={saving} disabled={saving || !dateOk || (!!birthDate && birthDate.length < 10)} onPress={save} />
               <TextButton label="Annuler" style={{ alignSelf: 'center' }} onPress={() => setEditing(false)} />
