@@ -19,7 +19,8 @@ import { ApiError } from '@/lib/api';
 const LEAVE_IN = [15, 30, 60, 120]; // minutes
 const SEAT_OPTIONS = [2, 3, 4];
 /** "Non remboursable X min avant le départ": the organizer's choice, 0 = the default (10 min). */
-const LOCK_OPTIONS = [0, 5, 15, 20, 30, 45, 60];
+// 0: the default (10 min), shown in its place between 5 and 15.
+const LOCK_OPTIONS = [5, 0, 15, 20, 30, 45, 60];
 const DEFAULT_LOCK = 10;
 /** Same bounds as the backend (decision 2026-10-31). */
 const FARE_MIN = 500;
@@ -513,7 +514,7 @@ function NewTripSheet({
               <Chips options={LEAVE_IN} value={leaveIn} onChange={setLeaveIn} label={leaveLabel} />
             </LabeledField>
             <LabeledField label="Non remboursable avant le départ">
-              <Chips options={lockOptions} value={lockMinutes} onChange={setLock} label={(m) => (m ? `${m} min` : `Par défaut · ${DEFAULT_LOCK} min`)} />
+              <Chips options={lockOptions} value={lockMinutes} onChange={setLock} label={(m) => (m ? `${m} min` : `${DEFAULT_LOCK}m`)} />
             </LabeledField>
             <Text style={styles.hint}>
               Un passager qui quitte le trajet moins de {shownLock} min avant le départ n’est pas remboursé : sa place reste payée.

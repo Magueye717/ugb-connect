@@ -1,11 +1,21 @@
-export const STUDENT_ID_RE = /^P\d{6}$/;
+/** Student numbers: P then digits, 12 characters at most ("P232055"). The server checks the same rule. */
+export const STUDENT_ID_MAX = 12;
+export const STUDENT_ID_RE = /^P\d{6,11}$/;
 export const PHONE_RE = /^(70|71|75|76|77|78)\d{7}$/;
 // Letters (incl. French accents), single spaces or hyphens between words.
 const NAME_RE = /^[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[ -][A-Za-zÀ-ÖØ-öø-ÿ]+)*$/;
 
 export const PHONE_PREFIX = '+221';
 
-export const normalizeStudentId = (value: string) => value.toUpperCase().replace(/\s/g, '').slice(0, 7);
+/**
+ * What the student types, kept to the format: it starts with P, then digits only ("p 232 055" → "P232055"). Anything
+ * else typed (a digit first, a letter after the P) is ignored.
+ */
+export const typeStudentId = (value: string) => {
+  const v = value.toUpperCase().replace(/\s/g, '');
+  if (!v.startsWith('P')) return '';
+  return `P${v.slice(1).replace(/\D/g, '')}`.slice(0, STUDENT_ID_MAX);
+};
 
 /** Digits only, max 9 (Senegalese mobile number without the country code). */
 export const phoneDigits = (value: string) => value.replace(/\D/g, '').slice(0, 9);
@@ -14,7 +24,7 @@ export const phoneDigits = (value: string) => value.replace(/\D/g, '').slice(0, 
 export const formatPhone = (digits: string) =>
   [digits.slice(0, 2), digits.slice(2, 5), digits.slice(5, 7), digits.slice(7, 9)].filter(Boolean).join(' ');
 
-export const validateStudentId = (v: string) => (STUDENT_ID_RE.test(v) ? null : 'Format invalide. Exemple : P232055');
+export const validateStudentId = (v: string) => (STUDENT_ID_RE.test(v) ? null : 'Commence par P, puis 6 à 11 chiffres. Exemple : P232055');
 
 export const validatePhone = (v: string) =>
   PHONE_RE.test(v) ? null : 'Numéro invalide. Il doit commencer par 70, 71, 75, 76, 77 ou 78';

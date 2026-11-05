@@ -8,10 +8,11 @@ import { colors, radii, typo } from '@/constants/theme';
 import type { AccountConflict } from './auth';
 import {
   formatPhone,
-  normalizeStudentId,
   PHONE_PREFIX,
   phoneDigits,
   validatePhone,
+  STUDENT_ID_MAX,
+  typeStudentId,
   validateStudentId,
 } from './validation';
 
@@ -46,14 +47,21 @@ export function StepIdentification({ values, onChange, onSubmit, submitting, sub
           icon="school-outline"
           placeholder="P232055"
           value={values.studentId}
-          onChangeText={(t) => onChange({ studentId: normalizeStudentId(t) })}
+          onChangeText={(t) => onChange({ studentId: typeStudentId(t) })}
           onBlur={() => touch('studentId')}
           invalid={touched.studentId && !!errors.studentId}
           autoCapitalize="characters"
           autoCorrect={false}
-          maxLength={7}
+          maxLength={STUDENT_ID_MAX}
           returnKeyType="next"
         />
+        {/* Why we ask: hidden while the error shows in its place. */}
+        {!(touched.studentId && errors.studentId) && (
+          <View style={styles.why}>
+            <Ionicons name="shield-checkmark-outline" size={14} color={colors.muted2} />
+            <Text style={styles.whyText}>Il prouve que tu es étudiant à l’UGB (un seul compte par étudiant) et permet de te rendre ta carte si quelqu’un la trouve.</Text>
+          </View>
+        )}
       </LabeledField>
 
       <LabeledField label="Numéro de téléphone" error={touched.phone ? errors.phone : null}>
@@ -113,5 +121,7 @@ const styles = StyleSheet.create({
   bannerLink: { ...typo.smallStrong, color: colors.orangeText, textDecorationLine: 'underline' },
   login: { flexDirection: 'row', justifyContent: 'center', gap: 4 },
   muted: { ...typo.body, color: colors.muted2 },
+  why: { flexDirection: 'row', gap: 6, alignItems: 'flex-start' },
+  whyText: { ...typo.caption, flex: 1, color: colors.muted2, lineHeight: 17 },
   link: { ...typo.bodyStrong, color: colors.orangeText },
 });

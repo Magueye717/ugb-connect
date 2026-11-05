@@ -10,7 +10,7 @@ import { BrandLogo } from '@/components/BrandLogo';
 import { Field, LabeledField, PrimaryButton } from '@/components/ui';
 import { colors, radii, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-import { resetPassword, sendOtp } from '@/features/register/auth';
+import { resetPassword, sendOtp, type OtpChallenge } from '@/features/register/auth';
 import { StepOtp } from '@/features/register/StepOtp';
 import { formatPhone, PHONE_PREFIX, phoneDigits, passwordRules, validateConfirm, validatePassword, validatePhone } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
@@ -32,7 +32,7 @@ export default function ForgotScreen() {
   const [stage, setStage] = useState<Stage>('phone');
   const [phone, setPhone] = useState('');
   const [touched, setTouched] = useState({ phone: false, password: false, confirm: false });
-  const [challengeId, setChallengeId] = useState<string | null>(null);
+  const [challenge, setChallenge] = useState<OtpChallenge | null>(null);
   const [verificationToken, setVerificationToken] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -63,7 +63,7 @@ export default function ForgotScreen() {
     try {
       // A number without an account gets « Aucun compte sur ce numéro. » and no code.
       const challenge = await sendOtp(phone, 'reset_password');
-      setChallengeId(challenge.challengeId);
+      setChallenge(challenge);
       setVerificationToken(null);
       setStage('code');
     } catch (err) {
@@ -150,12 +150,13 @@ export default function ForgotScreen() {
               </>
             )}
 
-            {stage === 'code' && challengeId && (
+            {stage === 'code' && challenge && (
               <StepOtp
                 phone={phone}
                 purpose="reset_password"
-                challengeId={challengeId}
-                onChallenge={(c) => setChallengeId(c.challengeId)}
+                challengeId={challenge.challengeId}
+                devCode={challenge.devCode ?? null}
+                onChallenge={setChallenge}
                 linkedEmail={null}
                 verified={!!verificationToken}
                 onEditPhone={() => setStage('phone')}

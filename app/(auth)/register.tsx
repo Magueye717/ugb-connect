@@ -10,7 +10,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { BrandLogo } from '@/components/BrandLogo';
 import { colors, radii, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-import { checkAccount, createAccount, getLinkedEmail, sendOtp } from '@/features/register/auth';
+import { checkAccount, createAccount, getLinkedEmail, sendOtp, type OtpChallenge } from '@/features/register/auth';
 import { ApiError } from '@/lib/api';
 import {
   StepIdentification,
@@ -58,7 +58,7 @@ export default function RegisterScreen() {
     accepted: false,
   });
   const [linkedEmail, setLinkedEmail] = useState<string | null>(null);
-  const [challengeId, setChallengeId] = useState<string | null>(null);
+  const [challenge, setChallenge] = useState<OtpChallenge | null>(null);
   // Student ID + phone pair that passed OTP verification, with the server's proof (valid 15 min, single use);
   // editing either requires a new code.
   const [verifiedFor, setVerifiedFor] = useState<string | null>(null);
@@ -112,7 +112,7 @@ export default function RegisterScreen() {
       }
       const [email, challenge] = await Promise.all([getLinkedEmail(identity.studentId), sendOtp(identity.phone, 'register')]);
       setLinkedEmail(email);
-      setChallengeId(challenge.challengeId);
+      setChallenge(challenge);
       setStep(2);
     } catch (err) {
       if (err instanceof ApiError && err.code === 'PHONE_TAKEN') setIdentError({ exists: 'phone' });
@@ -219,8 +219,9 @@ export default function RegisterScreen() {
                 <StepOtp
                   phone={identity.phone}
                   purpose="register"
-                  challengeId={challengeId ?? ''}
-                  onChallenge={(c) => setChallengeId(c.challengeId)}
+                  challengeId={challenge?.challengeId ?? ''}
+                  devCode={challenge?.devCode ?? null}
+                  onChallenge={setChallenge}
                   linkedEmail={linkedEmail}
                   verified={verified}
                   onEditPhone={() => setStep(1)}

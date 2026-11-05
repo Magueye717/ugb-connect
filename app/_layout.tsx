@@ -37,6 +37,8 @@ function Screens() {
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="(auth)" />
+      {/* Readable signed in or not (welcome screen, sign-up, profile). */}
+      <Stack.Screen name="legal/[doc]" />
       <Stack.Screen name="espace" options={{ animation: 'fade' }} />
       {/* Paid banners: anyone signed in, from any space (a student, an organizer, a business). */}
       <Stack.Protected guard={!!space} redirectTo={home}>

@@ -73,7 +73,7 @@ export function RatingSheet({ item, initial, prompted, onClose, onDone }: { item
           <View style={styles.handle} />
           <Text style={styles.kicker}>{item.ratedName ? `NOTER ${item.ratedName.toUpperCase()}` : 'TA NOTE'}</Text>
           <Text style={styles.question}>{ratingQuestion(item)}</Text>
-          <Text style={styles.muted}>Facultatif · ta note est anonyme pour les autres étudiants.</Text>
+          <Text style={styles.muted}>Facultatif · anonyme pour les autres étudiants · une note par {item.subject === 'order' ? 'commerce' : item.subject === 'caravan' ? 'trajet' : 'événement'}.</Text>
           <Stars value={stars} onChange={setStars} />
           <Text style={[styles.word, !stars && { opacity: 0 }]}>{STAR_WORDS[stars] || ' '}</Text>
           {stars > 0 && <Field placeholder={stars <= 2 ? 'Qu’est-ce qui n’a pas été ? (facultatif)' : 'Un mot ? (facultatif)'} value={comment} onChangeText={setComment} maxLength={500} multiline />}

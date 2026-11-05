@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -178,8 +179,13 @@ export default function CommandeScreen() {
 
         <View style={[styles.card, shadow.card, { gap: 12 }]}>
           <View style={styles.rowBetween}>
+            <View style={[styles.thumb, styles.shopThumb]}>
+              {order.business.photo ? <Image source={order.business.photo} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} /> : <Ionicons name={order.business.kind === 'shop' ? 'storefront-outline' : 'restaurant-outline'} size={20} color={colors.primary} />}
+            </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.label}>{order.mode === 'delivery' ? 'Livraison' : 'À récupérer'}</Text>
+              <Text style={styles.label}>
+                {order.business.name} · {order.mode === 'delivery' ? 'Livraison' : 'À récupérer'}
+              </Text>
               <Text style={styles.value}>{order.mode === 'delivery' ? [order.zoneLabel, order.address].filter(Boolean).join(' · ') : order.business.address}</Text>
             </View>
             <Pressable
@@ -193,9 +199,14 @@ export default function CommandeScreen() {
           {order.note && <Text style={styles.muted}>Note : {order.note}</Text>}
           <View style={styles.divider} />
           {order.lines.map((l) => (
-            <View key={l.itemId} style={styles.rowBetween}>
-              <Text style={styles.item}>
-                {l.qty} × {l.name}
+            <View key={l.itemId} style={styles.lineRow}>
+              {/* What was ordered, with its picture (the item's current one): recognised at a glance. */}
+              <View style={styles.thumb}>
+                {l.photo ? <Image source={l.photo} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} /> : <Ionicons name={order.business.kind === 'shop' ? 'pricetag-outline' : 'restaurant-outline'} size={18} color={colors.primary} />}
+              </View>
+              <Text style={styles.item} numberOfLines={2}>
+                <Text style={styles.qtyText}>{l.qty} × </Text>
+                {l.name}
               </Text>
               <Text style={styles.itemPrice}>{formatFcfa(l.qty * l.price)}</Text>
             </View>
@@ -279,6 +290,10 @@ const styles = StyleSheet.create({
   muted: { ...typo.small, color: colors.muted2 },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   item: { ...typo.body, flex: 1, color: colors.text },
+  lineRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  thumb: { width: 44, height: 44, borderRadius: radii.sm, overflow: 'hidden', backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  shopThumb: { width: 48, height: 48, borderRadius: 24 },
+  qtyText: { ...typo.bodyStrong, color: colors.primary },
   itemPrice: { ...typo.bodyStrong, color: colors.text },
   total: { ...typo.title, color: colors.navy },
   totalValue: { ...typo.h3, color: colors.navy },

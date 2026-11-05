@@ -48,7 +48,11 @@ export default function ProfilScreen() {
     },
     {
       title: 'Aide',
-      rows: [{ icon: 'help-circle-outline', label: 'Aide & support', href: '/aide' }],
+      rows: [
+        { icon: 'help-circle-outline', label: 'Aide & support', href: '/aide' },
+        { icon: 'document-text-outline', label: 'Conditions d’utilisation', href: '/legal/conditions' },
+        { icon: 'shield-checkmark-outline', label: 'Confidentialité', href: '/legal/confidentialite' },
+      ],
     },
   ];
 

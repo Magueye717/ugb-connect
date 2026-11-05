@@ -1,5 +1,6 @@
 // Auth API used by sign-up, sign-in and "mot de passe oublié". Errors are ApiError (lib/api): their `message`
 // is French and can be shown as is; `code` drives the screen logic.
+import { legalApi } from '@/features/legal/api';
 import { api, ApiError, deviceInfo, type Tokens } from '@/lib/api';
 
 import type { CampusKey } from './validation';
@@ -7,17 +8,19 @@ import type { CampusKey } from './validation';
 export const OTP_LENGTH = 4;
 export const OTP_RESEND_DELAY_S = 60;
 
-/** Code accepted by the backend in development (OTP_DEV_MODE). Shown on screen in development builds only. */
-export const DEV_OTP = '1234';
-
-/** Version of the terms of use the student accepts at sign-up. */
-export const TERMS_VERSION = '2026-01';
 
 export type OtpChannel = 'sms' | 'whatsapp' | 'email';
 export type OtpPurpose = 'register' | 'reset_password' | 'change_phone';
 
 /** A verification in progress: the id the next calls refer to. */
-export type OtpChallenge = { challengeId: string; expiresIn: number; resendAfter: number; codeLength: number };
+export type OtpChallenge = {
+  challengeId: string;
+  expiresIn: number;
+  resendAfter: number;
+  codeLength: number;
+  /** Only when the server runs with fixed development codes: shown on screen. Real SMS codes never come back. */
+  devCode?: string;
+};
 
 export type VerifyResult =
   | { ok: true; verificationToken: string }
@@ -86,6 +89,8 @@ export type NewAccount = {
 
 /** Step 3: creates the account for the verified phone and returns the session tokens (the student is signed in). */
 export async function createAccount(input: NewAccount): Promise<Tokens> {
+  // The terms the student just accepted: their current version, from the server (the text lives there).
+  const { version: termsVersion } = await legalApi.get('conditions');
   const { tokens } = await api<{ userId: string; tokens: Tokens }>('POST', '/auth/register', {
     body: {
       verificationToken: input.verificationToken,
@@ -99,7 +104,7 @@ export async function createAccount(input: NewAccount): Promise<Tokens> {
       ufr: input.ufr,
       region: input.region,
       password: input.password.trim(),
-      termsVersion: TERMS_VERSION,
+      termsVersion,
       device: deviceInfo(),
     },
   });

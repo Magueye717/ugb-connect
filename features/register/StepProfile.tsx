@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown, FadeOut, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
@@ -6,6 +7,7 @@ import Animated, { FadeInDown, FadeOut, useAnimatedStyle, useSharedValue, withSp
 import { Select } from '@/components/Select';
 import { Field, LabeledField, PrimaryButton } from '@/components/ui';
 import { colors, radii, typo } from '@/constants/theme';
+import { legalHref } from '@/features/legal/api';
 import {
   CAMPUSES,
   normalizeRoom,
@@ -277,8 +279,14 @@ export function StepProfile({ values, onChange, onSubmit, submitting, submitErro
             {values.accepted && <Ionicons name="checkmark" size={15} color="#fff" />}
           </View>
           <Text style={styles.checkText}>
-            J’accepte les <Text style={styles.link}>Conditions d’utilisation</Text> et la{' '}
-            <Text style={styles.link}>Politique de confidentialité</Text>
+            J’accepte les{' '}
+            <Text style={styles.link} onPress={() => router.push(legalHref('conditions'))} accessibilityRole="link">
+              Conditions d’utilisation
+            </Text>{' '}
+            et la{' '}
+            <Text style={styles.link} onPress={() => router.push(legalHref('confidentialite'))} accessibilityRole="link">
+              Politique de confidentialité
+            </Text>
           </Text>
         </Pressable>
         {shown('accepted') && (

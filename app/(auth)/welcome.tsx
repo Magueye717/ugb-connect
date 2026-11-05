@@ -18,6 +18,7 @@ import Animated, { cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BrandLogo } from '@/components/BrandLogo';
+import { legalHref } from '@/features/legal/api';
 import { colors, radii, typo } from '@/constants/theme';
 
 type Slide = { key: string; title: string; highlight: string; text: string };
@@ -214,8 +215,14 @@ export default function WelcomeScreen() {
           <Text style={styles.secondaryText}>J’ai déjà un compte</Text>
         </Pressable>
         <Text style={styles.terms}>
-          En continuant, tu acceptes nos <Text style={styles.termsLink}>Conditions</Text> et notre{' '}
-          <Text style={styles.termsLink}>Politique de confidentialité</Text>
+          En continuant, tu acceptes nos{' '}
+          <Text style={styles.termsLink} onPress={() => router.push(legalHref('conditions'))} accessibilityRole="link">
+            Conditions
+          </Text>{' '}
+          et notre{' '}
+          <Text style={styles.termsLink} onPress={() => router.push(legalHref('confidentialite'))} accessibilityRole="link">
+            Politique de confidentialité
+          </Text>
         </Text>
       </SafeAreaView>
     </View>

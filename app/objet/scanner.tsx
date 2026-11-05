@@ -14,11 +14,13 @@ import { useLost } from '@/context/LostContext';
 import { CARD_TYPES, lostApi, readCardPhoto, type CardType, type StudentMatch } from '@/features/lost/api';
 import { CardVisual } from '@/features/lost/CardVisual';
 import { PlacePicker } from '@/features/lost/PlacePicker';
+import { STUDENT_ID_RE } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
 
 type HandOver = 'office' | 'finder';
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
-const STUDENT_NUMBER = /^P\d{6}$/;
+// The same rule as the sign-up (P then digits, 12 characters at most).
+const STUDENT_NUMBER = STUDENT_ID_RE;
 const YOUR: Record<CardType, string> = { student: 'sa carte étudiant', national_id: 'sa carte d’identité', driving_licence: 'son permis', bank: 'sa carte bancaire' };
 const isCardType = (v: string | undefined): v is CardType => CARD_TYPES.some((t) => t.value === v);
 
@@ -182,7 +184,7 @@ export default function ScanCard() {
               {cardType === 'student' && (
                 <>
                   <LabeledField label="Numéro étudiant écrit sur la carte">
-                    <Field icon="card-outline" placeholder="Ex. P232055" autoCapitalize="characters" value={number} onChangeText={setNumber} returnKeyType="search" onSubmitEditing={lookup} maxLength={10} />
+                    <Field icon="card-outline" placeholder="Ex. P232055" autoCapitalize="characters" value={number} onChangeText={setNumber} returnKeyType="search" onSubmitEditing={lookup} maxLength={30} />
                   </LabeledField>
                   <OutlineButton label="Chercher par numéro" disabled={!STUDENT_NUMBER.test(number.toUpperCase().replace(/\s/g, '')) || searching} onPress={lookup} />
                 </>

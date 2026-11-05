@@ -7,7 +7,6 @@ import { PrimaryButton } from '@/components/ui';
 import { colors, radii, typo } from '@/constants/theme';
 import { ApiError } from '@/lib/api';
 import {
-  DEV_OTP,
   maskEmail,
   OTP_LENGTH,
   OTP_RESEND_DELAY_S,
@@ -31,6 +30,8 @@ type Props = {
   purpose: OtpPurpose;
   /** Current verification, from POST /auth/otp. */
   challengeId: string;
+  /** The server's fixed development code, when it uses one (never with real SMS). */
+  devCode: string | null;
   /** A new verification replaced the expired one. */
   onChallenge: (challenge: OtpChallenge) => void;
   linkedEmail: string | null;
@@ -43,7 +44,7 @@ type Props = {
 
 const messageOf = (err: unknown) => (err instanceof ApiError ? err.message : 'Une erreur est survenue. Réessaie.');
 
-export function StepOtp({ phone, purpose, challengeId, onChallenge, linkedEmail, verified, onEditPhone, onVerified, onContinue }: Props) {
+export function StepOtp({ phone, purpose, challengeId, devCode, onChallenge, linkedEmail, verified, onEditPhone, onVerified, onContinue }: Props) {
   const [digits, setDigits] = useState(EMPTY);
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,7 +114,7 @@ export function StepOtp({ phone, purpose, challengeId, onChallenge, linkedEmail,
     setNotice(null);
     try {
       try {
-        await resendOtp(challengeId, channel);
+        onChallenge(await resendOtp(challengeId, channel));
       } catch (err) {
         // Expired or locked verification: start a new one for the same phone.
         if (!(err instanceof ApiError && err.code === 'OTP_EXPIRED')) throw err;
@@ -171,7 +172,7 @@ export function StepOtp({ phone, purpose, challengeId, onChallenge, linkedEmail,
           </Text>
         )}
         {notice && !error && <Text style={styles.notice}>{notice}</Text>}
-        {__DEV__ && <Text style={styles.dev}>Code de test : {DEV_OTP}</Text>}
+        {devCode && <Text style={styles.dev}>Code de test : {devCode}</Text>}
       </View>
 
       <PrimaryButton accent label="Continuer" onPress={() => verify(code)} disabled={!complete || locked} loading={verifying} />

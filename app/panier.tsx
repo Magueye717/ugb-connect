@@ -280,7 +280,7 @@ export default function Panier() {
             </View>
           </View>
 
-          <PrimaryButton label={blocker ?? (payment === 'cash' ? `Commander · payer ${formatFcfa(total)} en espèces` : `Payer ${formatFcfa(total)} et commander`)} onPress={order} disabled={!!blocker || paying} loading={paying} />
+          <PrimaryButton label={blocker ?? (payment === 'cash' ? `Commander · ${formatFcfa(total)}` : `Payer ${formatFcfa(total)} et commander`)} onPress={order} disabled={!!blocker || paying} loading={paying} />
         </KeyboardAwareScrollView>
     </SafeAreaView>
   );

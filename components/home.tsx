@@ -273,13 +273,11 @@ export function CaravanCard() {
   const urgent = next.departureAt - now < URGENT_MS;
   const state = caravanState(next);
   const first = next.pickups[0];
-  // Stops on the way: where it also drops off before the end of the line.
-  const via = next.dropoffs.slice(0, -1).map((d) => d.place);
   const few = next.seats <= FEW_SEATS;
 
   return (
-    <Pressable style={[styles.infoCard, shadow.card]} onPress={() => router.push(`/caravane/${next.id}`)} accessibilityRole="button" accessibilityLabel={`${next.from} vers ${next.to}, ${next.date} à ${next.time}, ${formatFcfa(next.price)}`}>
-      {/* What + when */}
+    <Pressable style={[styles.infoCard, shadow.card]} onPress={() => router.push(`/caravane/${next.id}`)} accessibilityRole="button" accessibilityLabel={`${label.toLowerCase()} : ${next.from} vers ${next.to}, ${next.date} à ${next.time}, ${formatFcfa(next.price)}, ${next.organizer.name}`}>
+      {/* What it is and when it leaves, then who runs it (with its rating) */}
       <View style={styles.rowBetween}>
         <View style={styles.label}>
           <Ionicons name="bus-outline" size={12} color={colors.primary} />
@@ -287,6 +285,7 @@ export function CaravanCard() {
         </View>
         <Text style={[styles.timeLeft, urgent && { color: colors.orangeText }]}>{formatTimeLeft(next.departureAt - now)}</Text>
       </View>
+      <OrganizerLine organizer={next.organizer} />
 
       {/* Where, and the price */}
       <View style={styles.rowBetween}>
@@ -303,31 +302,20 @@ export function CaravanCard() {
         </View>
         <Text style={styles.caravanPrice}>{formatFcfa(next.price)}</Text>
       </View>
+      <Text style={styles.detail} numberOfLines={1}>
+        {next.date} · {first ? `${first.place} · ${first.time}` : next.time}
+      </Text>
 
-      {/* When, where to get on, the stops on the way */}
-      <View style={{ gap: 2 }}>
-        <Text style={styles.detail} numberOfLines={1}>
-          {next.date} · départ {first ? `${first.place} · ${first.time}` : next.time}
-        </Text>
-        {via.length > 0 && (
-          <Text style={styles.detail} numberOfLines={1}>
-            Via {via.join(', ')}
-          </Text>
-        )}
-      </View>
-
-      <OrganizerLine organizer={next.organizer} />
-
-      {/* Confirmed or not, seats left, and the action */}
+      {/* How many bookings it still needs to go ahead (or confirmed, and the seats left), and the action */}
       <View style={styles.rowBetween}>
-        <View style={{ gap: 2, flexShrink: 1 }}>
-          <View style={styles.label}>
-            <Ionicons name={state.confirmed ? 'checkmark-circle' : 'time-outline'} size={13} color={state.confirmed ? colors.successText : colors.warningText} />
-            <Text style={[styles.caravanState, { color: state.confirmed ? colors.successText : colors.warningText }]} numberOfLines={1}>
-              {state.confirmed ? 'Départ confirmé' : `Encore ${state.missing} réservation${state.missing > 1 ? 's' : ''} pour confirmer`}
-            </Text>
-          </View>
-          <Text style={[styles.seats, few && { color: colors.orangeText }]}>{few ? `Plus que ${next.seats} place${next.seats > 1 ? 's' : ''}` : `${next.seats} places disponibles`}</Text>
+        {/* Takes the room the button leaves, on two lines if needed: never cut. */}
+        <View style={[styles.label, { flex: 1, alignItems: 'flex-start' }]}>
+          <Ionicons name={state.confirmed ? 'checkmark-circle' : 'people-outline'} size={14} color={state.confirmed ? colors.successText : colors.warningText} style={{ marginTop: 1 }} />
+          <Text style={[styles.caravanState, { flex: 1, color: state.confirmed ? (few ? colors.orangeText : colors.successText) : colors.warningText }]} numberOfLines={2}>
+            {state.confirmed
+              ? `Confirmé · ${few ? `plus que ${next.seats}` : next.seats} place${next.seats > 1 ? 's' : ''}`
+              : `Encore ${state.missing} place${state.missing > 1 ? 's' : ''} pour confirmer`}
+          </Text>
         </View>
         <Pressable style={styles.cta} onPress={() => router.push(`/caravane/${next.id}`)} accessibilityRole="button">
           <Text style={styles.ctaText}>Réserver</Text>

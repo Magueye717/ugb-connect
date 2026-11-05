@@ -8,8 +8,8 @@ import { RatingSheet } from './RatingSheet';
 const askedThisSession = new Set<string>();
 
 /**
- * On the home screen: a service just ended and isn't rated yet → the rating sheet, once per session (the newest one).
- * « Plus tard » asks again next time, a few times at most; « Ne pas noter » never.
+ * On the home screen: a service just ended and isn't rated yet → the rating sheet, once (the newest one; one per
+ * restaurant or shop). Not answered: not asked again; its page (the order, the ticket) still lets them rate.
  */
 export function RatingPrompt() {
   const [item, setItem] = useState<RateableDto | null>(null);
@@ -22,6 +22,8 @@ export function RatingPrompt() {
           const next = items.find((r) => !askedThisSession.has(`${r.subject}:${r.id}`));
           if (!alive || !next) return;
           askedThisSession.add(`${next.subject}:${next.id}`);
+          // Asked once: shown now, never again on its own (even if the app is closed without answering).
+          ratingsApi.later(next.subject, next.id).catch(() => undefined);
           setItem(next);
         }, () => undefined);
       }, 1200);
