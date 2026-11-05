@@ -92,6 +92,7 @@ export default function Commerces() {
                 {[b.specialty, b.address, b.campusLabel].filter(Boolean).join(' · ')}
               </Text>
               <Text style={styles.muted}>{b.active ? b.statusLabel : 'Masqué aux étudiants'}</Text>
+              {b.byStudent && !b.onlinePayments && <Text style={styles.toVerify}>Espèces seulement · à vérifier</Text>}
             </View>
             <Switch value={b.active} onValueChange={(v) => toggle(b, v)} trackColor={{ true: colors.success }} accessibilityLabel={`${b.name} visible`} />
             <Ionicons name="chevron-forward" size={18} color={colors.muted} />
@@ -440,6 +441,7 @@ const styles = StyleSheet.create({
   thumb: { width: 52, height: 52, borderRadius: radii.sm, backgroundColor: colors.primarySoft, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   name: { ...typo.bodyStrong, color: colors.navy },
   muted: { ...typo.caption, color: colors.muted2 },
+  toVerify: { ...typo.captionStrong, color: colors.warningText },
   section: { ...typo.section, color: colors.navy, marginTop: 4 },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,27,76,0.35)' },
   sheet: { flexShrink: 1, maxHeight: 680, backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20 },

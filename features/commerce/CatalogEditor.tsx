@@ -5,19 +5,21 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
+import { PhotoStrip, type StripPhoto } from '@/components/PhotoStrip';
 import { EmptyState, ErrorState } from '@/components/states';
 import { Chip, Field, LabeledField, PrimaryButton, SafeBottom } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { commerceApi, type BusinessKind, type BusinessTarget, type ItemDto, type ItemSection } from '@/features/commerce/api';
+import { useCommerceReference } from '@/features/commerce/useCommerceReference';
 import { ApiError } from '@/lib/api';
-import { pickPhoto } from '@/lib/pickPhoto';
-import { uploadImage } from '@/lib/upload';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
 const SECTION_LABEL: Record<ItemSection, string> = { menu: 'Menus du jour', drink: 'Boissons', article: 'Articles' };
 /** The usual aisles of a campus shop; the shop's own ones are added to them. */
 const AISLES = ['Fournitures', 'Impression', 'Épicerie', 'Boissons', 'Hygiène', 'Téléphonie', 'Électronique', 'Vêtements', 'Accessoires'];
+/** The aisles to pick from: the usual ones and the shop's own. */
+export const aislesFor = (items: Pick<ItemDto, 'category'>[]) => [...new Set([...AISLES, ...items.flatMap((i) => (i.category ? [i.category] : []))])];
 
 /**
  * What students can order: a restaurant's menus and drinks, a shop's articles (with stock). Everyone who sees it can
@@ -80,7 +82,14 @@ export function CatalogEditor({ target, kind, canManage, title = 'Catalogue' }: 
               </Text>
               {list.map((i) => (
                 <Pressable key={i.id} style={[styles.item, shadow.card, !i.available && { opacity: 0.6 }]} onPress={() => canManage && setEditing(i)} accessibilityRole={canManage ? 'button' : undefined}>
-                  <View style={styles.thumb}>{i.photo ? <Image source={{ uri: i.photo }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name="image-outline" size={20} color={colors.muted} />}</View>
+                  <View style={styles.thumb}>
+                    {i.photo ? <Image source={{ uri: i.photo }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name="image-outline" size={20} color={colors.muted} />}
+                    {i.photos.length > 1 && (
+                      <View style={styles.thumbCount}>
+                        <Text style={styles.thumbCountText}>{i.photos.length}</Text>
+                      </View>
+                    )}
+                  </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.itemName} numberOfLines={1}>
                       {i.name}
@@ -106,7 +115,7 @@ export function CatalogEditor({ target, kind, canManage, title = 'Catalogue' }: 
           business={target}
           kind={kind}
           item={editing === 'new' ? null : editing}
-          aisles={[...new Set([...AISLES, ...(items ?? []).flatMap((i) => (i.category ? [i.category] : []))])]}
+          aisles={aislesFor(items ?? [])}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -118,7 +127,8 @@ export function CatalogEditor({ target, kind, canManage, title = 'Catalogue' }: 
   );
 }
 
-function ItemEditor({ business, kind, item, aisles, onClose, onSaved }: { business: BusinessTarget; kind: 'restaurant' | 'shop'; item: ItemDto | null; aisles: string[]; onClose: () => void; onSaved: () => void }) {
+/** Add or edit one item (a sheet): also opened from the business's own page by its owner or managers. */
+export function ItemEditor({ business, kind, item, aisles, onClose, onSaved }: { business: BusinessTarget; kind: 'restaurant' | 'shop'; item: ItemDto | null; aisles: string[]; onClose: () => void; onSaved: () => void }) {
   const [section, setSection] = useState<ItemSection>(item?.section ?? (kind === 'restaurant' ? 'menu' : 'article'));
   const [name, setName] = useState(item?.name ?? '');
   const [detail, setDetail] = useState(item?.detail ?? '');
@@ -129,30 +139,18 @@ function ItemEditor({ business, kind, item, aisles, onClose, onSaved }: { busine
   const [stock, setStock] = useState(item?.stock !== null && item?.stock !== undefined ? String(item.stock) : '');
   // A service done on the spot (printing, photocopies…): shown with its price, students don't order it.
   const [orderable, setOrderable] = useState(item?.orderable ?? true);
-  const [photo, setPhoto] = useState<{ id: string | null; url: string | null }>({ id: item?.photoId ?? null, url: item?.photo ?? null });
+  // The cover first. The limit comes from the server; until it answers, the photos already there.
+  const [photos, setPhotos] = useState<StripPhoto[]>(item ? item.photoIds.map((id, k) => ({ id, url: item.photos[k]! })) : []);
+  const { reference } = useCommerceReference();
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  const pick = async () => {
-    const [asset] = await pickPhoto({ aspect: [1, 1], title: kind === 'restaurant' ? 'Photo du plat' : 'Photo de l’article' });
-    if (!asset) return;
-    setUploading(true);
-    try {
-      const up = await uploadImage(asset, 'business');
-      setPhoto({ id: up.id, url: up.url });
-    } catch (err) {
-      fail('Image refusée')(err);
-    } finally {
-      setUploading(false);
-    }
-  };
 
   const ready = name.trim().length >= 2 && /^\d+$/.test(price) && (!stock || /^\d+$/.test(stock)) && !uploading && !saving;
   const save = async () => {
     setSaving(true);
     try {
       const body = {
-        section, name: name.trim(), detail: detail.trim(), price: Number(price), photoId: photo.id, orderable,
+        section, name: name.trim(), detail: detail.trim(), price: Number(price), photoIds: photos.map((p) => p.id), orderable,
         ...(kind === 'shop' ? { category: category.trim() || null, stock: stock && orderable ? Number(stock) : null } : {}),
       };
       if (item) await commerceApi.updateItem(business, item.id, body);
@@ -184,10 +182,14 @@ function ItemEditor({ business, kind, item, aisles, onClose, onSaved }: { busine
               ))}
             </View>
           )}
-          <Pressable style={styles.photo} onPress={pick} accessibilityRole="button" accessibilityLabel="Choisir une photo">
-            {photo.url ? <Image source={{ uri: photo.url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name="camera-outline" size={26} color={colors.primary} />}
-            {uploading && <ActivityIndicator color={colors.primary} />}
-          </Pressable>
+          <PhotoStrip
+            photos={photos}
+            onChange={setPhotos}
+            max={reference?.maxItemPhotos ?? Math.max(1, photos.length)}
+            purpose="business"
+            title={kind === 'restaurant' ? 'Photos du plat' : 'Photos de l’article'}
+            onUploading={setUploading}
+          />
           <LabeledField label="Nom">
             <Field placeholder={kind === 'restaurant' ? 'Mafé yap' : 'Cahier 200 pages'} value={name} onChangeText={setName} maxLength={50} />
           </LabeledField>
@@ -267,5 +269,6 @@ const styles = StyleSheet.create({
   sheetTitle: { ...typo.h3, color: colors.navy },
   label: { ...typo.smallStrong, color: colors.navy },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  photo: { alignSelf: 'center', width: 110, height: 110, borderRadius: radii.lg, backgroundColor: colors.primarySoft, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  thumbCount: { position: 'absolute', right: 3, bottom: 3, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, backgroundColor: 'rgba(10,16,40,0.75)', alignItems: 'center', justifyContent: 'center' },
+  thumbCountText: { ...typo.label, color: '#fff' },
 });

@@ -554,11 +554,25 @@ export function HeadlineItem({ a }: { a: AlertDto }) {
             {a.body}
           </Text>
         )}
+        {(a.image || a.attachment) && (
+          <View style={styles.newsExtras}>
+            {a.image && <Ionicons name="image-outline" size={13} color={colors.muted2} />}
+            {a.attachment && (
+              <>
+                <Ionicons name="document-attach-outline" size={13} color={colors.muted2} />
+                <Text style={styles.newsExtrasText}>PDF</Text>
+              </>
+            )}
+          </View>
+        )}
       </View>
     </>
   );
-  return a.href ? (
-    <Pressable style={[styles.news, shadow.card]} onPress={() => router.push(a.href as never)} accessibilityRole="link">
+  // More than the card (the whole text, a picture, a PDF): its page. Otherwise the screen it points to, if any.
+  const page = !!a.details || !!a.image || !!a.attachment;
+  const target = page ? `/alerte/${a.id}` : a.href;
+  return target ? (
+    <Pressable style={[styles.news, shadow.card]} onPress={() => router.push(target as never)} accessibilityRole="link" accessibilityHint={page ? 'Ouvre l’annonce complète' : undefined}>
       {content}
     </Pressable>
   ) : (
@@ -666,6 +680,8 @@ const styles = StyleSheet.create({
   newsTime: { fontSize: 11, color: colors.muted2 },
   newsTitle: { ...typo.bodyStrong, color: colors.navy },
   newsBody: { ...typo.small, color: colors.muted2, marginTop: 2 },
+  newsExtras: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
+  newsExtrasText: { ...typo.label, color: colors.muted2 },
   dishOut: { textDecorationLine: 'line-through', color: colors.muted2 },
   alertSub: { ...typo.caption, color: colors.muted2, marginTop: 2 },
 

@@ -32,6 +32,11 @@ export type AlertDto = {
   tag: string | null;
   title: string;
   body: string;
+  /** The whole text, on its page ("" when none). */
+  details: string;
+  /** A picture (poster, timetable) and a PDF, on its page. */
+  image: string | null;
+  attachment: { url: string; name: string; bytes: number } | null;
   icon: string;
   tone: 'info' | 'warning' | 'danger' | 'success';
   /** App route opened on tap; null: display only. */
@@ -67,6 +72,10 @@ export type AlertBody = {
   tag: string | null;
   title: string;
   body: string;
+  details: string;
+  /** Uploads (purpose alert); null: removed. Left out: unchanged. */
+  imageId?: string | null;
+  attachmentId?: string | null;
   tone: AlertDto['tone'];
   icon: string;
   eventAt: string | null;
@@ -79,6 +88,8 @@ export type AlertBody = {
 export const restosApi = {
   day: (date?: string) => api<RestosDayDto>('GET', `/public-restos${date ? `?date=${date}` : ''}`, auth),
   alerts: () => api<{ items: AlertDto[] }>('GET', '/alerts', auth),
+  /** One announcement's page: only one this student sees now (404 otherwise). */
+  alert: (id: string) => api<AlertDto>('GET', `/alerts/${id}`, auth),
 };
 
 /** Campus staff: stock levels during the service (restaurant staff), alerts (communication team). */

@@ -1,4 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
@@ -13,6 +15,9 @@ import { useCampus } from '@/context/CampusContext';
 import { REGIONS, UFRS } from '@/features/register/validation';
 import { audienceLabel, EVERYONE, staffApi, type AdminAlertDto, type AlertBody, type AlertDto, type Audience } from '@/features/restos/api';
 import { ApiError } from '@/lib/api';
+import { pickPhoto } from '@/lib/pickPhoto';
+import { fileSize } from '@/lib/fileSize';
+import { uploadDocument, uploadImage } from '@/lib/upload';
 
 type Placement = AlertDto['placement'];
 
@@ -250,6 +255,39 @@ function Composer({ editing, placement: initial, onClose, onSaved }: { editing: 
   const [tag, setTag] = useState(editing?.tag ?? '');
   const [title, setTitle] = useState(editing?.title ?? '');
   const [body, setBody] = useState(editing?.body ?? '');
+  // Its page: the whole text, a picture, a PDF. Undefined: unchanged since opened; null: removed.
+  const [details, setDetails] = useState(editing?.details ?? '');
+  const [image, setImage] = useState<{ id: string; url: string } | null | undefined>(undefined);
+  const [attachment, setAttachment] = useState<{ id: string; name: string; bytes: number } | null | undefined>(undefined);
+  const [uploading, setUploading] = useState<'image' | 'pdf' | null>(null);
+  const shownImage = image === undefined ? (editing?.image ?? null) : (image?.url ?? null);
+  const shownPdf = attachment === undefined ? (editing?.attachment ?? null) : attachment;
+  const pickImage = async () => {
+    const [asset] = await pickPhoto({ title: 'Image de l’annonce' });
+    if (!asset) return;
+    setUploading('image');
+    try {
+      const up = await uploadImage(asset, 'alert');
+      setImage({ id: up.id, url: up.url });
+    } catch (err) {
+      Alert.alert('Image refusée', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
+    } finally {
+      setUploading(null);
+    }
+  };
+  const pickPdf = async () => {
+    const res = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', copyToCacheDirectory: true });
+    if (res.canceled || !res.assets[0]) return;
+    setUploading('pdf');
+    try {
+      const up = await uploadDocument(res.assets[0], 'alert');
+      setAttachment({ id: up.id, name: up.name, bytes: up.bytes });
+    } catch (err) {
+      Alert.alert('Document refusé', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
+    } finally {
+      setUploading(null);
+    }
+  };
   const [tone, setTone] = useState<AlertDto['tone']>(editing?.tone ?? (initial === 'headline' ? 'info' : 'warning'));
   const [eventDay, setEventDay] = useState<Date | null>(editing?.eventAt ? new Date(editing.eventAt) : null);
   // Null: now.
@@ -263,7 +301,7 @@ function Composer({ editing, placement: initial, onClose, onSaved }: { editing: 
     setAudience((a) => ({ ...a, [key]: a[key].includes(value) ? a[key].filter((x) => x !== value) : [...a[key], value] }));
   const [sending, setSending] = useState(false);
   const headline = placement === 'headline';
-  const ready = title.trim().length >= 3 && (!headline || tag.trim().length >= 2) && (!narrowing || targeted);
+  const ready = title.trim().length >= 3 && (!headline || tag.trim().length >= 2) && (!narrowing || targeted) && !uploading;
 
   const save = () => {
     // A scheduled announcement goes online at 8h; it stays until the end of its last day.
@@ -273,6 +311,10 @@ function Composer({ editing, placement: initial, onClose, onSaved }: { editing: 
       tag: headline ? tag.trim() : null,
       title: title.trim(),
       body: body.trim(),
+      details: headline ? details.trim() : '',
+      // Sent only when changed: the server keeps the others.
+      ...(headline && image !== undefined ? { imageId: image?.id ?? null } : {}),
+      ...(headline && attachment !== undefined ? { attachmentId: attachment?.id ?? null } : {}),
       tone,
       icon: headline ? iconForTag(tag) : toneOf(tone).icon,
       eventAt: headline && eventDay ? at(eventDay, 8).toISOString() : null,
@@ -328,6 +370,49 @@ function Composer({ editing, placement: initial, onClose, onSaved }: { editing: 
           <LabeledField label="Détail">
             <Field placeholder={headline ? 'Vote jeudi · 8h-17h · salle polyvalente' : 'Aujourd’hui de 10h à 16h'} value={body} onChangeText={setBody} maxLength={200} />
           </LabeledField>
+          {headline && (
+            <>
+              <LabeledField label="Texte complet (facultatif)">
+                <Field placeholder="Tout ce que les étudiants doivent savoir : lieux, pièces à fournir, contacts…" value={details} onChangeText={setDetails} maxLength={3000} multiline />
+              </LabeledField>
+              <Text style={styles.label}>Pièces jointes (facultatif)</Text>
+              <Text style={styles.hint}>Une affiche ou un emploi du temps en image, la note officielle en PDF : ils s’ouvrent sur la page de l’annonce.</Text>
+              <View style={styles.attachRow}>
+                {shownImage ? (
+                  <View>
+                    <Image source={{ uri: shownImage }} style={styles.attachImage} contentFit="cover" accessibilityLabel="Image de l’annonce" />
+                    <Pressable style={styles.attachRemove} onPress={() => setImage(null)} hitSlop={6} accessibilityRole="button" accessibilityLabel="Retirer l’image">
+                      <Ionicons name="close" size={14} color="#fff" />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Pressable style={styles.attachAdd} onPress={pickImage} disabled={!!uploading} accessibilityRole="button">
+                    {uploading === 'image' ? <ActivityIndicator color={colors.primary} /> : <Ionicons name="image-outline" size={20} color={colors.primary} />}
+                    <Text style={styles.attachAddText}>Image</Text>
+                  </Pressable>
+                )}
+                {shownPdf ? (
+                  <View style={styles.pdf}>
+                    <Ionicons name="document-text" size={22} color={colors.dangerText} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.pdfName} numberOfLines={2}>
+                        {shownPdf.name}
+                      </Text>
+                      <Text style={styles.hint}>{fileSize(shownPdf.bytes)}</Text>
+                    </View>
+                    <Pressable onPress={() => setAttachment(null)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retirer le PDF">
+                      <Ionicons name="close-circle" size={20} color={colors.muted} />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Pressable style={styles.attachAdd} onPress={pickPdf} disabled={!!uploading} accessibilityRole="button">
+                    {uploading === 'pdf' ? <ActivityIndicator color={colors.primary} /> : <Ionicons name="document-attach-outline" size={20} color={colors.primary} />}
+                    <Text style={styles.attachAddText}>PDF</Text>
+                  </Pressable>
+                )}
+              </View>
+            </>
+          )}
 
           <Text style={styles.label}>Type</Text>
           <View style={styles.wrap}>
@@ -444,6 +529,13 @@ const styles = StyleSheet.create({
   sheet: { flexShrink: 1, backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20, maxHeight: '88%' },
   sheetTitle: { ...typo.h3, color: colors.navy },
   label: { ...typo.smallStrong, color: colors.navy },
+  attachRow: { flexDirection: 'row', gap: 10, alignItems: 'stretch' },
+  attachAdd: { width: 84, height: 84, borderRadius: radii.md, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.primary, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', gap: 2 },
+  attachAddText: { ...typo.label, color: colors.primary },
+  attachImage: { width: 84, height: 84, borderRadius: radii.md, backgroundColor: colors.border },
+  attachRemove: { position: 'absolute', top: 4, right: 4, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(10,16,40,0.7)', alignItems: 'center', justifyContent: 'center' },
+  pdf: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
+  pdfName: { ...typo.smallStrong, color: colors.navy },
   chips: { flexDirection: 'row', gap: 8 },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 36, paddingHorizontal: 12, borderRadius: radii.pill, borderWidth: 1.5, borderColor: colors.border },

@@ -11,9 +11,10 @@ import { ErrorState } from '@/components/states';
 import { BackButton, Field, LabeledField, PrimaryButton, Segmented, TextButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { ownShop, useAuth } from '@/context/AuthContext';
-import { commerceApi, type BusinessDto, type BusinessRef } from '@/features/commerce/api';
+import { commerceApi, type BusinessDto, type BusinessRef, type OrderMethod } from '@/features/commerce/api';
 import { BusinessProfileForm } from '@/features/commerce/BusinessProfileForm';
 import { CatalogEditor } from '@/features/commerce/CatalogEditor';
+import { PaymentMethodsPicker } from '@/features/commerce/PaymentMethodsPicker';
 import { useCommerceReference } from '@/features/commerce/useCommerceReference';
 import { api, ApiError } from '@/lib/api';
 import { pickPhoto } from '@/lib/pickPhoto';
@@ -132,6 +133,8 @@ function OpenShop() {
   const [specialties, setSpecialties] = useState<string[]>([]);
   const [description, setDescription] = useState('');
   const [photo, setPhoto] = useState<{ id: string; url: string } | null>(null);
+  // A new student shop: cash only until the team verifies it (the server refuses the others).
+  const [methods, setMethods] = useState<OrderMethod[]>(['cash']);
   const [busy, setBusy] = useState<'photo' | 'save' | null>(null);
   const back = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profil'));
 
@@ -152,7 +155,7 @@ function OpenShop() {
   const open = async () => {
     setBusy('save');
     try {
-      const shop = await api<BusinessDto>('POST', '/me/shop', { auth: true, body: { name: name.trim(), specialties, description: description.trim(), ...(photo ? { photoId: photo.id } : {}) } });
+      const shop = await api<BusinessDto>('POST', '/me/shop', { auth: true, body: { name: name.trim(), specialties, description: description.trim(), paymentMethods: methods, ...(photo ? { photoId: photo.id } : {}) } });
       // The page turns into the shop itself (its articles first).
       await reloadAccount();
       toast(`${shop.name} est ouverte : ajoute tes articles.`);
@@ -172,7 +175,7 @@ function OpenShop() {
       <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={[styles.intro, shadow.card]}>
             <Ionicons name="storefront-outline" size={22} color={colors.primary} />
-            <Text style={styles.introText}>Tes produits ou tes services (tresses, cours, snacks…) dans la rubrique Boutiques. Les étudiants commandent et paient en ligne ; l’argent arrive sur ton numéro.</Text>
+            <Text style={styles.introText}>Tes produits ou tes services (tresses, cours, snacks…) dans la rubrique Boutiques. Les étudiants commandent dans l’app et te paient en espèces à la remise ; Wave et Orange Money s’ouvrent une fois ta boutique vérifiée.</Text>
           </View>
           <Pressable style={styles.cover} onPress={pick} accessibilityRole="button" accessibilityLabel="Ajouter ton image de marque">
             {photo ? <Image source={{ uri: photo.url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name="image-outline" size={28} color={colors.primary} />}
@@ -190,6 +193,9 @@ function OpenShop() {
           </LabeledField>
           <LabeledField label="Présentation (facultatif)">
             <Field placeholder="Où te trouver, tes horaires, ce qui te rend unique…" value={description} onChangeText={setDescription} maxLength={500} multiline />
+          </LabeledField>
+          <LabeledField label="Tes clients paient">
+            {ref ? <PaymentMethodsPicker options={ref.paymentMethods} value={methods} onChange={setMethods} online={false} /> : <ActivityIndicator color={colors.primary} />}
           </LabeledField>
           <PrimaryButton label="Ouvrir ma boutique" disabled={name.trim().length < 2 || !specialties.length || !!busy} loading={busy === 'save'} onPress={open} />
         </KeyboardAwareScrollView>

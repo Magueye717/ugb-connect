@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -17,11 +16,12 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton } from '@/components/ui';
-import { lostCategory, lostQuickReplies, lostSafetyTip, lostTone } from '@/constants/data';
+import { lostQuickReplies, lostSafetyTip } from '@/constants/data';
 import { colors, radii, typo } from '@/constants/theme';
 import { useLost } from '@/context/LostContext';
 import { useConversation, type ChatMessage } from '@/features/chat/useConversation';
 import { lostApi, type ClaimDto } from '@/features/lost/api';
+import { LostVisual } from '@/features/lost/LostVisual';
 import { ApiError } from '@/lib/api';
 import { toast } from '@/lib/toast';
 
@@ -66,8 +66,6 @@ export default function ObjetDiscussion() {
   }
 
   const { item } = claim;
-  const cat = lostCategory(item.category);
-  const tone = lostTone(item.category);
   const closed = item.returned || chat.conversation?.status === 'closed';
   const canWrite = !closed && !!chat.conversation?.canWrite;
   const canClose = item.mine || item.isOwner;
@@ -113,12 +111,8 @@ export default function ObjetDiscussion() {
       <View style={styles.head}>
         <BackButton onPress={back} />
         <Pressable style={styles.item} onPress={() => router.navigate(`/objet/${item.id}`)} accessibilityRole="button">
-          <View style={[styles.thumb, { backgroundColor: tone.bg }]}>
-            {item.photo && item.kind === 'object' ? (
-              <Image source={{ uri: item.photo }} style={StyleSheet.absoluteFill} contentFit="cover" />
-            ) : (
-              <Ionicons name={cat.icon} size={18} color={tone.tint} />
-            )}
+          <View style={styles.thumb}>
+            <LostVisual item={item} variant="thumb" />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.title} numberOfLines={1}>

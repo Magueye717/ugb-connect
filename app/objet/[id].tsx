@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -11,6 +10,7 @@ import { lostCategory, lostOffice, lostSafetyTip, lostTone } from '@/constants/d
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useLost } from '@/context/LostContext';
 import { declaredAgo, lostApi, WHEN_LABEL, type CardType, type LostItemDetail } from '@/features/lost/api';
+import { LostVisual } from '@/features/lost/LostVisual';
 import { CardVisual } from '@/features/lost/CardVisual';
 import { ApiError } from '@/lib/api';
 import { openDirections } from '@/lib/maps';
@@ -111,13 +111,9 @@ export default function ObjetScreen() {
             <View style={[styles.cardHero, { paddingTop: insets.top + 56 }]}>
               <CardVisual type={cardTypeOf(item)} holder={maskedHolder(item.owner)} />
             </View>
-          ) : item.photo ? (
-            <Image source={{ uri: item.photo }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} />
           ) : (
-            <View style={styles.noPhoto}>
-              <Ionicons name={cat.icon} size={56} color={tone.tint} />
-              <Text style={styles.noPhotoText}>{isCard ? 'Pièce personnelle : jamais en photo' : 'Pas de photo'}</Text>
-            </View>
+            // Its photo, or a drawing of its type (keys, bag…) when none was sent.
+            <LostVisual item={item} variant="hero" />
           )}
           <Pressable
             onPress={back}
@@ -309,8 +305,6 @@ const styles = StyleSheet.create({
   muted: { color: colors.muted2 },
   hero: { minHeight: 260 },
   cardHero: { paddingHorizontal: 32, paddingBottom: 44 },
-  noPhoto: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
-  noPhotoText: { ...typo.captionStrong, color: colors.muted2 },
   back: {
     position: 'absolute',
     left: 20,

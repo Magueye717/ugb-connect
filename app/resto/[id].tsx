@@ -4,6 +4,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Linking,
   Pressable,
   ScrollView,
@@ -16,11 +17,13 @@ import Animated, { LayoutAnimationConfig, SlideInDown, SlideOutDown } from 'reac
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { fadeIn, PopOnChange } from '@/components/motion';
+import { PhotoGallery } from '@/components/PhotoGallery';
 import { EmptyState } from '@/components/states';
 import { formatFcfa } from '@/constants/data';
 import { useCart } from '@/context/CartContext';
 import { colors, motion, radii, shadow, typo } from '@/constants/theme';
 import { commerceApi, type BusinessDetail, type ItemDto } from '@/features/commerce/api';
+import { aislesFor, ItemEditor } from '@/features/commerce/CatalogEditor';
 import { ReviewsSection } from '@/features/ratings/Reviews';
 import { ApiError } from '@/lib/api';
 import { haptics } from '@/lib/haptics';
@@ -45,12 +48,13 @@ export default function BusinessScreen() {
   const [b, setB] = useState<BusinessDetail | null>(null);
   const [missing, setMissing] = useState(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      if (!id) return;
-      commerceApi.get(id).then(setB, (err) => err instanceof ApiError && err.status === 404 && setMissing(true));
-    }, [id]),
-  );
+  const load = useCallback(() => {
+    if (!id) return;
+    commerceApi.get(id).then(setB, (err) => err instanceof ApiError && err.status === 404 && setMissing(true));
+  }, [id]);
+  useFocusEffect(load);
+  // Its owner or a manager, on their own page: an item to edit.
+  const [editing, setEditing] = useState<ItemDto | null>(null);
 
   const basket = useCart();
   // Tabs jump to their section in the single scroll.
@@ -64,6 +68,8 @@ export default function BusinessScreen() {
   const barY = useRef(0);
   const [barH, setBarH] = useState(0);
   const [stuck, setStuck] = useState(false);
+  // An article's photos, full screen.
+  const [gallery, setGallery] = useState<ItemDto | null>(null);
 
   if (!b) {
     return (
@@ -80,6 +86,18 @@ export default function BusinessScreen() {
   const count = Object.values(cart).reduce((a, n) => a + n, 0);
   const total = b.items.reduce((sum, d) => sum + (cart[d.id] ?? 0) * d.price, 0);
   const isShop = b.kind === 'shop';
+  // Its own team: they manage it, they don't order from it.
+  const { member, canEdit } = b.viewer;
+  // A product shown for information (a service done on the spot): the student says they're interested, on WhatsApp.
+  const interested = (m: ItemDto) => {
+    const text = [`Bonjour ${b.name}, je suis intéressé(e) par « ${m.name} » (${formatFcfa(m.price)}) vu sur UGB Campus.`, m.detail, m.photo].filter(Boolean).join('\n');
+    Linking.openURL(`https://wa.me/221${b.phone.replace(/\D/g, '')}?text=${encodeURIComponent(text)}`).catch(() =>
+      Alert.alert('WhatsApp introuvable', `Appelle ${b.name} au ${b.phone}.`, [
+        { text: 'Fermer', style: 'cancel' },
+        { text: 'Appeler', onPress: () => Linking.openURL(`tel:+221${b.phone.replace(/\D/g, '')}`) },
+      ]),
+    );
+  };
   // Restaurants: dishes then drinks. Shops: one section per aisle.
   const sections: { key: string; title: string; items: ItemDto[]; grid: boolean }[] = isShop
     ? [...new Set(b.items.map((i) => i.category ?? 'Articles'))].map((c) => ({ key: c, title: c, items: b.items.filter((i) => (i.category ?? 'Articles') === c), grid: false }))
@@ -160,6 +178,14 @@ export default function BusinessScreen() {
               </Text>
             </View>
           </View>
+          {member && (
+            <View style={styles.ownerNote}>
+              <Ionicons name="storefront-outline" size={16} color={colors.primary} />
+              <Text style={styles.ownerNoteText}>
+                {isShop ? 'C’est ta boutique' : 'C’est ton restaurant'} : tu la vois comme les étudiants, sans pouvoir y commander.{canEdit ? ' Touche ✎ pour modifier un article.' : ''}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* The sections (Plats · Boissons, or a shop's aisles): sticky, the current one follows the scroll. */}
@@ -212,7 +238,13 @@ export default function BusinessScreen() {
                             {!!d.detail && <Text style={styles.drinkDetail}> · {d.detail.split(' · ').pop()}</Text>}
                           </Text>
                         </View>
-                        {!d.orderable ? null : qty > 0 ? (
+                        {member ? (
+                          canEdit && (
+                            <Pressable onPress={() => setEditing(d)} hitSlop={8} style={styles.drinkStep} accessibilityRole="button" accessibilityLabel={`Modifier ${d.name}`}>
+                              <Ionicons name="pencil" size={13} color={colors.navy} />
+                            </Pressable>
+                          )
+                        ) : !d.orderable ? null : qty > 0 ? (
                           <View style={styles.drinkStepper}>
                             <Pressable onPress={() => (haptics.select(), setQty(d.id, qty - 1))} hitSlop={8} style={styles.drinkStep} accessibilityLabel={`Retirer un ${d.name}`}>
                               <Ionicons name={qty === 1 ? 'trash-outline' : 'remove'} size={13} color={colors.navy} />
@@ -234,7 +266,7 @@ export default function BusinessScreen() {
               ) : (
                 s.items.map((m) => (
                   <View key={m.id} style={[styles.dish, shadow.card, m.soldOut && { opacity: 0.55 }]}>
-                    <Photo item={m} icon={isShop ? 'pricetag-outline' : 'restaurant-outline'} style={styles.dishPhoto} />
+                    <Photo item={m} icon={isShop ? 'pricetag-outline' : 'restaurant-outline'} style={styles.dishPhoto} onOpen={() => setGallery(m)} />
                     <View style={styles.dishInfo}>
                       <Text style={styles.dishName} numberOfLines={1}>
                         {m.name}
@@ -247,14 +279,21 @@ export default function BusinessScreen() {
                       {m.soldOut ? <Text style={styles.soldOut}>Épuisé</Text> : m.stock !== null && m.stock <= 5 && <Text style={styles.fewLeft}>Plus que {m.stock}</Text>}
                       <View style={styles.dishBottom}>
                         <Text style={styles.price}>{formatFcfa(m.price)}</Text>
-                        {m.orderable ? (
+                        {member ? (
+                          canEdit && (
+                            <Pressable onPress={() => setEditing(m)} style={styles.editBtn} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Modifier ${m.name}`}>
+                              <Ionicons name="pencil" size={13} color={colors.primary} />
+                              <Text style={styles.editBtnText}>Modifier</Text>
+                            </Pressable>
+                          )
+                        ) : m.orderable ? (
                           <QtyControl qty={cart[m.id] ?? 0} disabled={!b.open || m.soldOut} max={m.stock ?? undefined} name={m.name} onChange={(q) => setQty(m.id, q)} />
                         ) : (
-                          // A service done on the spot (printing…): its price, for information; nothing to order.
-                          <View style={styles.onSite} accessibilityLabel={`${m.name} : sur place, sans commande`}>
-                            <Ionicons name="information-circle-outline" size={13} color={colors.muted2} />
-                            <Text style={styles.onSiteText}>Sur place</Text>
-                          </View>
+                          // A service done on the spot (printing…): nothing to order; the student says they're interested.
+                          <Pressable onPress={() => interested(m)} style={styles.interested} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Intéressé par ${m.name} : écrire à ${b.name} sur WhatsApp`}>
+                            <Ionicons name="logo-whatsapp" size={14} color="#fff" />
+                            <Text style={styles.interestedText}>Intéressé</Text>
+                          </Pressable>
                         )}
                       </View>
                     </View>
@@ -290,6 +329,21 @@ export default function BusinessScreen() {
           </Animated.View>
         )}
       </LayoutAnimationConfig>
+
+      <PhotoGallery photos={gallery?.photos ?? []} start={gallery ? 0 : null} title={gallery?.name ?? ''} onClose={() => setGallery(null)} />
+      {editing && (
+        <ItemEditor
+          business={{ orgId: b.orgId, kind: b.kind }}
+          kind={b.kind}
+          item={editing}
+          aisles={aislesFor(b.items)}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            load();
+          }}
+        />
+      )}
     </View>
   );
 }
@@ -319,12 +373,27 @@ function Tab({ label, count, on, onPress }: { label: string; count: number; on: 
   );
 }
 
-/** Item photo, or an icon on a tinted tile while the business hasn't sent one. */
-function Photo({ item, icon, style }: { item: ItemDto; icon: keyof typeof Ionicons.glyphMap; style: object }) {
-  return (
+/**
+ * Item cover, or an icon on a tinted tile while the business hasn't sent one. With photos, a tap shows them all
+ * (full screen); several: their number in the corner.
+ */
+function Photo({ item, icon, style, onOpen }: { item: ItemDto; icon: keyof typeof Ionicons.glyphMap; style: object; onOpen?: () => void }) {
+  const tile = (
     <View style={[style, { backgroundColor: colors.primarySoft }]}>
       {item.photo ? <Image source={{ uri: item.photo }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} /> : <Ionicons name={icon} size={28} color={colors.primary} />}
+      {item.photos.length > 1 && (
+        <View style={styles.photoCount}>
+          <Ionicons name="images-outline" size={11} color="#fff" />
+          <Text style={styles.photoCountText}>{item.photos.length}</Text>
+        </View>
+      )}
     </View>
+  );
+  if (!item.photos.length || !onOpen) return tile;
+  return (
+    <Pressable onPress={onOpen} accessibilityRole="button" accessibilityLabel={item.photos.length > 1 ? `Voir les ${item.photos.length} photos de ${item.name}` : `Voir la photo de ${item.name}`}>
+      {tile}
+    </Pressable>
   );
 }
 
@@ -454,6 +523,8 @@ const styles = StyleSheet.create({
   muted: { ...typo.caption, color: colors.muted2, marginTop: 2 },
   dish: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 10, flexDirection: 'row', gap: 12 },
   dishPhoto: { width: 100, height: 100, borderRadius: radii.md, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  photoCount: { position: 'absolute', right: 6, bottom: 6, flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.pill, backgroundColor: 'rgba(10,16,40,0.7)' },
+  photoCountText: { ...typo.label, color: '#fff' },
   dishInfo: { flex: 1, paddingVertical: 2 },
   dishName: { ...typo.title, color: colors.navy },
   dishBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', paddingTop: 8 },
@@ -491,8 +562,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  onSite: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, minHeight: 30, borderRadius: radii.pill, backgroundColor: colors.bg },
-  onSiteText: { ...typo.captionStrong, color: colors.muted2 },
+  interested: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, minHeight: 32, borderRadius: radii.pill, backgroundColor: '#25D366' },
+  interestedText: { ...typo.captionStrong, color: '#fff' },
+  editBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, minHeight: 32, borderRadius: radii.pill, backgroundColor: colors.primarySoft },
+  editBtnText: { ...typo.captionStrong, color: colors.primary },
+  ownerNote: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', marginTop: 12, padding: 10, borderRadius: radii.md, backgroundColor: colors.primarySoft },
+  ownerNoteText: { ...typo.small, color: colors.primary, flex: 1, lineHeight: 19 },
   qty: { fontWeight: '700', color: colors.navy, minWidth: 12, textAlign: 'center' },
   add: {
     flexDirection: 'row',

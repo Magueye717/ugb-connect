@@ -1,14 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Field, Segmented, StatusChip } from '@/components/ui';
-import { lostCategory, lostTone } from '@/constants/data';
+import { Field, Segmented } from '@/components/ui';
+import { lostCategory } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useLost } from '@/context/LostContext';
 import { declaredAgo, type LostItemDto, type LostStatus } from '@/features/lost/api';
+import { LostVisual } from '@/features/lost/LostVisual';
 import { matches } from '@/lib/search';
 import { useNow } from '@/lib/useNow';
 
@@ -21,6 +21,7 @@ function chip(o: LostItemDto): { label: string; tone: 'success' | 'warning' | 'd
   if (o.status === 'lost') return { label: 'Recherché', tone: 'danger' };
   return o.holder === 'office' ? { label: 'Au bureau', tone: 'warning' } : { label: 'Chez l’étudiant', tone: 'success' };
 }
+const DOT = { success: colors.success, warning: colors.warning, danger: colors.danger, neutral: colors.muted2 };
 
 /**
  * Screen content without header or safe area: used by Campus › Objets perdus and, with `only="mine"`, by Profil ›
@@ -142,50 +143,58 @@ export function LostBoard({ only }: { only?: 'mine' } = {}) {
 
         <View style={styles.grid}>
           {list.map((o) => {
-            const tone = lostTone(o.category);
+            const status = chip(o);
+            const cat = lostCategory(o.category);
+            const sub = [cat.label, o.kind === 'object' ? o.details : null].filter(Boolean).join(' · ');
             return (
-            <Pressable
-              key={o.id}
-              style={({ pressed }) => [styles.card, shadow.card, o.returned && { opacity: 0.55 }, pressed && { transform: [{ scale: 0.98 }] }]}
-              onPress={() => router.push(`/objet/${o.id}`)}
-              accessibilityRole="button"
-              accessibilityLabel={`${o.name}, ${o.where}, ${declaredAgo(o.createdAt, now)}`}>
-              {/* Cards are never shown in photo: only an icon and a masked name. */}
-              <View style={[styles.visual, { backgroundColor: tone.bg }]}>
-                {o.kind === 'object' && o.photo ? (
-                  <Image source={{ uri: o.photo }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} />
-                ) : (
-                  <Ionicons name={lostCategory(o.category).icon} size={30} color={tone.tint} />
-                )}
-                {o.kind !== 'object' && (
-                  <View style={styles.private}>
-                    <Ionicons name="eye-off-outline" size={10} color={colors.muted2} />
-                    <Text style={styles.privateText}>Pas de photo</Text>
+              <Pressable
+                key={o.id}
+                style={({ pressed }) => [styles.card, shadow.card, pressed && { transform: [{ scale: 0.98 }] }]}
+                onPress={() => router.push(`/objet/${o.id}`)}
+                accessibilityRole="button"
+                accessibilityLabel={`${status.label} : ${o.name}, ${o.where}, ${declaredAgo(o.createdAt, now)}`}>
+                <View style={[styles.visual, o.returned && styles.faded]}>
+                  {/* Cards are never shown in photo: their type and a masked name only. */}
+                  <LostVisual item={o} variant="card" />
+                  <View style={styles.status}>
+                    <View style={[styles.statusDot, { backgroundColor: DOT[status.tone] }]} />
+                    <Text style={styles.statusText}>{status.label}</Text>
                   </View>
-                )}
-              </View>
-              <Text style={styles.name} numberOfLines={1}>
-                {o.name}
-              </Text>
-              {o.isOwner ? (
-                <Text style={styles.owner} numberOfLines={1}>
-                  Ta carte !
-                </Text>
-              ) : (
-                o.owner && (
-                  <Text style={styles.owner} numberOfLines={1}>
-                    {o.ownerNotified ? `✓ ${o.owner} prévenu(e)` : `Au nom de ${o.owner}`}
+                </View>
+                <View style={[styles.info, o.returned && styles.faded]}>
+                  <Text style={styles.name} numberOfLines={2}>
+                    {o.name}
                   </Text>
-                )
-              )}
-              <View style={styles.where}>
-                <Ionicons name="location-outline" size={12} color={colors.muted2} />
-                <Text style={styles.whereText}>
-                  {o.where} · {declaredAgo(o.createdAt, now)}
-                </Text>
-              </View>
-              <StatusChip {...chip(o)} />
-            </Pressable>
+                  <Text style={styles.sub} numberOfLines={1}>
+                    {sub}
+                  </Text>
+                  {o.isOwner ? (
+                    <Text style={styles.owner} numberOfLines={1}>
+                      C’est ta carte !
+                    </Text>
+                  ) : (
+                    o.owner && (
+                      <Text style={styles.owner} numberOfLines={1}>
+                        {o.ownerNotified ? `✓ ${o.owner} prévenu(e)` : `Au nom de ${o.owner}`}
+                      </Text>
+                    )
+                  )}
+                  <View style={styles.meta}>
+                    <View style={styles.where}>
+                      <Ionicons name="location-outline" size={12} color={colors.muted2} />
+                      <Text style={styles.whereText} numberOfLines={1}>
+                        {o.where}
+                      </Text>
+                    </View>
+                    <View style={styles.where}>
+                      <Ionicons name="time-outline" size={12} color={colors.muted2} />
+                      <Text style={styles.whereText} numberOfLines={1}>
+                        {declaredAgo(o.createdAt, now)}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </Pressable>
             );
           })}
         </View>
@@ -214,18 +223,23 @@ const styles = StyleSheet.create({
   },
   declareText: { ...typo.smallStrong, color: colors.accent },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 12 },
-  card: { width: '48%', backgroundColor: colors.card, borderRadius: radii.lg, padding: 10, gap: 6, alignItems: 'flex-start' },
-  visual: { alignSelf: 'stretch', height: 92, borderRadius: radii.md, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
-  private: { position: 'absolute', bottom: 6, flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.pill, backgroundColor: colors.card },
-  privateText: { ...typo.label, color: colors.muted2 },
+  card: { width: '48%', backgroundColor: colors.card, borderRadius: radii.lg, overflow: 'hidden' },
+  visual: { height: 118, backgroundColor: colors.bg },
+  faded: { opacity: 0.5 },
+  status: { position: 'absolute', top: 8, left: 8, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.pill, backgroundColor: 'rgba(255,255,255,0.95)' },
+  statusDot: { width: 7, height: 7, borderRadius: 4 },
+  statusText: { ...typo.label, color: colors.navy },
+  info: { padding: 10, gap: 3, flexGrow: 1 },
+  sub: { ...typo.caption, color: colors.muted2 },
+  meta: { marginTop: 'auto', paddingTop: 6, gap: 2 },
   owner: { ...typo.captionStrong, color: colors.successText },
   scan: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.card, borderRadius: radii.md, padding: 14 },
   scanIcon: { width: 42, height: 42, borderRadius: radii.sm, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   scanTitle: { ...typo.title, color: colors.navy },
   scanText: { ...typo.caption, color: colors.muted2, marginTop: 2 },
-  name: { ...typo.bodyStrong, color: colors.navy, marginTop: 2 },
+  name: { ...typo.bodyStrong, color: colors.navy },
   where: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  whereText: { ...typo.caption, color: colors.muted2 },
+  whereText: { ...typo.caption, color: colors.muted2, flexShrink: 1 },
   emptyBox: { alignItems: 'center', gap: 10, paddingVertical: 20 },
   empty: { color: colors.muted2, textAlign: 'center' },
   elsewhere: { color: colors.primary, fontWeight: '700' },

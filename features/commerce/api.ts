@@ -22,7 +22,7 @@ export type DeliveryZone = 'campus1' | 'campus2' | 'outside';
 /** FCFA per zone, 0: free; null: no delivery there. All null: pickup only. */
 export type DeliveryFees = Record<DeliveryZone, number | null>;
 /** The pickers' lists, from the backend (GET /reference/commerce). */
-export type CommerceReference = { specialties: Record<BusinessKind, string[]>; /** How many a business may pick. */ maxSpecialties: number; paymentMethods: { value: OrderMethod; label: string }[]; zones: { value: DeliveryZone; label: string }[] };
+export type CommerceReference = { specialties: Record<BusinessKind, string[]>; /** How many a business may pick. */ maxSpecialties: number; /** Photos per article, the cover included. */ maxItemPhotos: number; paymentMethods: { value: OrderMethod; label: string }[]; zones: { value: DeliveryZone; label: string }[] };
 export type ItemSection = 'menu' | 'drink' | 'article';
 
 export type ItemDto = {
@@ -33,8 +33,12 @@ export type ItemDto = {
   name: string;
   detail: string;
   price: number;
+  /** The cover: the first of `photos`. */
   photo: string | null;
-  photoId: string | null;
+  /** Every picture, the cover first. */
+  photos: string[];
+  /** The same pictures' ids, sent back in `photoIds` when editing. */
+  photoIds: string[];
   /** Shops: units left; null: not counted. */
   stock: number | null;
   soldOut: boolean;
@@ -76,11 +80,17 @@ export type BusinessDto = {
   active: boolean;
   /** A student's own shop. */
   byStudent: boolean;
+  /** May take Wave and Orange Money. A student's shop: false until the team has verified it (cash only). */
+  onlinePayments: boolean;
 };
 export type ListedBusiness = BusinessDto & { highlights: ItemDto[]; minPrice: number | null; itemsCount: number; /** Every available item: for searching. */ itemNames: string[] };
 /** The market: every article of every shop, each with its shop. */
 export type MarketItem = ItemDto & { businessId: string };
-export type BusinessDetail = BusinessDto & { items: ItemDto[] };
+export type BusinessDetail = BusinessDto & {
+  items: ItemDto[];
+  /** The caller here: its team (`member`) can't order; owner and managers (`canEdit`) edit the catalog from the page. */
+  viewer: { member: boolean; canEdit: boolean };
+};
 
 export type OrderStatus = 'pending_payment' | 'placed' | 'accepted' | 'ready' | 'completed' | 'refused' | 'cancelled' | 'expired';
 export type OrderMode = 'delivery' | 'pickup';
@@ -127,7 +137,7 @@ export type BusinessPatch = Partial<{
   acceptingOrders: boolean;
   paymentMethods: OrderMethod[];
 }>;
-export type ItemInput = { section: ItemSection; category?: string | null; name: string; detail?: string; price: number; photoId?: string | null; stock?: number | null; available?: boolean; orderable?: boolean };
+export type ItemInput = { section: ItemSection; category?: string | null; name: string; detail?: string; price: number; photoIds?: string[]; stock?: number | null; available?: boolean; orderable?: boolean };
 
 /** The steps a student sees, by mode. */
 export function orderSteps(mode: OrderMode) {
@@ -194,4 +204,6 @@ export const commerceApi = {
   ownerLookup: (phone: string) =>
     api<{ account: { firstName: string; lastName: string } | null; entities: OwnedEntity[] }>('POST', '/admin/businesses/owner-lookup', { ...auth, body: { phone } }),
   setActive: (id: string, active: boolean) => api<BusinessDto>('PATCH', `/admin/businesses/${id}`, { ...auth, body: { active } }),
+  /** The team verified who runs it: Wave and Orange Money open (closed: they are taken off, cash stays). */
+  setOnlinePayments: (id: string, onlinePayments: boolean) => api<BusinessDto>('PATCH', `/admin/businesses/${id}`, { ...auth, body: { onlinePayments } }),
 };

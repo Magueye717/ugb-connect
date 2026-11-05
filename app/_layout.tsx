@@ -51,6 +51,7 @@ function Screens() {
       <Stack.Protected guard={space === 'student'} redirectTo={home}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="a-la-une" />
+        <Stack.Screen name="alerte/[id]" />
         <Stack.Screen name="mes-etudes" />
         <Stack.Screen name="ma-carte" />
         <Stack.Screen name="infos" />

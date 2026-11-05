@@ -1,12 +1,12 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Switch, Text, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ErrorState } from '@/components/states';
 import { BackButton, Segmented } from '@/components/ui';
-import { colors, typo } from '@/constants/theme';
+import { colors, radii, shadow, typo } from '@/constants/theme';
 import { commerceApi, type BusinessDto, type BusinessTarget } from '@/features/commerce/api';
 import { BusinessProfileForm } from '@/features/commerce/BusinessProfileForm';
 import { CatalogEditor } from '@/features/commerce/CatalogEditor';
@@ -26,6 +26,19 @@ export default function FicheCommerce() {
   const { reference: ref, failed: refFailed, retry: retryRef } = useCommerceReference();
   const [tab, setTab] = useState<Tab>('profile');
   const back = () => (router.canGoBack() ? router.back() : router.replace('/(staff)/commerces'));
+  const [verifying, setVerifying] = useState(false);
+  // A student's shop: Wave and Orange Money once the team has checked who runs it.
+  const setOnline = async (on: boolean) => {
+    if (!b) return;
+    setVerifying(true);
+    try {
+      setB(await commerceApi.setOnlinePayments(b.id, on));
+    } catch (err) {
+      Alert.alert('Changement impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   useEffect(() => {
     commerceApi.mine({ editorOf: id }).then(setB, (err) => {
@@ -61,7 +74,21 @@ export default function FicheCommerce() {
           ) : !b || !ref ? (
             <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />
           ) : tab === 'profile' ? (
-            <BusinessProfileForm key={b.id} b={b} target={target} reference={ref} onSaved={setB} editor />
+            <>
+              {b.byStudent && (
+                <View style={[styles.verify, shadow.card]}>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={styles.verifyTitle}>Paiements Wave et Orange Money</Text>
+                    <Text style={styles.muted}>
+                      {b.onlinePayments ? 'Boutique vérifiée : ses clients peuvent payer en ligne.' : 'Boutique d’étudiant non vérifiée : espèces seulement. Active après avoir vérifié qui la tient.'}
+                    </Text>
+                  </View>
+                  <Switch value={b.onlinePayments} onValueChange={setOnline} disabled={verifying} trackColor={{ true: colors.success }} accessibilityLabel="Paiements Wave et Orange Money" />
+                </View>
+              )}
+              {/* Re-created when the permission changes: its payment choices follow. */}
+              <BusinessProfileForm key={`${b.id}:${b.onlinePayments}`} b={b} target={target} reference={ref} onSaved={setB} editor />
+            </>
           ) : (
             <CatalogEditor key={b.id} target={target} kind={b.kind} canManage title={b.kind === 'shop' ? 'Articles' : 'Menus et boissons'} />
           )}
@@ -77,4 +104,6 @@ const styles = StyleSheet.create({
   muted: { ...typo.caption, color: colors.muted2 },
   tabs: { paddingHorizontal: 20, paddingTop: 12 },
   body: { padding: 20, gap: 12, paddingBottom: 40 },
+  verify: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.card, borderRadius: radii.lg, padding: 14 },
+  verifyTitle: { ...typo.title, color: colors.navy },
 });

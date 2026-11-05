@@ -8,6 +8,7 @@ import { MultiSelect } from '@/components/Select';
 import { Chip, Field, LabeledField, PrimaryButton, TextButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { commerceApi, type BusinessDto, type BusinessTarget, type CommerceReference, type DeliveryZone, type OrderMethod } from '@/features/commerce/api';
+import { PaymentMethodsPicker } from './PaymentMethodsPicker';
 import { CAMPUSES } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
 import { openDirections } from '@/lib/maps';
@@ -44,7 +45,6 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
   });
   // How students may pay (cash, Wave, Orange Money): at least one.
   const [methods, setMethods] = useState<OrderMethod[]>(b.paymentMethods.map((m) => m.value));
-  const toggleMethod = (m: OrderMethod) => setMethods((list) => (list.includes(m) ? (list.length > 1 ? list.filter((x) => x !== m) : list) : [...list, m]));
   const [saving, setSaving] = useState(false);
 
   const pick = async () => {
@@ -217,11 +217,7 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
 
       <Text style={styles.section}>Paiements acceptés</Text>
       <Text style={styles.muted}>Ce que les étudiants peuvent choisir. Espèces : payé au livreur ou au retrait (rien ne passe par l’app).</Text>
-      <View style={styles.row}>
-        {reference.paymentMethods.map((m) => (
-          <Chip key={m.value} label={m.label} selected={methods.includes(m.value)} onPress={() => toggleMethod(m.value)} role="checkbox" icon={m.value === 'cash' ? 'cash-outline' : 'phone-portrait-outline'} />
-        ))}
-      </View>
+      <PaymentMethodsPicker options={reference.paymentMethods} value={methods} onChange={setMethods} online={b.onlinePayments} />
 
       <PrimaryButton label="Enregistrer" disabled={!ready} loading={saving} onPress={save} />
     </View>
