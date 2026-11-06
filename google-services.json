@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "714880184822",
+    "project_id": "ugb-connect",
+    "storage_bucket": "ugb-connect.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:714880184822:android:1b85ad52a1989fc2bb57d7",
+        "android_client_info": {
+          "package_name": "com.ugbconnect.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD9wxPd3aynYNm_HH8gEtxFH2bsLC0-DEk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
