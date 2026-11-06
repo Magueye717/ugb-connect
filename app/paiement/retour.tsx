@@ -25,7 +25,7 @@ function destination(p: PaymentDto): Href {
 }
 
 /**
- * Where the Wave / Orange Money page sends the student back (ugbcampus://paiement/retour?ref=…). Usually the screen
+ * Where the Wave / Orange Money page sends the student back (ugbconnect://paiement/retour?ref=…). Usually the screen
  * that opened the payment is still there, waiting for the server's answer: return to it. Otherwise (the app was
  * restarted meanwhile), open what was paid for, where its status shows (paid, or still to finish), never a
  * screen unrelated to it.

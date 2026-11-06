@@ -55,7 +55,7 @@ export default function MesPublicites() {
 
         {!items && !loadFailed && <ActivityIndicator color={colors.primary} />}
         {!items && loadFailed && <ErrorState onRetry={load} />}
-        {items?.length === 0 && <EmptyState icon="megaphone-outline" title="Aucune bannière" text="Elle passe par une validation de l’équipe UGB Campus avant de s’afficher." />}
+        {items?.length === 0 && <EmptyState icon="megaphone-outline" title="Aucune bannière" text="Elle passe par une validation de l’équipe UGB Connect avant de s’afficher." />}
         {items?.map((b) => {
           const s = BANNER_STATUS[b.status];
           return (
@@ -72,7 +72,7 @@ export default function MesPublicites() {
                 </Text>
                 {b.reviewReason && <Text style={styles.reason}>Motif : {b.reviewReason}</Text>}
                 {b.refunded && <Text style={styles.muted}>Remboursée sur ton numéro.</Text>}
-                {b.status === 'pending_review' && <Text style={styles.muted}>L’équipe UGB Campus la vérifie avant la diffusion.</Text>}
+                {b.status === 'pending_review' && <Text style={styles.muted}>L’équipe UGB Connect la vérifie avant la diffusion.</Text>}
                 <View style={styles.actions}>
                   {b.status === 'pending_payment' && b.payment && (
                     <TextButton label="Payer" icon="card-outline" onPress={() => payInBrowser(b.payment!).then(load, fail)} />

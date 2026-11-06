@@ -128,7 +128,7 @@ export default function Billet() {
   const send = () =>
     Share.share({
       message:
-        `${firstName}, ton billet UGB Campus : ${d.from} → ${d.to}, ${dayLabel(Date.parse(ticket.event.startsAt))}, place ${ticket.seat}.\n` +
+        `${firstName}, ton billet UGB Connect : ${d.from} → ${d.to}, ${dayLabel(Date.parse(ticket.event.startsAt))}, place ${ticket.seat}.\n` +
         `Montée à ${d.pickup.place} à ${minus15(pickupTime)} (15 min avant le bus).\n` +
         `Code à donner au chauffeur : ${ticket.code}`,
     }).catch(() => undefined);
@@ -294,7 +294,7 @@ export default function Billet() {
           load={load}
           onCancel={askCancel}
           transferTitle={companion ? `Mettre le billet dans l’app de ${firstName}` : 'Transférer à un ami'}
-          transferText={companion ? `Si ${firstName} a un compte UGB Campus : son propre QR code, à son nom` : 'Ton ami accepte dans son app, la place devient la sienne'}
+          transferText={companion ? `Si ${firstName} a un compte UGB Connect : son propre QR code, à son nom` : 'Ton ami accepte dans son app, la place devient la sienne'}
           lateFee="à moins de 24 h du départ"
           initialPhone={companion?.phone ?? ''}
         />
@@ -597,7 +597,7 @@ function TransferSheet({
         <View style={styles.sheet}>
           <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>Transférer le billet</SheetHeader>
           <Text style={styles.actionSub}>
-            Ton ami doit avoir un compte étudiant UGB Campus. Une fois qu’il accepte, le billet devient le sien et ton QR code ne marche plus.
+            Ton ami doit avoir un compte étudiant UGB Connect. Une fois qu’il accepte, le billet devient le sien et ton QR code ne marche plus.
           </Text>
           <LabeledField label="Numéro de ton ami" error={digits.length >= 9 && !valid ? 'Numéro invalide' : null}>
             <Field

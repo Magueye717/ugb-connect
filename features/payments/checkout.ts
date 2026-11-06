@@ -14,7 +14,7 @@ export const ticketMethodLabel: Record<TicketMethod, string> = { ...methodLabel,
 export type PaymentPurpose = 'taxi_seat' | 'caravan_booking' | 'event_booking' | 'event_publication' | 'banner' | 'commerce_order';
 export type PaymentDto = { reference: string; status: string; fulfillment: string; amount: number; checkoutUrl: string | null; expiresAt: string; purpose: PaymentPurpose; purposeRef: string };
 
-/** Where the checkout page sends the student back: ugbcampus://paiement/retour (exp://… in Expo Go). */
+/** Where the checkout page sends the student back: ugbconnect://paiement/retour (exp://… in Expo Go). */
 export const paymentReturnUrl = () => Linking.createURL('paiement/retour');
 
 export const getPayment = (reference: string) => api<PaymentDto>('GET', `/payments/${reference}`, { auth: true });

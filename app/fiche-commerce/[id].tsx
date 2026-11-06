@@ -48,7 +48,7 @@ export default function FicheCommerce() {
   }, [id]);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safe} edges={tab === 'profile' ? ['top'] : ['top', 'bottom']}>
       <View style={styles.head}>
         <BackButton onPress={back} />
         <View style={{ flex: 1 }}>
@@ -68,31 +68,45 @@ export default function FicheCommerce() {
           onChange={setTab}
         />
       </View>
-      <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      {b && ref && tab === 'profile' ? (
+        // The fiche: its own scroll, « Enregistrer » pinned at the bottom (no need to scroll down to save).
+        // Re-created when the permission changes: its payment choices follow.
+        <BusinessProfileForm
+          key={`${b.id}:${b.onlinePayments}`}
+          b={b}
+          target={target}
+          reference={ref}
+          onSaved={setB}
+          editor
+          sticky
+          contentStyle={styles.body}
+          header={
+            <>
+                {b.byStudent && (
+                  <View style={[styles.verify, shadow.card]}>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text style={styles.verifyTitle}>Paiements Wave et Orange Money</Text>
+                      <Text style={styles.muted}>
+                        {b.onlinePayments ? 'Boutique vérifiée : ses clients peuvent payer en ligne.' : 'Boutique d’étudiant non vérifiée : espèces seulement. Active après avoir vérifié qui la tient.'}
+                      </Text>
+                    </View>
+                    <Toggle value={b.onlinePayments} onValueChange={setOnline} disabled={verifying} accessibilityLabel="Paiements Wave et Orange Money" />
+                  </View>
+                )}
+            </>
+          }
+        />
+      ) : (
+        <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           {b && !ref && refFailed ? (
             <ErrorState onRetry={retryRef} />
           ) : !b || !ref ? (
             <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />
-          ) : tab === 'profile' ? (
-            <>
-              {b.byStudent && (
-                <View style={[styles.verify, shadow.card]}>
-                  <View style={{ flex: 1, gap: 2 }}>
-                    <Text style={styles.verifyTitle}>Paiements Wave et Orange Money</Text>
-                    <Text style={styles.muted}>
-                      {b.onlinePayments ? 'Boutique vérifiée : ses clients peuvent payer en ligne.' : 'Boutique d’étudiant non vérifiée : espèces seulement. Active après avoir vérifié qui la tient.'}
-                    </Text>
-                  </View>
-                  <Toggle value={b.onlinePayments} onValueChange={setOnline} disabled={verifying} accessibilityLabel="Paiements Wave et Orange Money" />
-                </View>
-              )}
-              {/* Re-created when the permission changes: its payment choices follow. */}
-              <BusinessProfileForm key={`${b.id}:${b.onlinePayments}`} b={b} target={target} reference={ref} onSaved={setB} editor />
-            </>
           ) : (
             <CatalogEditor key={b.id} target={target} kind={b.kind} canManage title={b.kind === 'shop' ? 'Articles' : 'Menus et boissons'} />
           )}
         </KeyboardAwareScrollView>
+      )}
     </SafeAreaView>
   );
 }

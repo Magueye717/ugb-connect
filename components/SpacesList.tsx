@@ -20,7 +20,7 @@ export function spaceInfo(s: AppSpace): Info {
         ? { icon: 'storefront-outline', title: `${s.name} · Boutique`, text: 'Commandes, articles, équipe' }
         : { icon: 'restaurant-outline', title: `${s.name} · Restaurant`, text: 'Commandes, menus, équipe' };
     case 'admin':
-      return { icon: 'shield-checkmark-outline', title: 'Administration', text: 'Équipe UGB Campus, événements, entités' };
+      return { icon: 'shield-checkmark-outline', title: 'Administration', text: 'Équipe UGB Connect, événements, entités' };
     case 'resto':
       return { icon: 'restaurant-outline', title: 'Restos publics', text: 'Menus du déjeuner et du dîner, ruptures' };
     case 'alerts':

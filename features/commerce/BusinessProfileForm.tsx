@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as Location from 'expo-location';
-import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState, type ReactNode } from 'react';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MultiSelect } from '@/components/Select';
 import { Chip, Field, LabeledField, PrimaryButton, TextButton, Toggle } from '@/components/ui';
@@ -24,7 +26,24 @@ const HHMM = /^\d{2}:\d{2}$/;
  * A business's profile as students see it: picture, specialty, where it is (GPS point, in words, campus), its number,
  * hours and delivery prices. Its owner fills it in their space; Référencement (`editor`) too, and may rename it.
  */
-export function BusinessProfileForm({ b, target, reference, onSaved, editor = false }: { b: BusinessDto; target: BusinessTarget; reference: CommerceReference; onSaved: (b: BusinessDto) => void; editor?: boolean }) {
+type FormProps = {
+  b: BusinessDto;
+  target: BusinessTarget;
+  reference: CommerceReference;
+  onSaved: (b: BusinessDto) => void;
+  editor?: boolean;
+  /**
+   * A screen that is only this form (Référencement): it scrolls itself and keeps « Enregistrer » pinned at the bottom
+   * (above the keyboard too), saying whether something is left to save. Otherwise the button ends the form.
+   */
+  sticky?: boolean;
+  /** In sticky mode: shown above the form, in the same scroll. */
+  header?: ReactNode;
+  contentStyle?: StyleProp<ViewStyle>;
+};
+
+export function BusinessProfileForm({ b, target, reference, onSaved, editor = false, sticky = false, header, contentStyle }: FormProps) {
+  const insets = useSafeAreaInsets();
   const [name, setName] = useState(b.name);
   const [photo, setPhoto] = useState<{ id: string | null; url: string | null }>({ id: null, url: b.photo });
   const [uploading, setUploading] = useState(false);
@@ -88,6 +107,30 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
   const servicesOk = services.length > 0 && services.every((s) => HHMM.test(s.start) && HHMM.test(s.end) && s.start < s.end);
   const ready = locationOk && servicesOk && specialties.length > 0 && name.trim().length >= 2 && !uploading && !saving;
 
+  // Something left to save: the form compared with what was last saved (or loaded).
+  const snapshot = JSON.stringify({ name: name.trim(), specialties, description, address, campus, phone, lat, lng, services, fees, methods });
+  const [base, setBase] = useState(snapshot);
+  const dirty = snapshot !== base || !!photo.id;
+  // « Annuler »: everything back as it was saved.
+  const revert = () => {
+    setName(b.name);
+    setPhoto({ id: null, url: b.photo });
+    setSpecialties(b.specialties);
+    setDescription(b.description);
+    setAddress(b.address);
+    setCampus(b.campus);
+    setPhone(b.phone);
+    setLat(b.location ? String(b.location.lat) : '');
+    setLng(b.location ? String(b.location.lng) : '');
+    setServices(b.services.map((s) => ({ ...s })));
+    setFees({
+      campus1: b.deliveryFees.campus1 === null ? '' : String(b.deliveryFees.campus1),
+      campus2: b.deliveryFees.campus2 === null ? '' : String(b.deliveryFees.campus2),
+      outside: b.deliveryFees.outside === null ? '' : String(b.deliveryFees.outside),
+    });
+    setMethods(b.paymentMethods.map((m) => m.value));
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -99,6 +142,8 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
         deliveryFees: { campus1: fees.campus1 === '' ? null : Number(fees.campus1), campus2: fees.campus2 === '' ? null : Number(fees.campus2), outside: fees.outside === '' ? null : Number(fees.outside) },
       });
       onSaved(saved);
+      setBase(snapshot);
+      setPhoto((p) => ({ id: null, url: p.url }));
       toast('Enregistré : les étudiants le voient tout de suite.');
     } catch (err) {
       fail('Enregistrement impossible')(err);
@@ -113,7 +158,7 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
     setServices((list) => list.map((s, j) => (j === i ? { ...s, [key]: value } : s)));
   };
 
-  return (
+  const form = (
     <View style={{ gap: 12 }}>
       <Pressable style={styles.coverPick} onPress={pick} accessibilityRole="button" accessibilityLabel="Changer la photo">
         {photo.url ? <Image source={{ uri: photo.url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name="camera-outline" size={28} color={colors.primary} />}
@@ -219,13 +264,45 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
       <Text style={styles.muted}>Ce que les étudiants peuvent choisir. Espèces : payé au livreur ou au retrait (rien ne passe par l’app).</Text>
       <PaymentMethodsPicker options={reference.paymentMethods} value={methods} onChange={setMethods} online={b.onlinePayments} />
 
-      <PrimaryButton label="Enregistrer" disabled={!ready} loading={saving} onPress={save} />
+      {!sticky && <PrimaryButton label="Enregistrer" disabled={!ready} loading={saving} onPress={save} />}
+    </View>
+  );
+  if (!sticky) return form;
+
+  return (
+    <View style={{ flex: 1 }}>
+      <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={96} contentContainerStyle={[contentStyle, { paddingBottom: 24 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        {header}
+        {form}
+      </KeyboardAwareScrollView>
+      {/* Always in view (and above the keyboard): what's left to save, and the button. */}
+      <KeyboardStickyView offset={{ opened: insets.bottom }}>
+        <View style={[styles.saveBar, shadow.raised, { paddingBottom: 12 + insets.bottom }]}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <View style={styles.saveState}>
+              <View style={[styles.saveDot, { backgroundColor: dirty ? colors.accent : colors.success }]} />
+              <Text style={styles.saveTitle}>{dirty ? 'Modifications non enregistrées' : 'Tout est enregistré'}</Text>
+            </View>
+            {dirty && (
+              <Pressable onPress={revert} hitSlop={6} accessibilityRole="button">
+                <Text style={styles.revert}>Annuler</Text>
+              </Pressable>
+            )}
+          </View>
+          <PrimaryButton label="Enregistrer" disabled={!ready || !dirty} loading={saving} onPress={save} style={{ minWidth: 150 }} />
+        </View>
+      </KeyboardStickyView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   section: { ...typo.section, color: colors.navy, marginTop: 10 },
+  saveBar: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingTop: 12, backgroundColor: colors.card, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  saveState: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  saveDot: { width: 8, height: 8, borderRadius: 4 },
+  saveTitle: { ...typo.smallStrong, color: colors.navy },
+  revert: { ...typo.smallStrong, color: colors.orangeText },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14, gap: 8 },
   cardTitle: { ...typo.title, color: colors.navy },
   muted: { ...typo.caption, color: colors.muted2 },

@@ -106,7 +106,7 @@ export default function MonEvenement() {
             // The first event creates the student's own organization: the organizer space appears.
             if (isNew) reloadAccount().catch(() => undefined);
             if (submitted) {
-              Alert.alert('Envoyé pour validation', 'L’équipe UGB Campus vérifie ton événement. Une fois validé, tu choisis qui le voit et tu le publies. Tu reçois une notification dans tous les cas.');
+              Alert.alert('Envoyé pour validation', 'L’équipe UGB Connect vérifie ton événement. Une fois validé, tu choisis qui le voit et tu le publies. Tu reçois une notification dans tous les cas.');
               router.replace('/mes-evenements');
             } else if (isNew) router.replace(`/mes-evenements/${saved.id}`);
             else setEvent(saved);
@@ -143,7 +143,7 @@ function EventState({ event: e, onChanged }: { event: OrgEventDto; onChanged: (e
           <Text style={styles.reviewText}>{e.review.message}</Text>
         </View>
       )}
-      {e.status === 'pending_review' && <Text style={styles.muted}>L’équipe UGB Campus vérifie ton événement. Tu seras notifié de sa décision.</Text>}
+      {e.status === 'pending_review' && <Text style={styles.muted}>L’équipe UGB Connect vérifie ton événement. Tu seras notifié de sa décision.</Text>}
       {(e.status === 'published' || e.status === 'completed') && (
         <View style={[styles.card, shadow.card, { gap: 8 }]}>
           {e.ticketTypes.map((t) => (
@@ -326,7 +326,7 @@ function PublishForm({ event: e, onChanged }: { event: OrgEventDto; onChanged: (
       <View style={styles.okBox}>
         <Ionicons name="checkmark-circle" size={20} color={colors.successText} />
         <View style={{ flex: 1 }}>
-          <Text style={[styles.okText, { fontWeight: '700' }]}>Validé par l’équipe UGB Campus</Text>
+          <Text style={[styles.okText, { fontWeight: '700' }]}>Validé par l’équipe UGB Connect</Text>
           <Text style={styles.okText}>Choisis qui voit ton événement, le nombre de places à vendre, puis publie-le.</Text>
         </View>
       </View>
@@ -509,7 +509,7 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
         <View style={styles.reviewBox}>
           <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.dangerText} />
           <View style={{ flex: 1 }}>
-            <Text style={[styles.reviewText, { fontWeight: '700' }]}>Corrections demandées par l’équipe UGB Campus</Text>
+            <Text style={[styles.reviewText, { fontWeight: '700' }]}>Corrections demandées par l’équipe UGB Connect</Text>
             <Text style={styles.reviewText}>{event.review.message}</Text>
           </View>
         </View>
@@ -639,7 +639,7 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
         </View>
       )}
 
-      <Text style={styles.muted}>1. L’équipe UGB Campus vérifie ton événement. 2. Une fois validé, tu choisis qui le voit (campus, village, UFR, région) et tu paies la publication, selon le nombre de places. 3. La billetterie ouvre. L’argent des billets t’est versé après l’événement, sur ton numéro.</Text>
+      <Text style={styles.muted}>1. L’équipe UGB Connect vérifie ton événement. 2. Une fois validé, tu choisis qui le voit (campus, village, UFR, région) et tu paies la publication, selon le nombre de places. 3. La billetterie ouvre. L’argent des billets t’est versé après l’événement, sur ton numéro.</Text>
       <PrimaryButton label="Envoyer pour validation" disabled={!ready} loading={saving === 'submit'} onPress={() => save(true)} />
       <TextButton label={saving === 'draft' ? 'Enregistrement…' : 'Enregistrer le brouillon'} icon="save-outline" disabled={!ready} style={{ alignSelf: 'center' }} onPress={() => save(false)} />
     </KeyboardAwareScrollView>

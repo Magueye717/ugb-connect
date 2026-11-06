@@ -32,7 +32,7 @@ export default function HomeScreen() {
           </Pressable>
           <View style={{ flex: 1 }}>
             <Text style={styles.hello}>{user?.firstName ? `Bonjour, ${user.firstName}` : 'Bonjour'}</Text>
-            <Text style={styles.campus}>{user?.campus ?? 'UGB Campus'}</Text>
+            <Text style={styles.campus}>{user?.campus ?? 'UGB Connect'}</Text>
           </View>
           <Pressable
             onPress={() => router.push('/notifications')}

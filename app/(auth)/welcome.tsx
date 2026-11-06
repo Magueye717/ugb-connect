@@ -148,7 +148,7 @@ export default function WelcomeScreen() {
           <View style={styles.header}>
             <View style={styles.brand}>
               <BrandLogo size={28} />
-              <Text style={styles.brandText}>UGB Campus</Text>
+              <Text style={styles.brandText}>UGB Connect</Text>
             </View>
             <View style={styles.proof}>
               <View style={{ flexDirection: 'row' }}>
