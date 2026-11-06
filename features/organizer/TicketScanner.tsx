@@ -7,18 +7,19 @@ import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } 
 import { popIn, riseIn } from '@/components/motion';
 import { Field, TextButton } from '@/components/ui';
 import { colors, motion, radii, typo } from '@/constants/theme';
-import { haptics } from '@/lib/haptics';
+import { haptics, scanFeel } from '@/lib/haptics';
+import { sounds } from '@/lib/sounds';
 import type { ScanResult } from './useTicketCheck';
 
 const TONES = {
-  success: { color: colors.success, icon: 'checkmark-circle', feel: haptics.success },
-  warning: { color: colors.warning, icon: 'alert-circle', feel: haptics.warning },
-  danger: { color: colors.danger, icon: 'close-circle', feel: haptics.error },
+  success: { color: colors.success, icon: 'checkmark-circle', feel: () => scanFeel.found(), sound: sounds.success },
+  warning: { color: colors.warning, icon: 'alert-circle', feel: () => scanFeel.nothing(), sound: sounds.warning },
+  danger: { color: colors.danger, icon: 'close-circle', feel: () => scanFeel.refused(), sound: sounds.error },
 } as const;
 
 /**
  * Camera + typed-code fallback + verdict card, on a dark background (used at night, in the bus).
- * The verdict is felt and seen at a glance: a vibration (Android; iOS mutes haptics while the camera runs)
+ * The verdict is heard, felt and seen at a glance: a sound, a vibration (Android; iOS mutes haptics while the camera runs)
  * and a green / orange / red flash over the camera, then the card with the details.
  * `onOpenList`: shows a link to the departure's passenger list under the verdict.
  * `active`: false turns the camera off (a tab that isn't on screen), to save battery.
@@ -56,6 +57,7 @@ export function TicketScanner({
     setChecking(true);
     const r = await check(raw).finally(() => setChecking(false));
     TONES[r.tone].feel();
+    TONES[r.tone].sound();
     flash.set(withSequence(withTiming(0.55, { duration: motion.fast }), withTiming(0, { duration: motion.slow })));
     setResult(r);
     setCode('');

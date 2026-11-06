@@ -2,21 +2,25 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/states';
-import { Segmented, StatusChip } from '@/components/ui';
+import { Segmented, StatusChip, Toggle } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useNotifications } from '@/context/NotificationsContext';
-import { commerceApi, nextStep, ORDER_STATUS_LABEL, type BusinessDto, type OrderDto } from '@/features/commerce/api';
+import { commerceApi, nextStep, ORDER_STATUS_LABEL, type BusinessDto, type OrderDto, type SalesDto } from '@/features/commerce/api';
 import { ApiError } from '@/lib/api';
 
 /** How often the list is read again while it's on screen (the push also announces each new order). */
 const REFRESH_MS = 20_000;
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 const time = (iso: string) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
 /** Incoming orders: the new ones first, one tap to move each to its next step. */
@@ -24,18 +28,27 @@ export default function Commandes() {
   const { business } = useAuth();
   const { unreadCount } = useNotifications();
   const [scope, setScope] = useState<'active' | 'done'>('active');
+  // Owners and managers: today's sales, one line above the orders (« Ventes » has the rest).
+  const [today, setToday] = useState<SalesDto | null>(null);
   const [orders, setOrders] = useState<OrderDto[] | null>(null);
   const [profile, setProfile] = useState<BusinessDto | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
+  const manager = !!business?.roles.some((r) => r === 'owner' || r === 'manager');
   const load = useCallback(async () => {
     if (!business) return;
-    const [list, me] = await Promise.allSettled([commerceApi.queue(business, scope), commerceApi.mine(business!)]);
+    const day = todayIso();
+    const [list, me, sold] = await Promise.allSettled([
+      commerceApi.queue(business, scope),
+      commerceApi.mine(business!),
+      manager ? commerceApi.sales(business, day, day) : Promise.resolve(null),
+    ]);
     if (list.status === 'fulfilled') setOrders(list.value.items);
     else setOrders((o) => o ?? []);
     if (me.status === 'fulfilled') setProfile(me.value);
-  }, [business, scope]);
+    if (sold.status === 'fulfilled') setToday(sold.value);
+  }, [business, scope, manager]);
 
   useFocusEffect(
     useCallback(() => {
@@ -46,7 +59,7 @@ export default function Commandes() {
   );
 
   if (!business) return null;
-  const canManage = business.roles.some((r) => r === 'owner' || r === 'manager');
+  const canManage = manager;
 
   const advance = async (o: OrderDto) => {
     const next = nextStep(o);
@@ -100,8 +113,20 @@ export default function Commandes() {
               <Text style={styles.cardTitle}>{profile.acceptingOrders ? 'Commandes ouvertes' : 'Commandes en pause'}</Text>
               <Text style={styles.muted}>{profile.statusLabel} · {profile.hours}</Text>
             </View>
-            {canManage && <Switch value={profile.acceptingOrders} onValueChange={pause} trackColor={{ true: colors.success }} accessibilityLabel="Accepter les commandes" />}
+            {canManage && <Toggle value={profile.acceptingOrders} onValueChange={pause} accessibilityLabel="Accepter les commandes" />}
           </View>
+        )}
+
+        {/* Today at a glance; « Ventes » for the week, the month, chosen days. */}
+        {canManage && today && (
+          <Pressable style={[styles.card, shadow.card, styles.row]} onPress={() => router.push('/ventes')} accessibilityRole="button" accessibilityLabel={`Ventes du jour : ${formatFcfa(today.revenue)}, ${today.orders} commandes. Voir mes ventes`}>
+            <Ionicons name="stats-chart-outline" size={18} color={colors.successText} />
+            <Text style={[styles.cardTitle, { flex: 1 }]} numberOfLines={1}>
+              Aujourd’hui · {formatFcfa(today.revenue)} · {today.orders} commande{today.orders > 1 ? 's' : ''}
+            </Text>
+            <Text style={styles.salesLink}>Mes ventes</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+          </Pressable>
         )}
 
         <Segmented
@@ -197,6 +222,7 @@ function OrderThumb({ order, kind }: { order: OrderDto; kind: 'restaurant' | 'sh
 }
 
 const styles = StyleSheet.create({
+  salesLink: { ...typo.smallStrong, color: colors.primary },
   // A cash order: the money is collected at delivery or at the counter.
   cash: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.pill, backgroundColor: colors.successBg },
   cashText: { ...typo.captionStrong, color: colors.successText },

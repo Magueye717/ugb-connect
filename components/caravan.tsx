@@ -14,11 +14,11 @@ const LEVELS: Record<OrganizerLevel, { label: string; icon: keyof typeof Ionicon
 };
 
 /** Organizer name, verification level and rating. */
-export function OrganizerLine({ organizer: o }: { organizer: CaravanOrganizer }) {
+export function OrganizerLine({ organizer: o, wrap }: { organizer: CaravanOrganizer; /** The whole name, on two lines if needed. */ wrap?: boolean }) {
   const level = LEVELS[o.level];
   return (
-    <View style={styles.organizer}>
-      <Text style={styles.organizerName} numberOfLines={1}>
+    <View style={[styles.organizer, wrap && { flexWrap: 'wrap' }]}>
+      <Text style={styles.organizerName} numberOfLines={wrap ? undefined : 1}>
         {o.name}
       </Text>
       <View style={[styles.level, { backgroundColor: level.bg }]}>
@@ -100,7 +100,17 @@ export function CaravanSummary({
 }
 
 /** Booked seats with a mark at the confirmation threshold. */
-export function FillBar({ caravan: c }: { caravan: Caravan }) {
+export function FillBar({
+  caravan: c,
+  count = true,
+  few,
+}: {
+  caravan: Caravan;
+  /** "34/64 places" at the right. The home card leaves it out: one message, not two. */
+  count?: boolean;
+  /** Confirmed with this many seats left or fewer: « Plus que N places » instead of « Départ confirmé ». */
+  few?: number;
+}) {
   const { booked, confirmed, missing } = caravanState(c);
   return (
     <View style={{ gap: 6 }}>
@@ -109,7 +119,14 @@ export function FillBar({ caravan: c }: { caravan: Caravan }) {
         {!confirmed && <View style={[styles.threshold, { left: `${(c.minPassengers / c.totalSeats) * 100}%` }]} />}
       </View>
       <View style={styles.rowBetween}>
-        {confirmed ? (
+        {confirmed && few !== undefined && c.seats <= few ? (
+          <View style={styles.state}>
+            <Ionicons name="flame-outline" size={14} color={colors.orangeText} />
+            <Text style={[styles.stateText, { color: colors.orangeText }]}>
+              Départ confirmé · plus que {c.seats} place{c.seats > 1 ? 's' : ''}
+            </Text>
+          </View>
+        ) : confirmed ? (
           <View style={styles.state}>
             <Ionicons name="checkmark-circle" size={14} color={colors.success} />
             <Text style={[styles.stateText, { color: colors.successText }]}>Départ confirmé</Text>
@@ -119,13 +136,15 @@ export function FillBar({ caravan: c }: { caravan: Caravan }) {
             <Ionicons name="hourglass-outline" size={13} color={colors.warningText} />
             {/* Short on purpose: the refund promise is in the banner and on the booking screen. */}
             <Text style={[styles.stateText, { color: colors.warningText }]} numberOfLines={1}>
-              Encore {missing} pour confirmer
+              Encore {missing} {count ? '' : `réservation${missing > 1 ? 's' : ''} `}pour confirmer
             </Text>
           </View>
         )}
-        <Text style={styles.count}>
-          {booked}/{c.totalSeats} places
-        </Text>
+        {count && (
+          <Text style={styles.count}>
+            {booked}/{c.totalSeats} places
+          </Text>
+        )}
       </View>
     </View>
   );
@@ -142,7 +161,7 @@ function GrowingFill({ percent, color }: { percent: number; color: string }) {
 }
 
 /** "Dakar · École normale" under a Dakar departure reads "École normale". */
-const shortPlace = (place: string, city: string) => (place.startsWith(`${city} · `) ? place.slice(city.length + 3) : place);
+export const shortPlace = (place: string, city: string) => (place.startsWith(`${city} · `) ? place.slice(city.length + 3) : place);
 
 function Meta({ icon, text, fixed }: { icon: keyof typeof Ionicons.glyphMap; text: string; fixed?: boolean }) {
   return (

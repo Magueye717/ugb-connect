@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AdCarousel, AlertStrip, CaravanCard, EventCard, Headlines, OriginPrompt, RestoCard, TaxiCard } from '@/components/home';
 import { InProgress } from '@/components/InProgress';
 import { RatingPrompt } from '@/features/ratings/RatingPrompt';
+import { UnreadBadge } from '@/components/UnreadBadge';
 import { colors, radii, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { bellLabel, useNotifications } from '@/context/NotificationsContext';
@@ -23,8 +24,11 @@ export default function HomeScreen() {
       <RatingPrompt />
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={styles.row}>
-          <Pressable style={styles.avatar} onPress={() => router.push('/(tabs)/profil')} accessibilityRole="button" accessibilityLabel="Mon profil">
-            {user?.avatarUrl ? <Image source={{ uri: user.avatarUrl }} style={StyleSheet.absoluteFill} contentFit="cover" /> : user?.initials ? <Text style={styles.avatarText}>{user.initials}</Text> : <Ionicons name="person" size={20} color="#fff" />}
+          {/* The orange ring of every profile photo. */}
+          <Pressable style={styles.ring} onPress={() => router.push('/(tabs)/profil')} accessibilityRole="button" accessibilityLabel="Mon profil">
+            <View style={styles.avatar}>
+              {user?.avatarUrl ? <Image source={{ uri: user.avatarUrl }} style={StyleSheet.absoluteFill} contentFit="cover" /> : user?.initials ? <Text style={styles.avatarText}>{user.initials}</Text> : <Ionicons name="person" size={20} color="#fff" />}
+            </View>
           </Pressable>
           <View style={{ flex: 1 }}>
             <Text style={styles.hello}>{user?.firstName ? `Bonjour, ${user.firstName}` : 'Bonjour'}</Text>
@@ -36,7 +40,8 @@ export default function HomeScreen() {
             accessibilityRole="button"
             accessibilityLabel={bellLabel(unreadCount)}>
             <Ionicons name="notifications-outline" size={22} color="#fff" />
-            {unreadCount > 0 && <View style={styles.dot} />}
+            {/* How many are new: a red count (9+ above nine), on the bell's corner. */}
+            <UnreadBadge count={unreadCount} style={styles.count} />
           </Pressable>
         </View>
       </View>
@@ -69,6 +74,8 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: radii.xl,
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  // Same as the profiles: 3 of gap and 2.5 of orange around the 48 px photo.
+  ring: { width: 59, height: 59, borderRadius: 29.5, borderWidth: 2.5, borderColor: colors.orange, alignItems: 'center', justifyContent: 'center' },
   avatar: {
     width: 48,
     height: 48,
@@ -89,14 +96,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dot: {
-    position: 'absolute',
-    top: 10,
-    right: 12,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.danger,
-  },
+  // A ring of the header's colour separates the count from the bell.
+  count: { position: 'absolute', top: -2, right: -4, borderWidth: 2, borderColor: colors.primary },
   body: { padding: 20, paddingBottom: 32, gap: 14 },
 });

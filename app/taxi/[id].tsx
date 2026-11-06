@@ -5,10 +5,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/states';
 import { BackButton } from '@/components/ui';
-import { TAXI_LOCK_MIN } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useTaxi } from '@/context/TaxiContext';
-import { Avatar, ChatButton, Rule, TripCard, useNow } from '@/features/taxi/SunuTaxiBoard';
+import { Avatar, ChatButton, TaxiRules, TripCard, useNow } from '@/features/taxi/SunuTaxiBoard';
 import { useTaxiActions } from '@/features/taxi/useTaxiActions';
 import { ApiError } from '@/lib/api';
 
@@ -67,7 +66,7 @@ export default function TaxiTripScreen() {
                     <Text style={[styles.name, !p && { color: colors.muted2 }]}>
                       {p ? (p === taxi.me ? 'Toi' : taxi.nameOf(p)) : 'Place libre'}
                     </Text>
-                    {p && <Text style={styles.role}>{i === 0 ? 'Organisateur' : 'Place payée'}</Text>}
+                    {p && <Text style={styles.role}>{i === 0 ? 'Organisateur' : t.payOnline ? 'Place payée' : 'Place réservée'}</Text>}
                   </View>
                   {here && (
                     <View style={styles.here}>
@@ -82,9 +81,7 @@ export default function TaxiTripScreen() {
 
           <Text style={styles.section}>Règles</Text>
           <View style={[styles.card, shadow.card, { gap: 10, paddingVertical: 14 }]}>
-            <Rule icon="wallet-outline" text="Tu paies ta place en rejoignant : prix fixe, connu d’avance." />
-            <Rule icon="lock-closed-outline" text={`Places verrouillées ${TAXI_LOCK_MIN} min avant (à mi-chemin pour un départ proche) : quitter n’est plus remboursé.`} />
-            <Rule icon="shield-checkmark-outline" text="Trajet annulé par l’organisateur : remboursé à 100 %." />
+            <TaxiRules payOnline={t.payOnline} price={t.seatPrice} />
           </View>
         </ScrollView>
       )}

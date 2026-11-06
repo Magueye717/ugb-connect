@@ -35,13 +35,14 @@ type Props = {
 
 export function StepIdentification({ values, onChange, onSubmit, submitting, submitError }: Props) {
   const [touched, setTouched] = useState({ studentId: false, phone: false });
-  const errors = { studentId: validateStudentId(values.studentId), phone: validatePhone(values.phone) };
+  // Optional: checked only once something is typed (it can be added later on the profile).
+  const errors = { studentId: values.studentId ? validateStudentId(values.studentId) : null, phone: validatePhone(values.phone) };
   const valid = !errors.studentId && !errors.phone;
   const touch = (k: keyof typeof touched) => setTouched((t) => ({ ...t, [k]: true }));
 
   return (
     <View style={{ gap: 20 }}>
-      <LabeledField label="Numéro étudiant" error={touched.studentId ? errors.studentId : null}>
+      <LabeledField label="Numéro étudiant (facultatif)" error={touched.studentId ? errors.studentId : null}>
         <Field
           accent={colors.orange}
           icon="school-outline"
@@ -59,7 +60,7 @@ export function StepIdentification({ values, onChange, onSubmit, submitting, sub
         {!(touched.studentId && errors.studentId) && (
           <View style={styles.why}>
             <Ionicons name="shield-checkmark-outline" size={14} color={colors.muted2} />
-            <Text style={styles.whyText}>Il prouve que tu es étudiant à l’UGB (un seul compte par étudiant) et permet de te rendre ta carte si quelqu’un la trouve.</Text>
+            <Text style={styles.whyText}>Tu peux l’ajouter plus tard depuis ton profil. Il permet de te rendre ta carte si quelqu’un la trouve.</Text>
           </View>
         )}
       </LabeledField>

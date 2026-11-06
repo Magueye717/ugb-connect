@@ -76,8 +76,8 @@ export type Caravan = {
   code: string;
   status: string;
   organizer: CaravanOrganizer;
-  /** Checked vehicle: its registered capacity is the most ever sold. The plate is shown to ticket holders. */
-  vehicle: { label: string; plate: string | null };
+  /** Checked vehicle: its registered capacity is the most ever sold. The plate (if given) is shown to ticket holders. */
+  vehicle: { label: string; plate: string | null; airConditioned: boolean };
   direction: CaravanDirection;
   from: string;
   to: string;
@@ -106,7 +106,8 @@ export type Caravan = {
   /** Seats one student can buy: their own + companions. */
   maxSeatsPerStudent: number;
   /** Providers accepted for this trip (the organizer's choice). */
-  paymentMethods: ('wave' | 'orange_money')[];
+  /** How the organizer accepts payment (cash: at boarding). */
+  paymentMethods: ('wave' | 'orange_money' | 'cash')[];
   /** The ticket I travel on for this departure, if any. */
   myTicketId: string | null;
   /** I bought here and gave my own ticket to a friend. */
@@ -139,6 +140,8 @@ export type PaymentMethod = {
   detail: string;
   /** Initials on the brand-color badge, shown while there's no logo file. */
   short: string;
+  /** No brand (cash): an icon tile instead of the badge. */
+  icon?: 'cash-outline';
   bg: string;
   /**
    * Official logo from the provider's merchant / brand kit, e.g.
@@ -146,6 +149,9 @@ export type PaymentMethod = {
    */
   logo?: number;
 };
+
+/** Tickets only: paid in cash to the organizer (at boarding, at the door). No logo: a money badge. */
+export const cashMethod: PaymentMethod = { id: 'cash', name: 'Espèces', detail: 'À payer sur place, à l’organisateur', short: 'F', bg: '#2E9B57', icon: 'cash-outline' };
 
 export const paymentMethods: PaymentMethod[] = [
   { id: 'wave', name: 'Wave', detail: 'Compte lié · 77 ••• •• 28', short: 'W', bg: '#1DC8F2', logo: require('@/assets/images/payments/wave.jpg') },

@@ -8,6 +8,8 @@ export type NotificationPrefs = { social: boolean; cours: boolean; paiements: bo
 export type Support = { phone: string; whatsapp: string; email: string; hours: string };
 
 export const profileApi = {
+  /** Optional at sign-up: given once (or read from the student's own card). */
+  setStudentNumber: (studentNumber: string) => api<void>('PUT', '/me/student-number', { auth: true, body: { studentNumber } }),
   /** An upload of purpose `avatar`, or null to remove the picture. */
   setAvatar: (photoId: string | null) => api<void>('PUT', '/me/avatar', { ...auth, body: { photoId } }),
   setResidence: (body: { campus: 'campus1' | 'campus2'; onCampus: boolean; village?: string | null; room?: string | null }) => api<void>('PATCH', '/me/student-profile', { ...auth, body }),

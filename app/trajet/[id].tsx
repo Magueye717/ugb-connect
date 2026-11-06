@@ -16,7 +16,7 @@ import {
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BackButton, Field, PrimaryButton, SafeBottom } from '@/components/ui';
+import { BackButton, Field, PrimaryButton, SafeBottom, SheetHeader } from '@/components/ui';
 import { TAXI_CHAT_HOURS, taxiQuickReplies } from '@/constants/data';
 import { colors, radii, typo } from '@/constants/theme';
 import { useTaxi } from '@/context/TaxiContext';
@@ -64,7 +64,7 @@ export default function TripChat() {
         <View style={styles.locked}>
           <Ionicons name="lock-closed-outline" size={32} color={colors.muted} />
           <Text style={styles.lockedTitle}>Discussion réservée</Text>
-          <Text style={styles.lockedText}>Seuls l’organisateur et les passagers qui ont payé leur place peuvent la lire.</Text>
+          <Text style={styles.lockedText}>Seuls l’organisateur et les passagers qui ont {trip && !trip.payOnline ? 'réservé' : 'payé'} leur place peuvent la lire.</Text>
         </View>
       </SafeAreaView>
     );
@@ -76,7 +76,7 @@ export default function TripChat() {
   const { lockAt } = trip;
 
   // The lock is a moment in time, not an event: shown as a system line once it has passed.
-  const lockLine: ChatMessage[] = now >= lockAt ? [{ id: 'lock', kind: 'system', body: 'Places verrouillées 🔒', author: null, at: lockAt, clientMessageId: null }] : [];
+  const lockLine: ChatMessage[] = now >= lockAt ? [{ id: 'lock', kind: 'system', body: trip.payOnline ? 'Places verrouillées 🔒' : 'L’heure du rendez-vous approche 🚕', author: null, at: lockAt, clientMessageId: null }] : [];
   const thread = [...chat.messages, ...lockLine].sort((a, b) => Number(!!a.pending) - Number(!!b.pending) || a.at - b.at);
 
   // Passengers check in at the meeting point; the organizer is the one waiting there.
@@ -302,7 +302,7 @@ function PinSheet({
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <View style={styles.sheet}>
-          <Text style={styles.sheetTitle}>Quel taxi ?</Text>
+          <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>Quel taxi ?</SheetHeader>
           <Text style={styles.sheetText}>Modèle, couleur et plaque : les passagers le retrouvent plus vite, et c’est plus sûr.</Text>
           <Field
             icon="car-outline"

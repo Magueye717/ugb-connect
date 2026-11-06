@@ -14,7 +14,7 @@ import { uploadImage } from '@/lib/upload';
  * The signed-in person's picture, tap to change it (camera or gallery): the same on every space (student profile,
  * a shop's or an organizer's account, the app creator's team). Initials until there is one.
  */
-export function AvatarPicker({ size = 56, tone = 'solid' }: { size?: number; tone?: 'solid' | 'soft' }) {
+export function AvatarPicker({ size = 56, tone = 'solid', ring = false }: { size?: number; tone?: 'solid' | 'soft'; /** The orange ring around the photo (the brand's two colours), as on every profile. */ ring?: boolean }) {
   const { user, reloadAccount } = useAuth();
   const [uploading, setUploading] = useState(false);
 
@@ -34,7 +34,7 @@ export function AvatarPicker({ size = 56, tone = 'solid' }: { size?: number; ton
   };
 
   const solid = tone === 'solid';
-  return (
+  const avatar = (
     <Pressable
       style={[styles.avatar, { width: size, height: size, borderRadius: size / 2, backgroundColor: solid ? colors.primary : colors.primarySoft }]}
       onPress={change}
@@ -49,9 +49,13 @@ export function AvatarPicker({ size = 56, tone = 'solid' }: { size?: number; ton
       <View style={[styles.camera, { height: Math.max(16, size * 0.32) }]}>{uploading ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="camera" size={Math.max(10, size * 0.2)} color="#fff" />}</View>
     </Pressable>
   );
+  // Sized to the photo (3 of gap, 2.5 of orange each side): a circle wherever it sits, in a row or a column.
+  const outer = size + 11;
+  return ring ? <View style={[styles.ring, { width: outer, height: outer, borderRadius: outer / 2 }]}>{avatar}</View> : avatar;
 }
 
 const styles = StyleSheet.create({
   avatar: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  ring: { borderWidth: 2.5, borderColor: colors.orange, alignItems: 'center', justifyContent: 'center' },
   camera: { position: 'absolute', right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(10,16,40,0.55)', alignItems: 'center', justifyContent: 'center' },
 });

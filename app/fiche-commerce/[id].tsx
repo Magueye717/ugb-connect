@@ -1,11 +1,11 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ErrorState } from '@/components/states';
-import { BackButton, Segmented } from '@/components/ui';
+import { BackButton, Segmented, Toggle } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { commerceApi, type BusinessDto, type BusinessTarget } from '@/features/commerce/api';
 import { BusinessProfileForm } from '@/features/commerce/BusinessProfileForm';
@@ -83,7 +83,7 @@ export default function FicheCommerce() {
                       {b.onlinePayments ? 'Boutique vérifiée : ses clients peuvent payer en ligne.' : 'Boutique d’étudiant non vérifiée : espèces seulement. Active après avoir vérifié qui la tient.'}
                     </Text>
                   </View>
-                  <Switch value={b.onlinePayments} onValueChange={setOnline} disabled={verifying} trackColor={{ true: colors.success }} accessibilityLabel="Paiements Wave et Orange Money" />
+                  <Toggle value={b.onlinePayments} onValueChange={setOnline} disabled={verifying} accessibilityLabel="Paiements Wave et Orange Money" />
                 </View>
               )}
               {/* Re-created when the permission changes: its payment choices follow. */}

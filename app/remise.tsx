@@ -12,7 +12,8 @@ import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { commerceApi, type OrderDto } from '@/features/commerce/api';
 import { ApiError } from '@/lib/api';
-import { haptics } from '@/lib/haptics';
+import { scanFeel } from '@/lib/haptics';
+import { sounds } from '@/lib/sounds';
 
 /**
  * The business hands over an order picked up at the counter: it scans the QR on the student's phone, or types the
@@ -33,9 +34,12 @@ export default function Remise() {
     setError(null);
     try {
       const o = await commerceApi.handover(business, value);
-      haptics.success();
+      scanFeel.found();
+      sounds.success();
       setDone(o);
     } catch (err) {
+      scanFeel.refused();
+      sounds.error();
       setError(err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
     } finally {
       setBusy(false);

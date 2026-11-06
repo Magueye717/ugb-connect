@@ -51,7 +51,12 @@ export default function Panier() {
   }, [businessId]);
   useFocusEffect(load);
 
-  const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/(tabs)/resto' }));
+  // Remembered once the basket empties (it then has no business): a shop's basket leads back to the shops.
+  const [lastKind, setLastKind] = useState<'restaurant' | 'shop' | null>(null);
+  if (b?.kind && b.kind !== lastKind) setLastKind(b.kind as 'restaurant' | 'shop');
+  const continueTo = lastKind === 'shop' ? { pathname: '/(tabs)/lieux' as const, params: { vue: 'boutiques' } } : { pathname: '/(tabs)/resto' as const };
+  // Back to where the student was (the shop, the article); with no history, to the shops or the restaurants.
+  const back = () => (router.canGoBack() ? router.back() : router.replace(continueTo));
 
   if (!cart.count || !cart.business) {
     return (
@@ -62,8 +67,8 @@ export default function Panier() {
             <Ionicons name="bag-handle-outline" size={32} color={colors.primary} />
           </View>
           <Text style={styles.emptyTitle}>Ton panier est vide</Text>
-          <Text style={styles.emptyText}>Choisis un restaurant ou une boutique et ajoute des articles.</Text>
-          <PrimaryButton label="Voir les restaurants" onPress={() => router.dismissTo({ pathname: '/(tabs)/resto' })} style={{ alignSelf: 'stretch' }} />
+          <Text style={styles.emptyText}>{lastKind === 'shop' ? 'Retourne au marché et ajoute des articles.' : lastKind === 'restaurant' ? 'Retourne au restaurant et ajoute des plats.' : 'Choisis un restaurant ou une boutique et ajoute des articles.'}</Text>
+          <PrimaryButton label={lastKind ? 'Continuer mes achats' : 'Voir les boutiques'} onPress={lastKind ? back : () => router.dismissTo({ pathname: '/(tabs)/lieux', params: { vue: 'boutiques' } })} style={{ alignSelf: 'stretch' }} />
         </View>
       </SafeAreaView>
     );

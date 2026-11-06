@@ -4,7 +4,6 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Linking,
   Pressable,
   ScrollView,
@@ -24,6 +23,9 @@ import { useCart } from '@/context/CartContext';
 import { colors, motion, radii, shadow, typo } from '@/constants/theme';
 import { commerceApi, type BusinessDetail, type ItemDto } from '@/features/commerce/api';
 import { aislesFor, ItemEditor } from '@/features/commerce/CatalogEditor';
+import { LikeButton } from '@/features/commerce/LikeButton';
+import { InterestButton } from '@/features/commerce/InterestButton';
+import { ProductSheet } from '@/features/commerce/ProductSheet';
 import { ReviewsSection } from '@/features/ratings/Reviews';
 import { ApiError } from '@/lib/api';
 import { haptics } from '@/lib/haptics';
@@ -68,8 +70,13 @@ export default function BusinessScreen() {
   const barY = useRef(0);
   const [barH, setBarH] = useState(0);
   const [stuck, setStuck] = useState(false);
+  // The tab row scrolls sideways (a shop has many aisles): the current tab is kept in view.
+  const tabsScroll = useRef<ScrollViewInstance>(null);
+  const tabX = useRef<Record<string, number>>({});
   // An article's photos, full screen.
   const [gallery, setGallery] = useState<ItemDto | null>(null);
+  // A shop's article opened: its details sheet.
+  const [detail, setDetail] = useState<ItemDto | null>(null);
 
   if (!b) {
     return (
@@ -89,18 +96,13 @@ export default function BusinessScreen() {
   // Its own team: they manage it, they don't order from it.
   const { member, canEdit } = b.viewer;
   // A product shown for information (a service done on the spot): the student says they're interested, on WhatsApp.
-  const interested = (m: ItemDto) => {
-    const text = [`Bonjour ${b.name}, je suis intéressé(e) par « ${m.name} » (${formatFcfa(m.price)}) vu sur UGB Campus.`, m.detail, m.photo].filter(Boolean).join('\n');
-    Linking.openURL(`https://wa.me/221${b.phone.replace(/\D/g, '')}?text=${encodeURIComponent(text)}`).catch(() =>
-      Alert.alert('WhatsApp introuvable', `Appelle ${b.name} au ${b.phone}.`, [
-        { text: 'Fermer', style: 'cancel' },
-        { text: 'Appeler', onPress: () => Linking.openURL(`tel:+221${b.phone.replace(/\D/g, '')}`) },
-      ]),
-    );
-  };
   // Restaurants: dishes then drinks. Shops: one section per aisle.
   const sections: { key: string; title: string; items: ItemDto[]; grid: boolean }[] = isShop
-    ? [...new Set(b.items.map((i) => i.category ?? 'Articles'))].map((c) => ({ key: c, title: c, items: b.items.filter((i) => (i.category ?? 'Articles') === c), grid: false }))
+    ? (() => {
+        // A shop: its aisles, the newest articles first in each.
+        const byDate = [...b.items].sort((x, y) => Date.parse(y.createdAt ?? '') - Date.parse(x.createdAt ?? '') || 0);
+        return [...new Set(byDate.map((i) => i.category ?? 'Articles'))].map((c) => ({ key: c, title: c, items: byDate.filter((i) => (i.category ?? 'Articles') === c), grid: false }));
+      })()
     : [
         { key: 'menu', title: 'Menus du jour', items: b.items.filter((i) => i.section === 'menu'), grid: false },
         { key: 'drink', title: 'Boissons', items: b.items.filter((i) => i.section === 'drink'), grid: true },
@@ -108,8 +110,11 @@ export default function BusinessScreen() {
   const current = tab ?? sections[0]?.key;
   // Under the stuck filter bar: a section's title shows just below it.
   const sectionTop = (key: string) => bodyY.current + (sectionY.current[key] ?? 0) - barH - insets.top - 8;
+  // The current tab, brought into view (a little room on its left shows there's more before it).
+  const reveal = (key: string) => tabsScroll.current?.scrollTo({ x: Math.max(0, (tabX.current[key] ?? 0) - 48), animated: true });
   const goTo = (key: string) => {
     setTab(key);
+    reveal(key);
     scroll.current?.scrollTo({ y: Math.max(0, sectionTop(key)), animated: true });
   };
   // The chip follows the reading: the last section whose title went under the bar.
@@ -118,7 +123,10 @@ export default function BusinessScreen() {
     if (isStuck !== stuck) setStuck(isStuck);
     if (sections.length < 2) return;
     const reading = [...sections].reverse().find((sec) => y >= sectionTop(sec.key) - 4)?.key ?? sections[0]!.key;
-    if (reading !== current) setTab(reading);
+    if (reading !== current) {
+      setTab(reading);
+      reveal(reading);
+    }
   };
   const location = [b.address, b.campusLabel].filter(Boolean).join(' · ');
 
@@ -191,14 +199,21 @@ export default function BusinessScreen() {
         {/* The sections (Plats · Boissons, or a shop's aisles): sticky, the current one follows the scroll. */}
         {sections.length > 1 ? (
           <View
-            style={[styles.bar, stuck && { paddingTop: insets.top + 6, ...shadow.card }]}
+            style={[styles.bar, stuck && { paddingTop: insets.top, ...shadow.card }]}
             onLayout={(e) => {
               if (!stuck) barY.current = e.nativeEvent.layout.y;
               setBarH(e.nativeEvent.layout.height);
             }}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
+            <ScrollView ref={tabsScroll} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs} accessibilityRole="tablist">
               {sections.map((s) => (
-                <Tab key={s.key} label={s.key === 'menu' ? 'Plats' : s.title} count={s.items.length} on={current === s.key} onPress={() => goTo(s.key)} />
+                <Tab
+                  key={s.key}
+                  label={s.key === 'menu' ? 'Plats' : s.title}
+                  count={s.items.length}
+                  on={current === s.key}
+                  onPress={() => goTo(s.key)}
+                  onLayout={(x) => (tabX.current[s.key] = x)}
+                />
               ))}
             </ScrollView>
           </View>
@@ -217,7 +232,9 @@ export default function BusinessScreen() {
 
           {sections.map((s) => (
             <View key={s.key} style={styles.section} onLayout={(e) => (sectionY.current[s.key] = e.nativeEvent.layout.y)}>
-              <Text style={styles.sectionTitle}>{s.title}</Text>
+              <Text style={styles.sectionTitle}>
+                {s.title} <Text style={styles.sectionCount}>· {s.items.length}</Text>
+              </Text>
               {s.grid ? (
                 // Drinks: a row of small round cards to add alongside the dish, scrolling edge to edge.
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.drinksRow} contentContainerStyle={styles.drinksContent}>
@@ -265,12 +282,22 @@ export default function BusinessScreen() {
                 </ScrollView>
               ) : (
                 s.items.map((m) => (
-                  <View key={m.id} style={[styles.dish, shadow.card, m.soldOut && { opacity: 0.55 }]}>
+                  // A shop's article: the row opens its details (a restaurant's dish stays a line of the menu).
+                  <Pressable
+                    key={m.id}
+                    disabled={!isShop}
+                    onPress={() => setDetail(m)}
+                    style={[styles.dish, shadow.card, m.soldOut && { opacity: 0.55 }]}
+                    accessibilityRole={isShop ? 'button' : undefined}
+                    accessibilityLabel={isShop ? `${m.name}, ${formatFcfa(m.price)} : voir le détail` : undefined}>
                     <Photo item={m} icon={isShop ? 'pricetag-outline' : 'restaurant-outline'} style={styles.dishPhoto} onOpen={() => setGallery(m)} />
                     <View style={styles.dishInfo}>
-                      <Text style={styles.dishName} numberOfLines={1}>
-                        {m.name}
-                      </Text>
+                      <View style={styles.nameLine}>
+                        <Text style={styles.dishName} numberOfLines={1}>
+                          {m.name}
+                        </Text>
+                        {b.itemLikes && <LikeButton item={m} variant="inline" readOnly={member} onChange={(v) => setB((cur) => cur && { ...cur, items: cur.items.map((x) => (x.id === m.id ? { ...x, ...v } : x)) })} />}
+                      </View>
                       {!!m.detail && (
                         <Text style={styles.muted} numberOfLines={2}>
                           {m.detail}
@@ -289,15 +316,12 @@ export default function BusinessScreen() {
                         ) : m.orderable ? (
                           <QtyControl qty={cart[m.id] ?? 0} disabled={!b.open || m.soldOut} max={m.stock ?? undefined} name={m.name} onChange={(q) => setQty(m.id, q)} />
                         ) : (
-                          // A service done on the spot (printing…): nothing to order; the student says they're interested.
-                          <Pressable onPress={() => interested(m)} style={styles.interested} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Intéressé par ${m.name} : écrire à ${b.name} sur WhatsApp`}>
-                            <Ionicons name="logo-whatsapp" size={14} color="#fff" />
-                            <Text style={styles.interestedText}>Intéressé</Text>
-                          </Pressable>
+                          // A service done on the spot (printing…): nothing to order; « Je suis intéressé » tells the shop, who calls back.
+                          <InterestButton item={m} shop={b} />
                         )}
                       </View>
                     </View>
-                  </View>
+                  </Pressable>
                 ))
               )}
             </View>
@@ -330,6 +354,20 @@ export default function BusinessScreen() {
         )}
       </LayoutAnimationConfig>
 
+      <ProductSheet
+        item={detail ? (b.items.find((x) => x.id === detail.id) ?? detail) : null}
+        shop={b}
+        qty={detail ? (cart[detail.id] ?? 0) : 0}
+        onQty={(q) => detail && setQty(detail.id, q)}
+        member={member}
+        onClose={() => setDetail(null)}
+        onLiked={(v) => detail && setB((cur) => cur && { ...cur, items: cur.items.map((x) => (x.id === detail.id ? { ...x, ...v } : x)) })}
+        basket={{ count: Object.values(cart).reduce((n, q) => n + q, 0), total }}
+        onOpenCart={() => {
+          setDetail(null);
+          router.push('/panier');
+        }}
+      />
       <PhotoGallery photos={gallery?.photos ?? []} start={gallery ? 0 : null} title={gallery?.name ?? ''} onClose={() => setGallery(null)} />
       {editing && (
         <ItemEditor
@@ -360,15 +398,21 @@ function RoundButton({ icon, label, onPress }: { icon: keyof typeof Ionicons.gly
   );
 }
 
-function Tab({ label, count, on, onPress }: { label: string; count: number; on: boolean; onPress: () => void }) {
+/** A section of the page: its name, underlined when it's the one being read. Its number of items is read out. */
+function Tab({ label, count, on, onPress, onLayout }: { label: string; count: number; on: boolean; onPress: () => void; onLayout: (x: number) => void }) {
   return (
-    <Pressable onPress={onPress} style={[styles.tab, on && styles.tabOn]} accessibilityRole="tab" accessibilityState={{ selected: on }} accessibilityLabel={`${label}, ${count}`}>
+    <Pressable
+      onPress={onPress}
+      onLayout={(e) => onLayout(e.nativeEvent.layout.x)}
+      style={styles.tab}
+      hitSlop={{ top: 6, bottom: 6 }}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: on }}
+      accessibilityLabel={`${label}, ${count} article${count > 1 ? 's' : ''}`}>
       <Text style={[styles.tabText, on && styles.tabTextOn]} numberOfLines={1}>
         {label}
       </Text>
-      <View style={[styles.tabCount, on && styles.tabCountOn]}>
-        <Text style={[styles.tabCountText, on && { color: colors.primary }]}>{count}</Text>
-      </View>
+      <View style={[styles.tabLine, on && styles.tabLineOn]} />
     </Pressable>
   );
 }
@@ -506,29 +550,29 @@ const styles = StyleSheet.create({
   },
   closedText: { ...typo.small, flex: 1, color: colors.warningText },
   // Edge to edge, on the page's colour: the chips scroll under nothing, the bar covers the list when stuck.
-  bar: { backgroundColor: colors.bg, paddingTop: 14, paddingBottom: 10 },
-  tabs: { flexDirection: 'row', gap: 8, paddingHorizontal: PADDING },
-  tab: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 14, paddingRight: 6, minHeight: 38, maxWidth: 200, borderRadius: radii.pill, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
-  tabOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  tabText: { ...typo.smallStrong, color: colors.navy, flexShrink: 1 },
-  tabTextOn: { color: '#fff' },
-  tabCount: { minWidth: 24, height: 24, paddingHorizontal: 6, borderRadius: 12, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
-  tabCountOn: { backgroundColor: '#fff' },
-  tabCountText: { ...typo.captionStrong, color: colors.muted2 },
+  bar: { backgroundColor: colors.card, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  tabs: { flexDirection: 'row', gap: 22, paddingHorizontal: PADDING },
+  tab: { paddingTop: 14, maxWidth: 200, alignItems: 'center' },
+  tabText: { ...typo.bodyStrong, color: colors.muted2, paddingBottom: 10 },
+  tabTextOn: { color: colors.navy },
+  tabLine: { alignSelf: 'stretch', height: 3, borderRadius: 2, backgroundColor: 'transparent' },
+  tabLineOn: { backgroundColor: colors.primary },
   soldOut: { ...typo.captionStrong, color: colors.dangerText, marginTop: 2 },
   fewLeft: { ...typo.captionStrong, color: colors.orangeText, marginTop: 2 },
   section: { gap: 12 },
   reviewsLink: { color: colors.navy, fontWeight: '700', textDecorationLine: 'underline' },
   sectionTitle: { ...typo.section, color: colors.navy },
+  sectionCount: { color: colors.muted2, fontWeight: '600' },
   muted: { ...typo.caption, color: colors.muted2, marginTop: 2 },
   dish: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 10, flexDirection: 'row', gap: 12 },
   dishPhoto: { width: 100, height: 100, borderRadius: radii.md, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   photoCount: { position: 'absolute', right: 6, bottom: 6, flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radii.pill, backgroundColor: 'rgba(10,16,40,0.7)' },
   photoCountText: { ...typo.label, color: '#fff' },
   dishInfo: { flex: 1, paddingVertical: 2 },
-  dishName: { ...typo.title, color: colors.navy },
+  dishName: { ...typo.title, color: colors.navy, flex: 1 },
   dishBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', paddingTop: 8 },
   price: { ...typo.title, color: colors.primary },
+  nameLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   drinksRow: { marginHorizontal: -PADDING },
   // Room below for the cards' shadow, which a horizontal scroll would otherwise cut.
   drinksContent: { paddingHorizontal: PADDING, paddingTop: 4, paddingBottom: 14, gap: 8 },
@@ -562,8 +606,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  interested: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, minHeight: 32, borderRadius: radii.pill, backgroundColor: '#25D366' },
-  interestedText: { ...typo.captionStrong, color: '#fff' },
   editBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, minHeight: 32, borderRadius: radii.pill, backgroundColor: colors.primarySoft },
   editBtnText: { ...typo.captionStrong, color: colors.primary },
   ownerNote: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', marginTop: 12, padding: 10, borderRadius: radii.md, backgroundColor: colors.primarySoft },

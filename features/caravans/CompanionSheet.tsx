@@ -49,6 +49,9 @@ export function CompanionSheet({ seat, initial, route, onClose, onSave, onRemove
               <Text style={styles.title}>Place {seat} · Pour qui ?</Text>
               <Text style={styles.sub}>Ton accompagnant n’a pas besoin de l’app. Son nom sera vérifié à l’embarquement.</Text>
             </View>
+            <Pressable onPress={onClose} style={styles.close} hitSlop={10} accessibilityRole="button" accessibilityLabel="Fermer">
+              <Ionicons name="close" size={20} color={colors.navy} />
+            </Pressable>
           </View>
           <LabeledField label="Nom complet" error={touched ? nameError : null}>
             <Field placeholder="Awa Ndiaye" autoCapitalize="words" autoComplete="name" value={name} onChangeText={setName} invalid={touched && !!nameError} />
@@ -88,6 +91,7 @@ export function CompanionSheet({ seat, initial, route, onClose, onSave, onRemove
 }
 
 const styles = StyleSheet.create({
+  close: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,27,76,0.35)' },
   sheet: { backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20, paddingBottom: 36, gap: 14 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },

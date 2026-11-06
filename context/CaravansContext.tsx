@@ -5,7 +5,7 @@ import type { Caravan } from '@/constants/data';
 import { useAuth } from '@/context/AuthContext';
 import { caravansApi, isCaravanTicket, toCaravan, type CaravanTicketDto, type IncomingTransferDto, type SeatRequest, type TicketDto } from '@/features/caravans/api';
 import { realtime } from '@/features/chat/realtime';
-import { payInBrowser, type PaymentDto, type PaymentMethod } from '@/features/payments/checkout';
+import { payInBrowser, type PaymentDto, type PaymentMethod, type TicketMethod } from '@/features/payments/checkout';
 
 /** How a purchase ended, from the server's point of view. */
 export type BookingOutcome = { status: 'confirmed'; ticketId: string } | { status: 'refunded' | 'failed' | 'pending' };
@@ -23,7 +23,7 @@ type CaravansValue = {
   /** The valid ticket I travel on for a departure (not the companions' ones I hold). */
   ticketFor: (caravanId: string) => CaravanTicketDto | undefined;
   /** Holds the seats (mine and/or companions'), opens Wave / Orange Money once, and waits for the server's answer. */
-  book: (caravanId: string, input: { seats: SeatRequest[]; pickupStopId: string; dropoffStopId: string; method: PaymentMethod }) => Promise<BookingOutcome>;
+  book: (caravanId: string, input: { seats: SeatRequest[]; pickupStopId: string; dropoffStopId: string; method: TicketMethod }) => Promise<BookingOutcome>;
   /** Back to the payment page for a seat taken but not paid yet. */
   resume: (caravan: Caravan) => Promise<BookingOutcome>;
   release: (bookingId: string) => Promise<void>;
@@ -45,7 +45,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 export function CaravansProvider({ children }: { children: ReactNode }) {
   const { user, status } = useAuth();
-  const enabled = status === 'signedIn' && !!user?.studentId;
+  const enabled = status === 'signedIn' && !!user?.isStudent;
   const [caravans, setCaravans] = useState<Caravan[]>([]);
   const [tickets, setTickets] = useState<TicketDto[]>([]);
   const [incoming, setIncoming] = useState<IncomingTransferDto[]>([]);
@@ -127,7 +127,10 @@ export function CaravansProvider({ children }: { children: ReactNode }) {
       ticketFor: (caravanId) => tickets.find((t): t is CaravanTicketDto => isCaravanTicket(t) && t.details.departureId === caravanId && t.status === 'active' && !t.passenger),
       book: async (caravanId, input) => {
         const { booking, payment } = await caravansApi.book(caravanId, input);
-        return settle(booking.id, payment);
+        if (payment) return settle(booking.id, payment);
+        // Cash: the ticket is issued at once, to pay at boarding.
+        await refresh();
+        return booking.ticketId ? { status: 'confirmed', ticketId: booking.ticketId } : { status: 'failed' };
       },
       resume: async (caravan) => {
         const held = caravan.myBooking;

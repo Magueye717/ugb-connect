@@ -9,6 +9,8 @@ type ChatsValue = {
   conversations: ConversationSummary[];
   /** New messages from others in a conversation (0 when unknown). */
   unreadFor: (conversationId: string | null | undefined) => number;
+  /** The same, found by what the conversation is about (a lost-item claim's id, a trip's id). */
+  unreadOf: (type: ConversationSummary['type'], contextRef: string | null | undefined) => number;
   /** The open chat screen read everything: clears its badge without waiting for the server. */
   markSeen: (conversationId: string) => void;
   refresh: () => Promise<void>;
@@ -69,6 +71,7 @@ export function ChatsProvider({ children }: { children: ReactNode }) {
     () => ({
       conversations,
       unreadFor: (id) => (id ? (conversations.find((c) => c.id === id)?.unread ?? 0) : 0),
+      unreadOf: (type, ref) => (ref ? (conversations.find((c) => c.type === type && c.contextRef === ref)?.unread ?? 0) : 0),
       markSeen: (id) => setConversations((cs) => cs.map((c) => (c.id === id && c.unread ? { ...c, unread: 0 } : c))),
       refresh,
     }),

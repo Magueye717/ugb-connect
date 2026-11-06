@@ -7,7 +7,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EmptyState, ErrorState } from '@/components/states';
-import { Field, LabeledField, PrimaryButton, SafeBottom, Segmented, StatusChip, TextButton } from '@/components/ui';
+import { Field, LabeledField, PrimaryButton, SafeBottom, Segmented, SheetHeader, StatusChip, TextButton } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCampus } from '@/context/CampusContext';
@@ -130,7 +130,7 @@ function ReasonSheet({ title, note, confirm, onClose, onConfirm }: { title: stri
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <View style={styles.sheet}>
-          <Text style={styles.sheetTitle}>{title}</Text>
+          <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>{title}</SheetHeader>
           <Text style={styles.meta}>{note}</Text>
           <LabeledField label="Motif">
             <Field placeholder="Image trompeuse, contenu interdit…" value={reason} onChangeText={setReason} maxLength={200} />

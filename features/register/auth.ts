@@ -36,7 +36,7 @@ export type AccountConflict = 'student_number' | 'phone';
  */
 export async function checkAccount(studentId: string, phone: string): Promise<{ conflict: AccountConflict | null; existingAccount: boolean }> {
   const res = await api<{ available: boolean; conflict?: AccountConflict; existingAccount?: boolean }>('POST', '/auth/register/check', {
-    body: { studentNumber: studentId, phone },
+    body: { ...(studentId ? { studentNumber: studentId } : {}), phone },
   });
   return { conflict: res.available ? null : (res.conflict ?? 'phone'), existingAccount: !!res.existingAccount };
 }
@@ -75,6 +75,7 @@ export async function verifyOtp(challengeId: string, code: string): Promise<Veri
 
 export type NewAccount = {
   verificationToken: string;
+  /** Empty: added later on the profile. */
   studentId: string;
   firstName: string;
   lastName: string;
@@ -94,7 +95,7 @@ export async function createAccount(input: NewAccount): Promise<Tokens> {
   const { tokens } = await api<{ userId: string; tokens: Tokens }>('POST', '/auth/register', {
     body: {
       verificationToken: input.verificationToken,
-      studentNumber: input.studentId,
+      ...(input.studentId ? { studentNumber: input.studentId } : {}),
       firstName: input.firstName,
       lastName: input.lastName,
       campus: input.campus,

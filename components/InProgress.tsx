@@ -5,6 +5,8 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCart } from '@/context/CartContext';
 import { useLost } from '@/context/LostContext';
+import { UnreadBadge, unreadLabel } from '@/components/UnreadBadge';
+import { useChats } from '@/features/chat/ChatContext';
 import { useOrders } from '@/context/OrdersContext';
 import { orderSteps } from '@/features/commerce/api';
 import { useTaxi } from '@/context/TaxiContext';
@@ -19,6 +21,8 @@ type Item = {
   title: string;
   detail: string;
   href: Href;
+  /** New messages in its conversation(s): a badge at the end of the row. */
+  unread?: number;
   /** Quick action right in the row (e.g. check in at the taxi meeting point). */
   action?: { label: string; onPress: () => void };
 };
@@ -35,6 +39,7 @@ export function InProgress() {
   const taxi = useTaxi();
   const cart = useCart();
   const lost = useLost();
+  const chats = useChats();
   const { orders } = useOrders();
 
   const items: Item[] = [];
@@ -72,9 +77,10 @@ export function InProgress() {
         const unread = taxi.unreadFor(trip.id);
         if (trip.myStatus === 'pending_payment') return `Place gardée · paiement à terminer`;
         const base = `Départ ${hhmm(trip.departureAt)} · ${trip.seatsTaken}/${trip.seats} places`;
-        return unread ? `${base} · ${unread} nouveau${unread > 1 ? 'x' : ''} message${unread > 1 ? 's' : ''}` : base;
+        return unread ? `${base} · ${unreadLabel(unread)}` : base;
       })(),
       href: `/taxi/${trip.id}`,
+      unread: taxi.unreadFor(trip.id),
       // Seats locked and not checked in yet: one tap from home.
       action:
         trip.myStatus === 'joined' && trip.passengers[0] !== taxi.me && now >= trip.lockAt && !trip.checkedIn.includes(taxi.me)
@@ -94,9 +100,13 @@ export function InProgress() {
   // Open items with a conversation going: mine (someone wrote), or one I wrote about.
   for (const i of lost.items ?? []) {
     if (i.returned) continue;
-    if (i.myClaimId) items.push({ key: i.id, icon: 'chatbubbles-outline', title: i.name, detail: 'Discussion objet perdu en cours', href: `/objet/discussion/${i.myClaimId}` });
-    else if (i.mine && i.conversationsCount > 0) {
-      items.push({ key: i.id, icon: 'chatbubbles-outline', title: i.name, detail: `${i.conversationsCount} discussion${i.conversationsCount > 1 ? 's' : ''} en cours`, href: `/objet/${i.id}` });
+    if (i.myClaimId) {
+      const unread = chats.unreadOf('lost_claim', i.myClaimId);
+      items.push({ key: i.id, icon: 'chatbubbles-outline', title: i.name, detail: unread ? unreadLabel(unread) : 'Discussion objet perdu en cours', href: `/objet/discussion/${i.myClaimId}`, unread });
+    } else if (i.mine && i.conversationsCount > 0) {
+      const unread = (i.claimIds ?? []).reduce((n, id) => n + chats.unreadOf('lost_claim', id), 0);
+      const talks = `${i.conversationsCount} discussion${i.conversationsCount > 1 ? 's' : ''} en cours`;
+      items.push({ key: i.id, icon: 'chatbubbles-outline', title: i.name, detail: unread ? `${talks} · ${unreadLabel(unread)}` : talks, href: `/objet/${i.id}`, unread });
     }
   }
 
@@ -131,6 +141,8 @@ export function InProgress() {
               <Ionicons name="hand-left-outline" size={14} color="#fff" />
               <Text style={styles.actionText}>{it.action.label}</Text>
             </Pressable>
+          ) : it.unread ? (
+            <UnreadBadge count={it.unread} />
           ) : (
             <Ionicons name="chevron-forward" size={16} color={colors.muted} />
           )}

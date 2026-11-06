@@ -19,7 +19,7 @@ const REFRESH_MS = 60_000;
 /** Lost and found from the backend, refreshed every minute while the app is open (students only). */
 export function LostProvider({ children }: { children: ReactNode }) {
   const { status, user } = useAuth();
-  const enabled = status === 'signedIn' && !!user?.studentId;
+  const enabled = status === 'signedIn' && !!user?.isStudent;
   const [items, setItems] = useState<LostItemDto[] | null>(null);
 
   const refresh = useCallback(async () => {

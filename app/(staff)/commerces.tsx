@@ -3,13 +3,13 @@ import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MultiSelect } from '@/components/Select';
 import { EmptyState, ErrorState } from '@/components/states';
-import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, Segmented, TextButton } from '@/components/ui';
+import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, Segmented, SheetHeader, TextButton, Toggle } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { commerceApi, type BusinessDto, type BusinessKind, type OrderMethod, type OwnedEntity } from '@/features/commerce/api';
@@ -94,7 +94,7 @@ export default function Commerces() {
               <Text style={styles.muted}>{b.active ? b.statusLabel : 'Masqué aux étudiants'}</Text>
               {b.byStudent && !b.onlinePayments && <Text style={styles.toVerify}>Espèces seulement · à vérifier</Text>}
             </View>
-            <Switch value={b.active} onValueChange={(v) => toggle(b, v)} trackColor={{ true: colors.success }} accessibilityLabel={`${b.name} visible`} />
+            <Toggle value={b.active} onValueChange={(v) => toggle(b, v)} accessibilityLabel={`${b.name} visible`} />
             <Ionicons name="chevron-forward" size={18} color={colors.muted} />
           </Pressable>
         ))}
@@ -306,7 +306,7 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
       <Pressable style={styles.backdrop} onPress={onClose} />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <ScrollView style={styles.sheet} contentContainerStyle={{ gap: 12, paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
-          <Text style={styles.sheetTitle}>{current ? `Modifier ${current.name}` : kind === 'restaurant' ? 'Nouveau restaurant' : 'Nouvelle boutique'}</Text>
+          <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>{current ? `Modifier ${current.name}` : kind === 'restaurant' ? 'Nouveau restaurant' : 'Nouvelle boutique'}</SheetHeader>
 
           <Pressable style={styles.cover} onPress={pick} accessibilityRole="button" accessibilityLabel="Ajouter une photo">
             {photo ? <Image source={{ uri: photo.url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name="camera-outline" size={26} color={colors.primary} />}

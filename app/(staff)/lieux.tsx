@@ -3,12 +3,12 @@ import { Image } from 'expo-image';
 import * as Location from 'expo-location';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EmptyState, ErrorState } from '@/components/states';
-import { Chip, Field, LabeledField, PrimaryButton, SafeBottom } from '@/components/ui';
+import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, SheetHeader, Toggle } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { PLACE_CATEGORIES, placeIcon, placesApi, placeTone, type PlaceCategory, type PlaceDto } from '@/features/places/api';
 import { CAMPUSES } from '@/features/register/validation';
@@ -108,7 +108,7 @@ export default function LieuxAdmin() {
                   {[p.category, p.area].filter(Boolean).join(' · ')}
                 </Text>
               </View>
-              <Switch value={p.active} onValueChange={(v) => toggle(p, v)} trackColor={{ true: colors.success }} accessibilityLabel={`${p.name} visible`} />
+              <Toggle value={p.active} onValueChange={(v) => toggle(p, v)} accessibilityLabel={`${p.name} visible`} />
             </Pressable>
           );
         })}
@@ -209,7 +209,7 @@ function PlaceEditor({ place, onClose, onSaved }: { place: PlaceDto | null; onCl
       <Pressable style={styles.backdrop} onPress={onClose} />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <ScrollView style={styles.sheet} contentContainerStyle={{ gap: 12, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-          <Text style={styles.sheetTitle}>{place ? 'Modifier le lieu' : 'Nouveau lieu'}</Text>
+          <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>{place ? 'Modifier le lieu' : 'Nouveau lieu'}</SheetHeader>
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photos}>
             {photos.map((p, i) => (

@@ -10,13 +10,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { OrganizerLine } from '@/components/caravan';
 import { popIn, riseIn } from '@/components/motion';
-import { BackButton, Field, LabeledField, PrimaryButton, SafeBottom } from '@/components/ui';
+import { BackButton, Field, LabeledField, PrimaryButton, SafeBottom, SheetHeader } from '@/components/ui';
 import { formatDateTime, formatFcfa } from '@/constants/data';
 import { colors, motion, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useCaravans } from '@/context/CaravansContext';
 import { caravansApi, dayLabel, hourLabel, isCaravanTicket, isEventTicket, toOrganizer, type EventTicketDto, type TicketDto } from '@/features/caravans/api';
-import { methodLabel } from '@/features/payments/checkout';
+import { ticketMethodLabel } from '@/features/payments/checkout';
 import { RatingCard } from '@/features/ratings/RatingCard';
 import { ApiError } from '@/lib/api';
 import { useNow } from '@/lib/useNow';
@@ -114,7 +114,9 @@ export default function Billet() {
   const missingSeats = Math.max(0, d.minPassengers - d.seatsBooked);
   const active = ticket.status === 'active';
   const quote = ticket.cancellationQuote;
-  const method = methodLabel[ticket.paidWith] ?? 'ton compte';
+  const method = ticketMethodLabel[ticket.paidWith] ?? 'ton compte';
+  // Paid in cash: nothing paid in the app, nothing refunded; the price handed over at boarding.
+  const cash = ticket.paidWith === 'cash';
   const companion = ticket.passenger;
   const firstName = companion?.name.split(' ')[0] ?? '';
   // The other tickets I hold for this departure (my seat and my companion's): one tap from one to the other.
@@ -144,7 +146,7 @@ export default function Billet() {
       };
       return Alert.alert(
         'Annuler ton billet ?',
-        `${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}${quote.fee ? ` (${formatFcfa(quote.fee)} de frais)` : ''}.\n\n` +
+        (cash ? 'Ta place est libérée : rien à rembourser.\n\n' : `${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}${quote.fee ? ` (${formatFcfa(quote.fee)} de frais)` : ''}.\n\n`) +
           `Le billet de ${names} reste valable si tu le gardes. Tu peux aussi l’annuler : ${formatFcfa(quote.refund + others.reduce((n, t) => n + refund(t), 0))} remboursés en tout.`,
         [
           { text: 'Garder', style: 'cancel' },
@@ -155,9 +157,11 @@ export default function Billet() {
     }
     Alert.alert(
       'Annuler ce billet ?',
-      quote.fee === 0
-        ? `Annulation gratuite : ${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}.`
-        : `Moins de 24 h avant le départ : ${formatFcfa(quote.fee)} de frais. ${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}.`,
+      cash
+        ? 'Ta place est libérée. Rien n’a été payé, rien à rembourser.'
+        : quote.fee === 0
+          ? `Annulation gratuite : ${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}.`
+          : `Moins de 24 h avant le départ : ${formatFcfa(quote.fee)} de frais. ${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}.`,
       [
         { text: 'Garder mon billet', style: 'cancel' },
         { text: 'Annuler le billet', style: 'destructive', onPress: () => cancel(ticket.id).then(load, fail('Annulation impossible')) },
@@ -172,8 +176,10 @@ export default function Billet() {
           icon: 'close-circle' as const,
           text:
             ticket.cancellation?.reason === 'holder_cancelled'
-              ? `Billet annulé · ${formatFcfa(ticket.cancellation.refundAmount)} remboursés sur ton numéro ${method}`
-              : `Départ annulé${ticket.cancellation?.reason === 'min_not_reached' ? ' (pas assez de passagers)' : ''} · ${formatFcfa(ticket.cancellation?.refundAmount ?? ticket.price)} remboursés`,
+              ? cash
+                ? 'Billet annulé · rien à payer'
+                : `Billet annulé · ${formatFcfa(ticket.cancellation.refundAmount)} remboursés sur ton numéro ${method}`
+              : `Départ annulé${ticket.cancellation?.reason === 'min_not_reached' ? ' (pas assez de passagers)' : ''} · ${cash ? 'rien à payer' : `${formatFcfa(ticket.cancellation?.refundAmount ?? ticket.price)} remboursés`}`,
         }
       : ticket.status === 'transferred'
         ? { tone: 'neutral' as const, icon: 'swap-horizontal' as const, text: `Billet transféré à ${ticket.transfer?.to.name ?? 'un ami'} (${ticket.transfer?.to.phoneMasked ?? ''})` }
@@ -184,7 +190,7 @@ export default function Billet() {
             : {
                 tone: 'warning' as const,
                 icon: 'hourglass-outline' as const,
-                text: `En attente de ${missingSeats} passager${missingSeats > 1 ? 's' : ''} d’ici le ${formatDateTime(Date.parse(d.confirmBy))}. Sinon tu es remboursé à 100 %.`,
+                text: `En attente de ${missingSeats} passager${missingSeats > 1 ? 's' : ''} d’ici le ${formatDateTime(Date.parse(d.confirmBy))}. ${cash ? 'Sinon ta réservation est annulée.' : 'Sinon tu es remboursé à 100 %.'}`,
               };
 
   return (
@@ -192,6 +198,7 @@ export default function Billet() {
       <Header onBack={back} />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <StatusBanner {...banner} />
+        {active && (ticket.cashDue ?? 0) > 0 && <CashDue amount={ticket.cashDue!} where="à l’embarquement" />}
         {/* The trip is over: « Noter Sunu Voyage » (optional). */}
         {active && !companion && <RatingCard subject="caravan" id={d.departureId} />}
 
@@ -237,7 +244,9 @@ export default function Billet() {
               <StopLine icon="exit-outline" label="Descente" place={d.dropoff.place} time={`~${dropoffTime}`} />
             </View>
             <Text style={styles.plate}>
-              {d.vehicle.label} · {d.vehicle.plate}
+              {d.vehicle.label}
+              {d.vehicle.airConditioned ? ' · Climatisé' : ''}
+              {d.vehicle.plate ? ` · ${d.vehicle.plate}` : ''}
             </Text>
           </View>
 
@@ -386,12 +395,29 @@ function TicketActions({
   );
 }
 
+/** A cash ticket not paid yet: what to bring, and to whom. */
+function CashDue({ amount, where }: { amount: number; where: string }) {
+  return (
+    <View style={styles.cash} accessibilityRole="summary">
+      <View style={styles.cashIcon}>
+        <Ionicons name="cash-outline" size={20} color={colors.successText} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.cashTitle}>À payer {where} : {formatFcfa(amount)}</Text>
+        <Text style={styles.cashText}>En espèces, à l’organisateur, quand il scanne ton billet. Prévois l’appoint.</Text>
+      </View>
+    </View>
+  );
+}
+
 /** An event ticket: the cover, what and when, the type, the QR code for the entrance. */
 function EventBillet({ ticket, fresh, onBack, load }: { ticket: EventTicketDto; fresh: boolean; onBack: () => void; load: () => void }) {
   const { cancel, tickets } = useCaravans();
   const d = ticket.details;
   const active = ticket.status === 'active';
-  const method = methodLabel[ticket.paidWith] ?? 'ton compte';
+  const method = ticketMethodLabel[ticket.paidWith] ?? 'ton compte';
+  // Paid in cash: nothing paid in the app, nothing refunded; the price handed over at boarding.
+  const cash = ticket.paidWith === 'cash';
   const at = Date.parse(d.startsAt);
   // My other tickets for this event (bought for friends): one tap from one to the other.
   const group = tickets.filter(isEventTicket).filter((t) => t.details.eventId === d.eventId && t.status === 'active');
@@ -402,9 +428,11 @@ function EventBillet({ ticket, fresh, onBack, load }: { ticket: EventTicketDto; 
     if (!quote.allowed) return Alert.alert('Annulation impossible', quote.reason);
     Alert.alert(
       'Annuler ce billet ?',
-      quote.fee === 0
-        ? `Annulation gratuite : ${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}.`
-        : `Moins de 24 h avant l’événement : ${formatFcfa(quote.fee)} de frais. ${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}.`,
+      cash
+        ? 'Ta place est libérée. Rien n’a été payé, rien à rembourser.'
+        : quote.fee === 0
+          ? `Annulation gratuite : ${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}.`
+          : `Moins de 24 h avant l’événement : ${formatFcfa(quote.fee)} de frais. ${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}.`,
       [
         { text: 'Garder mon billet', style: 'cancel' },
         { text: 'Annuler le billet', style: 'destructive', onPress: () => cancel(ticket.id).then(load, fail('Annulation impossible')) },
@@ -419,8 +447,10 @@ function EventBillet({ ticket, fresh, onBack, load }: { ticket: EventTicketDto; 
           icon: 'close-circle' as const,
           text:
             ticket.cancellation?.reason === 'holder_cancelled'
-              ? `Billet annulé · ${formatFcfa(ticket.cancellation.refundAmount)} remboursés sur ton numéro ${method}`
-              : `Événement annulé · ${formatFcfa(ticket.cancellation?.refundAmount ?? ticket.price)} remboursés`,
+              ? cash
+                ? 'Billet annulé · rien à payer'
+                : `Billet annulé · ${formatFcfa(ticket.cancellation.refundAmount)} remboursés sur ton numéro ${method}`
+              : `Événement annulé · ${cash ? 'rien à payer' : `${formatFcfa(ticket.cancellation?.refundAmount ?? ticket.price)} remboursés`}`,
         }
       : ticket.status === 'transferred'
         ? { tone: 'neutral' as const, icon: 'swap-horizontal' as const, text: `Billet offert à ${ticket.transfer?.to.name ?? 'un ami'} (${ticket.transfer?.to.phoneMasked ?? ''})` }
@@ -433,6 +463,7 @@ function EventBillet({ ticket, fresh, onBack, load }: { ticket: EventTicketDto; 
       <Header onBack={onBack} />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <StatusBanner {...banner} />
+        {active && (ticket.cashDue ?? 0) > 0 && <CashDue amount={ticket.cashDue!} where="à l’entrée" />}
         {active && <RatingCard subject="event" id={d.eventId} />}
 
         {group.length > 1 && <TicketSwitcher current={ticket.id} items={group.map((t) => ({ id: t.id, title: t.details.typeName, sub: formatFcfa(t.price) }))} />}
@@ -564,7 +595,7 @@ function TransferSheet({
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <View style={styles.sheet}>
-          <Text style={styles.sheetTitle}>Transférer le billet</Text>
+          <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>Transférer le billet</SheetHeader>
           <Text style={styles.actionSub}>
             Ton ami doit avoir un compte étudiant UGB Campus. Une fois qu’il accepte, le billet devient le sien et ton QR code ne marche plus.
           </Text>
@@ -595,6 +626,10 @@ function TransferSheet({
 }
 
 const styles = StyleSheet.create({
+  cash: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: radii.md, backgroundColor: colors.successBg, borderWidth: 1, borderColor: '#BFE8CF' },
+  cashIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  cashTitle: { ...typo.bodyStrong, color: colors.successText },
+  cashText: { ...typo.caption, color: colors.successText, marginTop: 2 },
   safe: { flex: 1, backgroundColor: colors.bg },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 8 },
   h1: { ...typo.h3, color: colors.navy },

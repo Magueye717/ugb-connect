@@ -8,15 +8,17 @@ import { FillBar, OrganizerLine } from '@/components/caravan';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useOrgDepartures } from '@/features/organizer/boarding';
+import { useNow } from '@/lib/useNow';
 
 /**
- * Organizer home: their departures, soonest first, each opening its passenger list.
- * Creating and editing happen on the web platform; the app is for the day of the trip.
- * Events will be listed here too, with the same list + scanner.
+ * Organizer home: their departures, soonest first, each opening its passenger list (a draft opens its form).
+ * The owner and managers create departures here; scanners only see the list.
  */
 export default function Activites() {
   const { organizer } = useAuth();
   const { items: mine, loading, error, refresh } = useOrgDepartures();
+  const canCreate = !!organizer?.roles.some((r) => r === 'owner' || r === 'manager');
+  const now = useNow();
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -26,12 +28,14 @@ export default function Activites() {
         refreshControl={<RefreshControl refreshing={false} onRefresh={refresh} />}>
         <Text style={styles.h1}>Mes activités</Text>
         {organizer && (
-          <View style={[styles.card, shadow.card, { gap: 6 }]}>
+          <View style={[styles.card, shadow.card, { gap: 12 }]}>
             <OrganizerLine organizer={organizer} />
-            <View style={styles.web}>
-              <Ionicons name="desktop-outline" size={16} color={colors.muted2} />
-              <Text style={styles.webText}>Pour créer ou modifier un départ, utilise la plateforme web organisateur.</Text>
-            </View>
+            {canCreate && (
+              <Pressable style={styles.create} onPress={() => router.push('/depart/edition/nouveau')} accessibilityRole="button">
+                <Ionicons name="add" size={18} color="#fff" />
+                <Text style={styles.createText}>Nouveau départ</Text>
+              </Pressable>
+            )}
           </View>
         )}
 
@@ -39,7 +43,11 @@ export default function Activites() {
         {loading && <ActivityIndicator color={colors.primary} />}
         {!loading && error && mine.length === 0 && <ErrorState text={error} onRetry={refresh} />}
         {!loading && !error && mine.length === 0 && (
-          <EmptyState icon="bus-outline" title="Aucun départ publié" text="Les départs créés sur la plateforme web apparaissent ici." />
+          <EmptyState
+            icon="bus-outline"
+            title="Aucun départ à venir"
+            text={canCreate ? 'Crée ton premier départ : trajet, arrêts, prix. Les étudiants réservent depuis l’onglet Caravanes.' : 'Les départs créés par ton organisation apparaissent ici.'}
+          />
         )}
         {mine.map((c) => {
           const total = c.counts.booked;
@@ -48,16 +56,16 @@ export default function Activites() {
             <Pressable
               key={c.id}
               style={[styles.card, shadow.card, { gap: 12 }]}
-              onPress={() => router.push(`/depart/${c.id}`)}
+              onPress={() => router.push(c.status === 'draft' && canCreate ? `/depart/edition/${c.id}` : `/depart/${c.id}`)}
               accessibilityRole="button"
-              accessibilityLabel={`Liste des passagers ${c.from} vers ${c.to}, ${c.date}, ${total} passagers`}>
+              accessibilityLabel={c.status === 'draft' ? `Brouillon ${c.from} vers ${c.to}, ${c.date}` : `Liste des passagers ${c.from} vers ${c.to}, ${c.date}, ${total} passagers`}>
               <View style={styles.row}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.route}>
                     {c.from} → {c.to}
                   </Text>
                   <Text style={styles.muted}>
-                    {c.date} · {c.time} · {c.plate}
+                    {c.date} · {c.time} · {c.plate ?? c.vehicle.label}
                     {c.status === 'draft' ? ' · brouillon' : c.status === 'departed' ? ' · en route' : ''}
                   </Text>
                 </View>
@@ -69,6 +77,12 @@ export default function Activites() {
                 {on > 0 && <Chip icon="checkmark-circle-outline" text={`${on}/${total} à bord`} tone="success" />}
               </View>
               <FillBar caravan={c} />
+              {canCreate && (c.status === 'published' || c.status === 'confirmed') && c.departureAt > now && (
+                <Pressable onPress={() => router.push(`/depart/edition/${c.id}`)} style={styles.editLink} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Modifier ${c.from} vers ${c.to}`}>
+                  <Ionicons name="create-outline" size={15} color={colors.primary} />
+                  <Text style={styles.editLinkText}>Modifier (arrêts, véhicule)</Text>
+                </Pressable>
+              )}
             </Pressable>
           );
         })}
@@ -92,8 +106,10 @@ const styles = StyleSheet.create({
   body: { padding: 20, gap: 12, paddingBottom: 32 },
   h1: { ...typo.h1, color: colors.navy },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14 },
-  web: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
-  webText: { ...typo.caption, flex: 1, color: colors.muted2, lineHeight: 17 },
+  editLink: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 2 },
+  editLinkText: { ...typo.smallStrong, color: colors.primary },
+  create: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 44, borderRadius: radii.sm, backgroundColor: colors.accent },
+  createText: { color: '#fff', fontWeight: '700' },
   section: { ...typo.section, color: colors.navy, marginTop: 4 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   route: { ...typo.title, color: colors.navy },

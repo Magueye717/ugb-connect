@@ -40,6 +40,8 @@ export type LostItemDto = {
   myClaimId: string | null;
   /** Declarer: conversations opened about it. */
   conversationsCount: number;
+  /** Declarer: those conversations' claim ids, for their unread counts. */
+  claimIds?: string[];
 };
 
 export type LostItemDetail = LostItemDto & { conversations: { claimId: string; with: string; role: ClaimRole; createdAt: string }[] };

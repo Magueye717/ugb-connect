@@ -41,6 +41,17 @@ export function useTaxiActions() {
 
   const join = (t: TaxiTrip) => {
     const price = formatFcfa(t.seatPrice);
+    // Reservation only: the seat is taken now, the share paid in the taxi.
+    if (!t.payOnline) {
+      const reserve = async () => {
+        if ((await attempt(() => taxi.join(t.id))) === 'joined') toast(`Place réservée. Ta part : ${price}, à régler dans le taxi.`);
+      };
+      Alert.alert('Réserver ta place ?', `Ta part : ${price}, à régler dans le taxi. Tu peux annuler ta réservation tant que vous n’êtes pas partis.`, [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Réserver', onPress: reserve },
+      ]);
+      return;
+    }
     const pay = async (method: PaymentMethod) => tellOutcome(t, await attempt(() => taxi.join(t.id, method)));
     Alert.alert(`Payer ta place · ${price}`, `Places verrouillées à ${hhmm(t.lockAt)} : après, quitter n’est plus remboursé.`, [
       { text: 'Annuler', style: 'cancel' },
@@ -52,6 +63,13 @@ export function useTaxiActions() {
   const resumePayment = async (t: TaxiTrip) => tellOutcome(t, await attempt(() => taxi.resumePayment(t.id)));
 
   const leave = (t: TaxiTrip, locked: boolean) => {
+    if (!t.payOnline) {
+      Alert.alert('Annuler ta réservation ?', 'Ta place est rendue aux autres étudiants.', [
+        { text: 'Garder ma place', style: 'cancel' },
+        { text: 'Annuler la réservation', style: 'destructive', onPress: () => attempt(() => taxi.leave(t.id)) },
+      ]);
+      return;
+    }
     const paying = t.myStatus === 'pending_payment';
     Alert.alert(
       paying ? 'Libérer la place ?' : 'Quitter le trajet ?',
@@ -71,10 +89,10 @@ export function useTaxiActions() {
     const others = t.passengers.length - 1;
     const doCancel = async () => {
       const res = await attempt(() => taxi.cancel(t.id));
-      if (res?.strike) Alert.alert('Trajet annulé', `Annulation tardive : ${strikes + 1}/${TAXI_STRIKES_LIMIT}. Les passagers sont remboursés à 100 %.`);
+      if (res?.strike) Alert.alert('Trajet annulé', `Annulation tardive : ${strikes + 1}/${TAXI_STRIKES_LIMIT}. ${t.payOnline ? 'Les passagers sont remboursés à 100 %.' : 'Les passagers sont prévenus.'}`);
     };
     if (others === 0) {
-      Alert.alert('Annuler le trajet ?', 'Personne n’a encore payé de place.', [
+      Alert.alert('Annuler le trajet ?', t.payOnline ? 'Personne n’a encore payé de place.' : 'Personne n’a encore réservé de place.', [
         { text: 'Garder le trajet', style: 'cancel' },
         { text: 'Annuler le trajet', style: 'destructive', onPress: doCancel },
       ]);
@@ -85,7 +103,9 @@ export function useTaxiActions() {
     Alert.alert(
       'Tu ne peux plus partir ?',
       `Passe le relais : ${next}, premier inscrit, organise le trajet à ta place. Pas de pénalité.\n\n` +
-        `Ou annule : les ${others} étudiant${others > 1 ? 's' : ''} inscrit${others > 1 ? 's' : ''} ${others > 1 ? 'sont remboursés' : 'est remboursé'} à 100 %.` +
+        (t.payOnline
+          ? `Ou annule : les ${others} étudiant${others > 1 ? 's' : ''} inscrit${others > 1 ? 's' : ''} ${others > 1 ? 'sont remboursés' : 'est remboursé'} à 100 %.`
+          : `Ou annule : ${others > 1 ? `les ${others} étudiants inscrits sont prévenus` : 'l’étudiant inscrit est prévenu'}.`) +
         (locked ? ` Annulation tardive : ${strikes + 1}/${TAXI_STRIKES_LIMIT}. À ${TAXI_STRIKES_LIMIT}, Sunu Taxi est suspendu 7 jours.` : ''),
       [
         { text: 'Garder le trajet', style: 'cancel' },
@@ -119,6 +139,14 @@ export function useTaxiActions() {
 
   const depart = (t: TaxiTrip) => {
     const paidSeats = t.passengers.length - 1;
+    // Reservation only: nothing to collect in the app, everyone pays their share in the taxi.
+    if (!t.payOnline) {
+      Alert.alert('Vous êtes partis ?', `Chacun règle sa part (${formatFcfa(t.seatPrice)}) dans le taxi.`, [
+        { text: 'Pas encore', style: 'cancel' },
+        { text: 'On est partis', onPress: () => attempt(() => taxi.depart(t.id)) },
+      ]);
+      return;
+    }
     const missing = t.passengers.filter((p) => !t.checkedIn.includes(p) && p !== taxi.me).length;
     Alert.alert(
       'Vous êtes partis ?',

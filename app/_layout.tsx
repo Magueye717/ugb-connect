@@ -84,11 +84,13 @@ function Screens() {
       <Stack.Protected guard={space === 'organizer'} redirectTo={home}>
         <Stack.Screen name="(organisateur)" />
         <Stack.Screen name="depart/[id]" />
+        <Stack.Screen name="depart/edition/[id]" />
       </Stack.Protected>
       <Stack.Protected guard={space === 'business'} redirectTo={home}>
         <Stack.Screen name="(commerce)" />
         <Stack.Screen name="commande-recue/[id]" />
         <Stack.Screen name="remise" />
+        <Stack.Screen name="ventes" />
       </Stack.Protected>
       <Stack.Protected guard={space === 'admin' || space === 'resto' || space === 'alerts' || space === 'directory'} redirectTo={home}>
         <Stack.Screen name="(staff)" />

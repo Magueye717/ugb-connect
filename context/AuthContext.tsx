@@ -24,7 +24,9 @@ export type Profile = {
   /** Null when living off campus (or for organizer-only accounts). */
   village: string | null;
   room: string | null;
-  /** Null for organizer-only accounts. */
+  /** Has a student profile (a student, even before giving their number). */
+  isStudent: boolean;
+  /** Null for organizer-only accounts, and for a student who hasn't given it yet (optional at sign-up). */
   studentId: string | null;
   /** Masked by the server: "+221 77 ••• •• 02". */
   phone: string;
@@ -155,6 +157,7 @@ function toProfile(me: MeResponse): Profile {
     campusCode: s ? (s.campus as 'campus1' | 'campus2') : null,
     village: s?.village ?? null,
     room: s?.room ?? null,
+    isStudent: !!s,
     studentId: s?.studentNumber ?? null,
     phone: `+221 ${me.phoneMasked}`,
     ufr: s?.ufr ? `UFR ${s.ufr}` : null,

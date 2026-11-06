@@ -69,6 +69,13 @@
         {
           "locationWhenInUsePermission": "Ta position sert à placer ton commerce sur la carte du campus."
         }
+      ],
+      [
+        "expo-audio",
+        {
+          "enableBackgroundPlayback": false,
+          "microphonePermission": false
+        }
       ]
     ],
     "experiments": {

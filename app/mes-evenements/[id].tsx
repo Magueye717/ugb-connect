@@ -14,7 +14,7 @@ import { formatFcfa, paymentMethods } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { CATEGORIES, EVENT_STATUS, eventsApi, EVERYONE, type EventAudience, type EventCategory, type EventInput, type OrgEventDto } from '@/features/events/api';
-import { payInBrowser, type PaymentMethod } from '@/features/payments/checkout';
+import { payInBrowser, ticketMethodLabel, type PaymentMethod, type TicketMethod } from '@/features/payments/checkout';
 import { CAMPUSES, REGIONS, UFRS, VILLAGES, type CampusKey } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
 import { uploadImage } from '@/lib/upload';
@@ -449,6 +449,9 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
   const [hours, setHours] = useState(event ? Math.max(1, Math.round((Date.parse(event.endsAt) - Date.parse(event.startsAt)) / 3_600_000)) : 4);
   const [tickets, setTickets] = useState<TicketRow[]>(event ? event.ticketTypes.map((t) => ({ name: t.name, price: String(t.price), capacity: String(t.capacity) })) : [{ name: 'Entrée', price: '1000', capacity: '100' }]);
   const [maxPer, setMaxPer] = useState(event?.maxPerStudent ?? 4);
+  // How students pay: in the app (Wave, Orange Money) and / or cash at the door. At least one.
+  const [methods, setMethods] = useState<TicketMethod[]>(event?.paymentMethods ?? ['wave', 'orange_money']);
+  const toggleMethod = (m: TicketMethod) => setMethods((list) => (list.includes(m) ? (list.length > 1 ? list.filter((x) => x !== m) : list) : [...list, m]));
   const [saving, setSaving] = useState<'draft' | 'submit' | null>(null);
   const now = useNow();
   // Today only offers the start times still ahead.
@@ -483,6 +486,7 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
       endsAt: new Date(start.getTime() + hours * 3_600_000).toISOString(),
       ticketTypes: tickets.map((t) => ({ name: t.name.trim(), description: null, price: Number(t.price), capacity: Number(t.capacity) })),
       maxPerStudent: maxPer,
+      paymentMethods: methods,
     };
   };
 
@@ -596,6 +600,30 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
         </Pressable>
       </View>
 
+      {/* A free event has nothing to pay: the choice only matters with a price. */}
+      {tickets.some((t) => Number(t.price) > 0) && (
+        <View style={{ gap: 8 }}>
+          <Text style={styles.label}>Paiement des billets</Text>
+          <View style={styles.methods}>
+            {(['wave', 'orange_money', 'cash'] as const).map((m) => (
+              <Chip
+                key={m}
+                label={ticketMethodLabel[m]}
+                icon={m === 'cash' ? 'cash-outline' : 'phone-portrait-outline'}
+                selected={methods.includes(m)}
+                onPress={() => toggleMethod(m)}
+                role="checkbox"
+              />
+            ))}
+          </View>
+          <Text style={styles.hint}>
+            {methods.includes('cash')
+              ? 'Espèces : le billet est réservé tout de suite, l’étudiant paie à l’entrée quand tu scannes son billet. L’app te dit combien encaisser.'
+              : 'Payé dans l’app : l’argent t’est versé après l’événement.'}
+          </Text>
+        </View>
+      )}
+
       {!feeRule && feeFailed && <TextButton label="Prix de publication indisponible : réessayer" icon="refresh-outline" onPress={() => (setFeeFailed(false), setFeeAttempt((a) => a + 1))} />}
       {feeRule && fee !== null && (
         <View style={[styles.card, shadow.card, styles.feeCard]}>
@@ -619,6 +647,8 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
 }
 
 const styles = StyleSheet.create({
+  methods: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  hint: { ...typo.caption, color: colors.muted2, lineHeight: 17 },
   safe: { flex: 1, backgroundColor: colors.bg },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 8 },
   h1: { ...typo.h3, color: colors.navy },

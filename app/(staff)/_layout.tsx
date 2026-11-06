@@ -9,7 +9,7 @@ import { useAuth } from '@/context/AuthContext';
 
 // The work spaces of the app creator's team, one per job: Administration (the super admin's team and the students'
 // events), Restos publics (menus of the restaurants assigned), Communication (alerts, "À la une", paid banners),
-// Référencement (places, restaurants, shops). Each space shows only its own tabs, then the account.
+// Référencement (places, restaurants, shops, caravan organizers). Each space shows only its own tabs, then the account.
 const icons: Record<string, [keyof typeof Ionicons.glyphMap, keyof typeof Ionicons.glyphMap]> = {
   'equipe-plateforme': ['people-outline', 'people'],
   evenements: ['sparkles-outline', 'sparkles'],
@@ -18,10 +18,11 @@ const icons: Record<string, [keyof typeof Ionicons.glyphMap, keyof typeof Ionico
   bannieres: ['images-outline', 'images'],
   lieux: ['map-outline', 'map'],
   commerces: ['storefront-outline', 'storefront'],
+  caravanes: ['bus-outline', 'bus'],
   'mon-compte': ['person-outline', 'person'],
 };
 const TITLES: Record<string, string> = {
-  'equipe-plateforme': 'Équipe', evenements: 'Événements', menus: 'Menus', alertes: 'Communication', bannieres: 'Bannières', lieux: 'Lieux', commerces: 'Commerces', 'mon-compte': 'Compte',
+  'equipe-plateforme': 'Équipe', evenements: 'Événements', menus: 'Menus', alertes: 'Communication', bannieres: 'Bannières', lieux: 'Lieux', commerces: 'Commerces', caravanes: 'Caravanes', 'mon-compte': 'Compte',
 };
 
 export default function StaffTabLayout() {
@@ -64,6 +65,7 @@ export default function StaffTabLayout() {
         <Tabs.Screen name="bannieres" options={{ title: TITLES.bannieres, href: show(space === 'alerts' && has('content_editor')) }} />
         <Tabs.Screen name="lieux" options={{ title: TITLES.lieux, href: show(space === 'directory' && has('place_editor')) }} />
         <Tabs.Screen name="commerces" options={{ title: commercesTitle, href: show(space === 'directory' && has('restaurant_editor', 'shop_editor')) }} />
+        <Tabs.Screen name="caravanes" options={{ title: TITLES.caravanes, href: show(space === 'directory' && has('caravan_editor')) }} />
         {/* The Référencement space's entry: opens its first tab. */}
         <Tabs.Screen name="referencement" options={{ href: null }} />
         <Tabs.Screen name="mon-compte" options={{ title: TITLES['mon-compte'] }} />

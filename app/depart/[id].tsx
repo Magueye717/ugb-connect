@@ -5,17 +5,19 @@ import { ActivityIndicator, Alert, Linking, Modal, Pressable, RefreshControl, Sc
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/states';
-import { BackButton, Segmented } from '@/components/ui';
+import { BackButton, Segmented, TextButton } from '@/components/ui';
 import type { CaravanStop } from '@/constants/data';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { caravansApi, hourLabel } from '@/features/caravans/api';
 import { methodLabel, type PaymentMethod } from '@/features/payments/checkout';
 import { useManifest, type OrgCaravan, type Passenger } from '@/features/organizer/boarding';
 import { TicketScanner } from '@/features/organizer/TicketScanner';
 import { useTicketCheck } from '@/features/organizer/useTicketCheck';
 import { ApiError } from '@/lib/api';
 import { toast } from '@/lib/toast';
+import { useNow } from '@/lib/useNow';
 
 type Tab = 'pickups' | 'dropoffs';
 
@@ -32,9 +34,11 @@ export default function Manifest() {
   const m = useManifest(id);
   const { organizer } = useAuth();
   const isOwner = !!organizer?.roles.includes('owner');
+  const isManager = !!organizer?.roles.some((r) => r === 'owner' || r === 'manager');
   const check = useTicketCheck(id);
   const [view, setView] = useState<Tab>('pickups');
   const [scanning, setScanning] = useState(false);
+  const now = useNow();
 
   const back = () => (router.canGoBack() ? router.back() : router.replace('/activites'));
   const c = m.caravan;
@@ -112,11 +116,34 @@ export default function Manifest() {
       { text: methodLabel.orange_money, onPress: () => send('orange_money') },
     ]);
   };
+  // Before the bus leaves: every ticket is refunded (cash ones had nothing to pay), students are notified.
+  const cancellable = isManager && ['draft', 'published', 'confirmed'].includes(c.status);
+  // Stops and seats can still be changed (added, or removed when nobody booked them) until the bus leaves.
+  const editable = cancellable && c.departureAt > now;
+  const cancel = () =>
+    Alert.alert(
+      'Annuler ce départ ?',
+      passengers.length
+        ? `Les ${passengers.length} passager${passengers.length > 1 ? 's sont prévenus et remboursés' : ' est prévenu et remboursé'} à 100 %. C’est définitif.`
+        : 'Les réservations sont fermées. C’est définitif.',
+      [
+        { text: 'Garder le départ', style: 'cancel' },
+        {
+          text: 'Annuler le départ',
+          style: 'destructive',
+          onPress: () =>
+            caravansApi.cancelDeparture(organizer!.orgId, c.id, 'Annulé par l’organisateur').then(() => {
+              toast('Départ annulé : les passagers sont remboursés.');
+              back();
+            }, fail('Annulation impossible')),
+        },
+      ],
+    );
   const payoutStatus: Record<string, string> = { requested: 'demandé', processing: 'en cours', succeeded: 'versé', failed: 'nouvel essai en cours', manual_required: 'traité par l’équipe' };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <Header onBack={back} onShare={share} />
+      <Header onBack={back} onShare={share} onEdit={editable ? () => router.push(`/depart/edition/${c.id}`) : undefined} />
 
       <ScrollView
         contentContainerStyle={styles.body}
@@ -126,8 +153,11 @@ export default function Manifest() {
           <View style={styles.offline} accessibilityLiveRegion="polite">
             <Ionicons name={m.offline ? 'cloud-offline-outline' : 'cloud-upload-outline'} size={18} color={colors.warningText} />
             <Text style={styles.offlineText}>
-              {m.offline ? 'Hors ligne · liste gardée sur le téléphone, le scan continue de marcher.' : 'Réseau revenu · envoi des scans…'}
-              {m.pending > 0 ? ` ${m.pending} scan${m.pending > 1 ? 's' : ''} en attente d’envoi.` : ''}
+              {m.offline
+                ? `Hors ligne · liste du téléphone${m.listAt ? ` (${hourLabel(m.listAt.at)})` : ''}, le scan continue de marcher.`
+                : 'Réseau revenu · envoi des scans…'}
+              {m.pending > 0 ? ` ${m.pending} action${m.pending > 1 ? 's' : ''} en attente d’envoi.` : ''}
+              {m.offline && m.listAt && !m.listAt.complete ? ' Téléchargée avant la fin des réservations : un billet acheté ou annulé depuis peut manquer.' : ''}
             </Text>
           </View>
         )}
@@ -137,7 +167,7 @@ export default function Manifest() {
               {c.from} → {c.to}
             </Text>
             <Text style={styles.muted}>
-              {c.date} · {c.time} · {c.vehicle.label} {c.plate}
+              {c.date} · {c.time} · {c.vehicle.label}{c.plate ? ` ${c.plate}` : ''}
             </Text>
             {buyers < passengers.length && (
               <Text style={styles.muted}>
@@ -149,6 +179,15 @@ export default function Manifest() {
             <Stat value={passengers.length} label="réservés" />
             <Stat value={boarded} label="à bord" tone={colors.successText} />
             <Stat value={absents} label={absents > 1 ? 'absents' : 'absent'} tone={absents ? colors.dangerText : undefined} />
+          </View>
+          {/* What the scanned tickets are worth: one price per seat on a departure. */}
+          <View style={styles.amount}>
+            <Ionicons name="cash-outline" size={18} color={colors.successText} />
+            <Text style={[styles.amountLabel, { flex: 1 }]}>Somme reçue</Text>
+            <Text style={styles.amountValue}>
+              {formatFcfa(boarded * c.price)}
+              <Text style={styles.amountTotal}> / {formatFcfa(passengers.length * c.price)}</Text>
+            </Text>
           </View>
           {current && (
             <View style={styles.next}>
@@ -247,6 +286,10 @@ export default function Manifest() {
                 </View>
               );
             })}
+        {editable && <TextButton label="Modifier le départ" icon="create-outline" style={{ alignSelf: 'center', marginTop: 8 }} onPress={() => router.push(`/depart/edition/${c.id}`)} />}
+        {cancellable && (
+          <TextButton label="Annuler le départ" icon="close-circle-outline" tone="danger" style={{ alignSelf: 'center', marginTop: 8 }} onPress={cancel} />
+        )}
       </ScrollView>
 
       <ScanBar onPress={() => setScanning(true)} />
@@ -292,7 +335,7 @@ function GroupHead({ name, size }: { name: string; size: number }) {
 function manifestText(c: OrgCaravan, passengers: Passenger[]) {
   const lines = [
     `${c.organizer.name} · ${c.from} → ${c.to}`,
-    `${c.date} · ${c.time} · ${c.plate} · ${passengers.length} passagers`,
+    `${c.date} · ${c.time} · ${c.plate ?? c.vehicle.label} · ${passengers.length} passagers`,
     '',
     'MONTÉES',
   ];
@@ -312,27 +355,25 @@ function manifestText(c: OrgCaravan, passengers: Passenger[]) {
   return lines.join('\n');
 }
 
-function Header({ onBack, onShare }: { onBack: () => void; onShare?: () => void }) {
+function Header({ onBack, onShare, onEdit }: { onBack: () => void; onShare?: () => void; /** Owner / manager, before the bus leaves. */ onEdit?: () => void }) {
   return (
     <View style={styles.head}>
       <BackButton onPress={onBack} />
-      <Text style={styles.h1}>Liste des passagers</Text>
+      <Text style={[styles.h1, { flex: 1, marginLeft: 8 }]} numberOfLines={1}>
+        Liste des passagers
+      </Text>
+      {onEdit && (
+        <Pressable onPress={onEdit} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Modifier le départ">
+          <Ionicons name="create-outline" size={20} color={colors.navy} />
+        </Pressable>
+      )}
       {onShare ? (
         <Pressable onPress={onShare} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Partager la liste">
           <Ionicons name="share-outline" size={20} color={colors.navy} />
         </Pressable>
       ) : (
-        <View style={{ width: 44 }} />
+        !onEdit && <View style={{ width: 44 }} />
       )}
-    </View>
-  );
-}
-
-function Stat({ value, label, tone }: { value: number; label: string; tone?: string }) {
-  return (
-    <View style={styles.stat}>
-      <Text style={[styles.statValue, tone ? { color: tone } : null]}>{value}</Text>
-      <Text style={styles.muted}>{label}</Text>
     </View>
   );
 }
@@ -412,6 +453,15 @@ function PassengerRow({
   );
 }
 
+function Stat({ value, label, tone }: { value: number; label: string; tone?: string }) {
+  return (
+    <View style={styles.stat}>
+      <Text style={[styles.statValue, tone ? { color: tone } : null]}>{value}</Text>
+      <Text style={styles.muted}>{label}</Text>
+    </View>
+  );
+}
+
 function ScanBar({ onPress }: { onPress: () => void }) {
   const insets = useSafeAreaInsets();
   return (
@@ -465,6 +515,10 @@ const styles = StyleSheet.create({
   stats: { flexDirection: 'row', gap: 8 },
   stat: { flex: 1, backgroundColor: colors.bg, borderRadius: radii.sm, paddingVertical: 10, alignItems: 'center' },
   statValue: { ...typo.h2, color: colors.navy },
+  amount: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: radii.sm, backgroundColor: colors.successBg },
+  amountLabel: { ...typo.smallStrong, color: colors.successText },
+  amountValue: { ...typo.title, color: colors.successText },
+  amountTotal: { ...typo.small, color: colors.successText, fontWeight: '500' },
   next: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.primarySoft, borderRadius: radii.sm, padding: 10 },
   nextText: { ...typo.small, flex: 1, color: colors.primary },
   stop: { gap: 4 },

@@ -29,7 +29,7 @@ type Target = { kind: 'member'; member: TeamMember } | { kind: 'existing'; phone
  * first, then their roles in every space at once (Gérant of the restaurant and Contrôleur of the caravans…). A new
  * number needs a first name, a last name and a password. The person is notified.
  */
-export function TeamScreen({ orgId, name, intro }: { orgId: string; name: string; intro: string }) {
+export function TeamScreen({ orgId, name, intro, addHint }: { orgId: string; name: string; intro: string; /** Under « Ajouter quelqu’un »: who can help, and how. */ addHint?: string }) {
   const { user } = useAuth();
   const [spaces, setSpaces] = useState<TeamSpace[]>([]);
   const [members, setMembers] = useState<TeamMember[] | null>(null);
@@ -158,7 +158,14 @@ export function TeamScreen({ orgId, name, intro }: { orgId: string; name: string
             <MemberCard key={m.userId} m={m} me={m.userId === user?.id} entitySpaces={spaces} onEdit={() => edit(m)} onRemove={(s, r) => removeRole(m, s, r)} onRemoveMember={() => removeMember(m)} />
           ))}
 
-          <Text style={styles.section}>{target?.kind === 'member' ? `Rôles de ${target.member.firstName}` : 'Ajouter quelqu’un'}</Text>
+          <View style={{ gap: 2 }}>
+            <Text style={styles.section}>{target?.kind === 'member' ? `Rôles de ${target.member.firstName}` : 'Ajouter quelqu’un'}</Text>
+            <Text style={styles.hint}>
+              {target?.kind === 'member'
+                ? `Coche ce que ${target.member.firstName} peut faire. Le changement est immédiat, et ${target.member.firstName} est prévenu.`
+                : (addHint ?? 'Fais-toi aider par un proche ou un employé : chacun a son propre accès, avec seulement les rôles que tu lui donnes.')}
+            </Text>
+          </View>
           {!target ? (
             <>
               <LabeledField label="1. Son numéro de téléphone">
@@ -243,6 +250,7 @@ const styles = StyleSheet.create({
   state: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   name: { ...typo.bodyStrong, color: colors.navy },
   muted: { ...typo.caption, color: colors.muted2 },
+  hint: { ...typo.caption, color: colors.muted2, lineHeight: 17 },
   roles: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   spaceRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   spaceName: { ...typo.smallStrong, color: colors.navy, width: 92 },

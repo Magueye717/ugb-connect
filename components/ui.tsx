@@ -3,20 +3,25 @@ import { router } from 'expo-router';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   ScrollView,
+  Switch,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
   type StyleProp,
+  type SwitchProps,
   type TextInputProps,
+  type TextStyle,
   type ViewStyle,
 } from 'react-native';
 
 import Animated, { FadeInDown, interpolateColor, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { UnreadBadge } from '@/components/UnreadBadge';
 import { colors, motion, radii, typo } from '@/constants/theme';
 import { bellLabel, useNotifications } from '@/context/NotificationsContext';
 import { haptics } from '@/lib/haptics';
@@ -242,13 +247,60 @@ export function BackButton({ onPress }: { onPress: () => void }) {
   );
 }
 
+/**
+ * The top of a form or a sheet: its title, and ✕ to close it (tapping outside or the back gesture still work, but
+ * not everyone knows them). `titleStyle`: the sheet's own title style.
+ */
+export function SheetHeader({
+  children,
+  onClose,
+  titleStyle,
+  subtitle,
+  label = 'Fermer',
+}: {
+  children: ReactNode;
+  onClose: () => void;
+  titleStyle?: StyleProp<TextStyle>;
+  /** A line under the title, kept close to it (the ✕ sits beside both). */
+  subtitle?: ReactNode;
+  label?: string;
+}) {
+  return (
+    <View style={[styles.sheetHead, subtitle != null && { alignItems: 'center' }]}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={[styles.sheetHeadTitle, titleStyle]} accessibilityRole="header">
+          {children}
+        </Text>
+        {subtitle != null && <Text style={styles.sheetHeadSub}>{subtitle}</Text>}
+      </View>
+      <Pressable onPress={onClose} style={styles.sheetClose} hitSlop={10} accessibilityRole="button" accessibilityLabel={label}>
+        <Ionicons name="close" size={20} color={colors.navy} />
+      </Pressable>
+    </View>
+  );
+}
+
+/**
+ * The app's on/off switch, the same everywhere and right on both systems. iOS: its own look (white thumb), green
+ * when on. Android: Material style, a green thumb on a lighter green track when on, a white thumb on a grey track
+ * when off (without this, Android colours the thumb with its theme: dark blue on green, and an off switch that
+ * barely shows on a white card).
+ */
+export function Toggle({ value, ...rest }: Omit<SwitchProps, 'trackColor' | 'thumbColor' | 'ios_backgroundColor'>) {
+  return Platform.OS === 'android' ? (
+    <Switch value={value} trackColor={{ false: '#C3C9D6', true: `${colors.success}73` }} thumbColor={value ? colors.success : '#FFFFFF'} {...rest} />
+  ) : (
+    <Switch value={value} trackColor={{ false: colors.border, true: colors.success }} ios_backgroundColor={colors.border} {...rest} />
+  );
+}
+
 export function BellButton({ onPress }: { onPress: () => void }) {
   const { unreadCount } = useNotifications();
   return (
     <Pressable onPress={onPress} style={styles.bell} accessibilityRole="button" accessibilityLabel={bellLabel(unreadCount)}>
       <Ionicons name="notifications-outline" size={20} color={colors.navy} />
-      {/* Only when something is new: a dot that's always on gets ignored. */}
-      {unreadCount > 0 && <View style={styles.dot} />}
+      {/* Only when something is new: how many, in red (9+ above nine). */}
+      <UnreadBadge count={unreadCount} style={styles.bellCount} />
     </Pressable>
   );
 }
@@ -403,6 +455,10 @@ export function FilterChips<T extends string>({
 }
 
 const styles = StyleSheet.create({
+  sheetHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  sheetHeadTitle: { ...typo.h3, color: colors.navy },
+  sheetHeadSub: { ...typo.small, color: colors.muted2 },
+  sheetClose: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
   // Main buttons: same 16 px corners everywhere (welcome, sign-up, checkout).
   primary: {
     backgroundColor: colors.accent,
@@ -471,15 +527,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dot: {
-    position: 'absolute',
-    top: 10,
-    right: 12,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.orange,
-  },
+  // On the bell's corner, with a ring of the screen's background around it (as on the orders bell).
+  bellCount: { position: 'absolute', top: -3, right: -3, borderWidth: 2, borderColor: colors.bg },
   choice: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 36, paddingHorizontal: 14, borderRadius: radii.pill, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
   choiceOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   choiceText: { ...typo.smallStrong, color: colors.navy },

@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BackButton, FilterChips } from '@/components/ui';
+import { BackButton, FilterChips, SheetHeader, Toggle } from '@/components/ui';
 import { EmptyState, ErrorState } from '@/components/states';
 import { notificationFilters } from '@/constants/data';
 import { colors, shadow, radii, typo } from '@/constants/theme';
@@ -178,7 +178,7 @@ function Preferences({ onClose }: { onClose: () => void }) {
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} />
       <View style={styles.sheet}>
-        <Text style={styles.sheetTitle}>Préférences de notification</Text>
+        <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>Préférences de notification</SheetHeader>
         <Text style={styles.sheetSub}>Ce que ton téléphone t’envoie. La liste des notifications garde tout.</Text>
         {!prefs ? (
           <ActivityIndicator color={colors.primary} />
@@ -192,7 +192,7 @@ function Preferences({ onClose }: { onClose: () => void }) {
                 <Text style={styles.prefTitle}>{r.title}</Text>
                 <Text style={styles.sheetSub}>{r.text}</Text>
               </View>
-              <Switch value={prefs[r.key] !== false} onValueChange={(v) => toggle(r.key, v)} trackColor={{ true: colors.success }} accessibilityLabel={r.title} />
+              <Toggle value={prefs[r.key] !== false} onValueChange={(v) => toggle(r.key, v)} accessibilityLabel={r.title} />
             </View>
           ))
         )}

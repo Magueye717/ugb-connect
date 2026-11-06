@@ -24,7 +24,7 @@ type Step = 1 | 2 | 3;
 const TOTAL_STEPS = 3;
 
 const headings: Record<Step, { title: string; subtitle?: string }> = {
-  1: { title: 'Identification', subtitle: 'Ton numéro étudiant et ton numéro de téléphone.' },
+  1: { title: 'Identification', subtitle: 'Ton numéro de téléphone, et ton numéro étudiant si tu l’as.' },
   2: { title: 'Vérification', subtitle: 'On vérifie que ce numéro est bien le tien.' },
   3: { title: 'Ton profil', subtitle: 'Dernière étape : ton UFR, ta région, ton campus et ton logement.' },
 };

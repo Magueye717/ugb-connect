@@ -2,10 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as Location from 'expo-location';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { MultiSelect } from '@/components/Select';
-import { Chip, Field, LabeledField, PrimaryButton, TextButton } from '@/components/ui';
+import { Chip, Field, LabeledField, PrimaryButton, TextButton, Toggle } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { commerceApi, type BusinessDto, type BusinessTarget, type CommerceReference, type DeliveryZone, type OrderMethod } from '@/features/commerce/api';
 import { PaymentMethodsPicker } from './PaymentMethodsPicker';
@@ -209,7 +209,7 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
                   <Field keyboardType="number-pad" value={fees[z.value]} onChangeText={(v) => setFees((f) => ({ ...f, [z.value]: v.replace(/\D/g, '').slice(0, 4) || '0' }))} right={<Text style={styles.muted}>F</Text>} accessibilityLabel={`Prix de livraison, ${z.label}`} />
                 </View>
               )}
-              <Switch value={on} onValueChange={(v) => setFees((f) => ({ ...f, [z.value]: v ? '200' : '' }))} trackColor={{ true: colors.success }} accessibilityLabel={`Livrer : ${z.label}`} />
+              <Toggle value={on} onValueChange={(v) => setFees((f) => ({ ...f, [z.value]: v ? '200' : '' }))} accessibilityLabel={`Livrer : ${z.label}`} />
             </View>
           );
         })}

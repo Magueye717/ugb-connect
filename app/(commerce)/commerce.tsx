@@ -6,7 +6,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'rea
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AvatarPicker } from '@/components/AvatarPicker';
+import { ProfileHero } from '@/components/ProfileHero';
 import { SpacesList } from '@/components/SpacesList';
 import { ErrorState } from '@/components/states';
 import { colors, radii, shadow, typo } from '@/constants/theme';
@@ -21,7 +21,7 @@ import { useCommerceReference } from '@/features/commerce/useCommerceReference';
  * number, its hours and delivery prices. Only the owner edits it; everyone sees it, the account and the spaces.
  */
 export default function Commerce() {
-  const { business, user, logout } = useAuth();
+  const { business, logout } = useAuth();
   const [b, setB] = useState<BusinessDto | null>(null);
   // Couldn't be loaded (no network…): an error with « Réessayer » instead of an endless spinner.
   const [failed, setFailed] = useState(false);
@@ -69,15 +69,8 @@ export default function Commerce() {
           )}
 
           <Text style={styles.section}>Compte</Text>
-          <View style={[styles.card, shadow.card, styles.row]}>
-            <AvatarPicker size={44} tone="soft" />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle}>
-                {user?.firstName} {user?.lastName}
-              </Text>
-              <Text style={styles.muted}>{business.roles.includes('owner') ? 'Propriétaire' : business.roles.includes('manager') ? 'Gérant' : 'Employé'}</Text>
-            </View>
-          </View>
+          {/* The same card as on the student profile: only the chips say which business and role. */}
+          <ProfileHero chips={[business.name, business.roles.includes('owner') ? 'Propriétaire' : business.roles.includes('manager') ? 'Gérant' : 'Employé']} />
           <SpacesList />
         </KeyboardAwareScrollView>
     </SafeAreaView>

@@ -2,12 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
 import { PhotoStrip, type StripPhoto } from '@/components/PhotoStrip';
 import { EmptyState, ErrorState } from '@/components/states';
-import { Chip, Field, LabeledField, PrimaryButton, SafeBottom } from '@/components/ui';
+import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, SheetHeader, Toggle } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { commerceApi, type BusinessKind, type BusinessTarget, type ItemDto, type ItemSection } from '@/features/commerce/api';
@@ -103,7 +103,7 @@ export function CatalogEditor({ target, kind, canManage, title = 'Catalogue' }: 
                       {!i.orderable && <Text style={styles.muted}>  ·  Infos seulement</Text>}
                     </Text>
                   </View>
-                  <Switch value={i.available} onValueChange={(v) => toggle(i, v)} trackColor={{ true: colors.success }} accessibilityLabel={`${i.name} disponible`} />
+                  <Toggle value={i.available} onValueChange={(v) => toggle(i, v)} accessibilityLabel={`${i.name} disponible`} />
                 </Pressable>
               ))}
             </View>
@@ -174,7 +174,7 @@ export function ItemEditor({ business, kind, item, aisles, onClose, onSaved }: {
       <Pressable style={styles.backdrop} onPress={onClose} />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <ScrollView style={styles.sheet} contentContainerStyle={{ gap: 12, paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
-          <Text style={styles.sheetTitle}>{item ? 'Modifier' : 'Nouvel article'}</Text>
+          <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>{item ? 'Modifier' : 'Nouvel article'}</SheetHeader>
           {kind === 'restaurant' && (
             <View style={styles.row}>
               {(['menu', 'drink'] as const).map((s) => (
@@ -218,12 +218,16 @@ export function ItemEditor({ business, kind, item, aisles, onClose, onSaved }: {
             </View>
           )}
           <View style={{ gap: 8 }}>
-            <Text style={styles.label}>Les étudiants</Text>
+            <Text style={styles.label}>Comment les étudiants l’obtiennent ?</Text>
             <View style={styles.row}>
-              <Chip label="Le commandent" icon="cart-outline" selected={orderable} onPress={() => setOrderable(true)} />
-              <Chip label="Infos seulement" icon="information-circle-outline" selected={!orderable} onPress={() => setOrderable(false)} />
+              <Chip label="Commande dans l’app" icon="cart-outline" selected={orderable} onPress={() => setOrderable(true)} />
+              <Chip label="Sur place" icon="storefront-outline" selected={!orderable} onPress={() => setOrderable(false)} />
             </View>
-            {!orderable && <Text style={styles.muted}>Affiché avec son prix (ex. impression, photocopie) : ça se fait sur place, sans commande.</Text>}
+            <Text style={styles.muted}>
+              {orderable
+                ? 'Les étudiants l’ajoutent au panier et passent commande dans l’app : tu la reçois dans « Commandes ».'
+                : 'Affiché avec son prix, sans panier (ex. impression, photocopie) : le service se fait sur place. Les étudiants peuvent te contacter sur WhatsApp.'}
+            </Text>
           </View>
           <View style={styles.row}>
             <View style={{ flex: 1 }}>

@@ -1,25 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { OtpInput } from '@/components/OtpInput';
 import { Select } from '@/components/Select';
-import { BackButton, Chip, Field, LabeledField, PrimaryButton, TextButton } from '@/components/ui';
+import { BackButton, Chip, Field, LabeledField, PrimaryButton, TextButton, Toggle } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { profileApi } from '@/features/profile/api';
 import { sendOtp, verifyOtp, type OtpChallenge } from '@/features/register/auth';
-import { CAMPUSES, VILLAGES } from '@/features/register/validation';
+import { CAMPUSES, STUDENT_ID_MAX, typeStudentId, validateStudentId, VILLAGES } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
 import { toast } from '@/lib/toast';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
 const digits = (v: string) => v.replace(/\D/g, '');
 
-/** "Informations personnelles": where the student lives (campus, village, room), their phone number and e-mail. */
+/** "Informations personnelles": the student number, where the student lives (campus, village, room), their phone and e-mail. */
 export default function Infos() {
   const { user, reloadAccount } = useAuth();
   const back = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profil'));
@@ -32,11 +32,69 @@ export default function Infos() {
         <Text style={styles.h1}>Informations personnelles</Text>
       </View>
       <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <StudentNumber current={user.studentId} onSaved={reloadAccount} />
           <Residence onSaved={reloadAccount} />
           <Phone current={user.phone} onSaved={reloadAccount} />
           <Email current={user.email} onSaved={reloadAccount} />
         </KeyboardAwareScrollView>
     </SafeAreaView>
+  );
+}
+
+/**
+ * Optional at sign-up, given here once (or read from the card on « Ma carte étudiant »): it lets a found card come
+ * back to its owner. Once saved it's shown locked: a typo is fixed by the UGB Campus team.
+ */
+function StudentNumber({ current, onSaved }: { current: string | null; onSaved: () => Promise<void> }) {
+  const [value, setValue] = useState('');
+  const [saving, setSaving] = useState(false);
+  const error = value ? validateStudentId(value) : null;
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await profileApi.setStudentNumber(value);
+      await onSaved();
+      toast('Numéro étudiant enregistré : si tu perds ta carte, elle te revient.');
+    } catch (err) {
+      fail('Enregistrement impossible')(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <View style={[styles.card, shadow.card]}>
+      <Text style={styles.section}>Numéro étudiant</Text>
+      {current ? (
+        <>
+          <View style={styles.switchRow}>
+            <Ionicons name="school-outline" size={18} color={colors.primary} />
+            <Text style={[styles.label, { flex: 1 }]}>{current}</Text>
+            <Ionicons name="lock-closed" size={14} color={colors.muted} />
+          </View>
+          <Text style={styles.muted}>Une erreur ? Écris à l’équipe UGB Campus depuis « Aide & support ».</Text>
+        </>
+      ) : (
+        <>
+          <Text style={styles.muted}>Ajoute-le pour qu’une carte trouvée te revienne. Il est sur ta carte étudiant (P suivi de chiffres).</Text>
+          <LabeledField label="Ton numéro étudiant" error={error}>
+            <Field
+              icon="school-outline"
+              placeholder="P232055"
+              value={value}
+              onChangeText={(t) => setValue(typeStudentId(t))}
+              invalid={!!error}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={STUDENT_ID_MAX}
+            />
+          </LabeledField>
+          <PrimaryButton label="Enregistrer" disabled={!value || !!error || saving} loading={saving} onPress={save} />
+          <TextButton label="Ou scanne ta carte étudiant" icon="scan-outline" style={{ alignSelf: 'center' }} onPress={() => router.push('/ma-carte')} />
+        </>
+      )}
+    </View>
   );
 }
 
@@ -76,7 +134,7 @@ function Residence({ onSaved }: { onSaved: () => Promise<void> }) {
       </View>
       <View style={styles.switchRow}>
         <Text style={[styles.label, { flex: 1 }]}>Je loge dans un village du campus</Text>
-        <Switch value={onCampus} onValueChange={setOnCampus} trackColor={{ true: colors.success }} />
+        <Toggle value={onCampus} onValueChange={setOnCampus} />
       </View>
       {onCampus && (
         <View style={styles.row}>

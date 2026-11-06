@@ -5,11 +5,21 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AvatarPicker } from '@/components/AvatarPicker';
 import { SpacesList } from '@/components/SpacesList';
+import { UnreadBadge } from '@/components/UnreadBadge';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { ownShop, useAuth } from '@/context/AuthContext';
 import { useNotifications } from '@/context/NotificationsContext';
 
 /** `todo`: something to fill in ("À compléter"). */
+/** Each section's icon colours, a soft tile and a darker icon (≥ 4.5:1): the list is scanned by colour. */
+type Tone = { bg: string; fg: string };
+const TONES: Record<'account' | 'activity' | 'prefs' | 'help', Tone> = {
+  account: { bg: colors.primarySoft, fg: colors.primary },
+  activity: { bg: colors.accentSoft, fg: colors.orangeText },
+  prefs: { bg: '#EEEBFE', fg: colors.purpleText },
+  help: { bg: colors.input, fg: colors.muted2 },
+};
+
 type Row = { icon: keyof typeof Ionicons.glyphMap; label: string; href?: Href; badge?: number; todo?: boolean; done?: boolean; onPress?: () => void };
 
 export default function ProfilScreen() {
@@ -18,21 +28,27 @@ export default function ProfilScreen() {
   const myShop = ownShop(spaces);
   const cardDone = !!user?.identity?.fromCard;
 
-  const academic = [user?.ufr, user?.filiere, user?.niveau].filter(Boolean).join(' · ');
   const { unreadCount } = useNotifications();
 
   // Grouped lists, like system settings: fewer boxes, clearer sections.
-  const groups: { title: string; rows: Row[] }[] = [
+  // What makes the profile complete: a photo, the student number (optional at sign-up), UFR and region (announcements
+  // are aimed with them), the card checked.
+  const steps = [!!user?.avatarUrl, !!user?.studentId, !!user?.ufrCode && !!user?.region, cardDone];
+  const done = steps.filter(Boolean).length;
+
+  const groups: { title: string; tone: Tone; rows: Row[] }[] = [
     {
       title: 'Mon compte',
+      tone: TONES.account,
       rows: [
-        { icon: 'person-outline', label: 'Informations personnelles', href: '/infos' },
+        { icon: 'person-outline', label: 'Informations personnelles', href: '/infos', todo: !user?.studentId },
         { icon: 'school-outline', label: 'Mon UFR et ma région', href: '/mes-etudes', todo: !user?.ufrCode || !user.region },
         { icon: 'card-outline', label: 'Ma carte étudiant', href: '/ma-carte', todo: !cardDone, done: cardDone },
       ],
     },
     {
       title: 'Mes activités',
+      tone: TONES.activity,
       rows: [
         { icon: 'ticket-outline', label: 'Mes billets', href: '/mes-billets' },
         { icon: 'cube-outline', label: 'Mes objets perdus', href: '/mes-objets' },
@@ -44,10 +60,12 @@ export default function ProfilScreen() {
     },
     {
       title: 'Préférences',
+      tone: TONES.prefs,
       rows: [{ icon: 'notifications-outline', label: 'Notifications et préférences', href: '/notifications', badge: unreadCount }],
     },
     {
       title: 'Aide',
+      tone: TONES.help,
       rows: [
         { icon: 'help-circle-outline', label: 'Aide & support', href: '/aide' },
         { icon: 'document-text-outline', label: 'Conditions d’utilisation', href: '/legal/conditions' },
@@ -60,18 +78,44 @@ export default function ProfilScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <Text style={styles.h1}>Profil</Text>
-        <View style={[styles.hero, shadow.card]}>
-          <AvatarPicker size={64} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.name}>
-              {user?.firstName} {user?.lastName}
-            </Text>
-            {/* UFR, filière and level aren't asked at sign-up yet: the line appears once they're known. */}
-            {!!academic && <Text style={styles.meta}>{academic}</Text>}
-            <Text style={styles.meta} numberOfLines={1}>
-              {user?.campus}
-            </Text>
+        {/* The student's own block: the one coloured card of the screen. */}
+        <View style={[styles.hero, shadow.raised]}>
+          <View style={styles.heroTop}>
+            <AvatarPicker size={64} tone="solid" ring />
+            <View style={{ flex: 1, gap: 6 }}>
+              <Text style={styles.name} numberOfLines={2}>
+                {user?.firstName} {user?.lastName}
+              </Text>
+              <View style={styles.chips}>
+                {[user?.ufrCode ? `UFR ${user.ufrCode}` : null, user?.niveau, user?.campus].filter(Boolean).map((c) => (
+                  <View key={c} style={styles.chip}>
+                    <Text style={styles.chipText} numberOfLines={1}>
+                      {c}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+              {/* UFR, filière and level aren't asked at sign-up yet: the line appears once they're known. */}
+              {!!user?.filiere && (
+                <Text style={styles.heroMeta} numberOfLines={1}>
+                  {user.filiere}
+                </Text>
+              )}
+            </View>
           </View>
+          {done < steps.length && (
+            <View style={styles.progress} accessible accessibilityLabel={`Profil complété : ${done} sur ${steps.length}`}>
+              <View style={styles.progressHead}>
+                <Text style={styles.progressText}>Profil complété</Text>
+                <Text style={styles.progressText}>
+                  {done}/{steps.length}
+                </Text>
+              </View>
+              <View style={styles.bar}>
+                <View style={[styles.barFill, { width: `${(done / steps.length) * 100}%` }]} />
+              </View>
+            </View>
+          )}
         </View>
 
         {/* An organizer, restaurant staff, the communication team…: their other spaces, one tap away. */}
@@ -88,16 +132,16 @@ export default function ProfilScreen() {
                   style={({ pressed }) => [styles.row, i > 0 && styles.rowDivider, pressed && { backgroundColor: colors.primarySofter }]}
                   accessibilityRole="button"
                   accessibilityLabel={r.badge ? `${r.label}, ${r.badge} non lues` : r.todo ? `${r.label}, à compléter` : r.label}>
-                  <View style={styles.rowIcon}>
-                    <Ionicons name={r.icon} size={18} color={colors.primary} />
+                  <View style={[styles.rowIcon, { backgroundColor: g.tone.bg }]}>
+                    <Ionicons name={r.icon} size={18} color={g.tone.fg} />
                   </View>
                   <Text style={styles.rowLabel}>{r.label}</Text>
-                  {!!r.badge && (
-                    <View style={styles.badge}>
-                      <Text style={styles.badgeText} maxFontSizeMultiplier={1.2}>{r.badge}</Text>
+                  {!!r.badge && <UnreadBadge count={r.badge} />}
+                  {r.todo && (
+                    <View style={styles.todo}>
+                      <Text style={styles.todoText}>À compléter</Text>
                     </View>
                   )}
-                  {r.todo && <Text style={styles.todo}>À compléter</Text>}
                   {r.done && <Ionicons name="checkmark-circle" size={18} color={colors.successText} accessibilityLabel="Vérifiée" />}
                   <Ionicons name="chevron-forward" size={18} color={colors.muted} />
                 </Pressable>
@@ -106,10 +150,15 @@ export default function ProfilScreen() {
           </View>
         ))}
 
-        <Pressable onPress={logout} style={styles.logout} accessibilityRole="button">
-          <Ionicons name="log-out-outline" size={18} color={colors.dangerText} />
-          <Text style={styles.logoutText}>Se déconnecter</Text>
-        </Pressable>
+        {/* In its own group, like the other rows: clear, and not floating where a thumb lands. */}
+        <View style={[styles.group, shadow.card]}>
+          <Pressable onPress={logout} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.dangerBg }]} accessibilityRole="button">
+            <View style={[styles.rowIcon, { backgroundColor: colors.dangerBg }]}>
+              <Ionicons name="log-out-outline" size={18} color={colors.dangerText} />
+            </View>
+            <Text style={[styles.rowLabel, { color: colors.dangerText }]}>Se déconnecter</Text>
+          </Pressable>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -119,18 +168,24 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 18, paddingBottom: 40 },
   h1: { ...typo.h1, color: colors.navy },
-  hero: { flexDirection: 'row', alignItems: 'center', gap: 16, backgroundColor: colors.card, borderRadius: radii.lg, padding: 18 },
-  name: { ...typo.h2, color: colors.navy },
-  meta: { ...typo.small, color: colors.muted2, marginTop: 2 },
+  hero: { backgroundColor: colors.primary, borderRadius: radii.lg, padding: 18, gap: 16 },
+  heroTop: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  name: { ...typo.h2, color: '#fff' },
+  heroMeta: { ...typo.small, color: 'rgba(255,255,255,0.78)' },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  chip: { maxWidth: '100%', paddingHorizontal: 9, paddingVertical: 3, borderRadius: radii.pill, backgroundColor: 'rgba(255,255,255,0.14)' },
+  chipText: { ...typo.label, color: '#fff' },
+  progress: { gap: 6 },
+  progressHead: { flexDirection: 'row', justifyContent: 'space-between' },
+  progressText: { ...typo.captionStrong, color: 'rgba(255,255,255,0.85)' },
+  bar: { height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.18)', overflow: 'hidden' },
+  barFill: { height: '100%', borderRadius: 3, backgroundColor: colors.orange },
   groupTitle: { ...typo.captionStrong, color: colors.muted2, textTransform: 'uppercase', letterSpacing: 0.6, marginLeft: 4 },
   group: { backgroundColor: colors.card, borderRadius: radii.lg, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, minHeight: 56 },
   rowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   rowIcon: { width: 34, height: 34, borderRadius: radii.sm, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   rowLabel: { flex: 1, fontSize: 14, fontWeight: '600', color: colors.navy },
-  badge: { minWidth: 22, height: 22, paddingHorizontal: 6, borderRadius: 11, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
-  badgeText: { ...typo.captionStrong, color: '#fff' },
-  todo: { ...typo.captionStrong, color: colors.orangeText },
-  logout: { flexDirection: 'row', gap: 8, alignSelf: 'center', alignItems: 'center', padding: 16 },
-  logoutText: { ...typo.title, color: colors.dangerText },
+  todo: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.pill, backgroundColor: colors.accentSoft },
+  todoText: { ...typo.label, color: colors.orangeText },
 });

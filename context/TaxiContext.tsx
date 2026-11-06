@@ -23,6 +23,8 @@ export type TaxiTrip = {
   fare: number;
   /** What each passenger pays, set by the server. */
   seatPrice: number;
+  /** Paid in the app; false: a reservation, each one pays their share in the taxi. */
+  payOnline: boolean;
   status: TripDto['status'];
   departed: boolean;
   organizer: TripDto['organizer'];
@@ -65,7 +67,10 @@ type TaxiValue = {
   activeTrip: () => TaxiTrip | undefined;
   create: (trip: NewTrip) => Promise<void>;
   /** Takes the seat, opens the payment page and waits for the server's answer. */
-  join: (id: string, method: PaymentMethod) => Promise<JoinOutcome>;
+  /** Without `method` (a trip not paid in the app): the seat is reserved at once. */
+  join: (id: string, method?: PaymentMethod) => Promise<JoinOutcome>;
+  /** Trips proposed now are paid in the app (the server's setting). */
+  onlinePayment: boolean;
   /** Back to the payment page for a seat taken but not paid yet. */
   resumePayment: (id: string) => Promise<JoinOutcome>;
   leave: (id: string) => Promise<{ refundAmount: number; forfeited: boolean }>;
@@ -96,6 +101,7 @@ function toTrip(t: TripDto, offset: number): TaxiTrip {
     seatsTaken: t.seatsTaken,
     fare: t.fare,
     seatPrice: t.seatPrice,
+    payOnline: t.payOnline ?? true,
     status: t.status,
     departed: t.status === 'departed',
     organizer: t.organizer,
@@ -118,12 +124,13 @@ const outcomeOf = (p: PaymentDto): JoinOutcome =>
 export function TaxiProvider({ children }: { children: ReactNode }) {
   const { user, status } = useAuth();
   // Organizer-only accounts have no student profile: Sunu Taxi is for students.
-  const enabled = status === 'signedIn' && !!user?.studentId;
+  const enabled = status === 'signedIn' && !!user?.isStudent;
   const [me, setMe] = useState('');
   const [trips, setTrips] = useState<TaxiTrip[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [strikes, setStrikes] = useState(0);
+  const [onlinePayment, setOnlinePayment] = useState(true);
   const [suspendedUntil, setSuspendedUntil] = useState<number | null>(null);
   const chats = useChats();
   // Latest list for actions that run after a refresh (reminders, hand-over names).
@@ -140,6 +147,7 @@ export function TaxiProvider({ children }: { children: ReactNode }) {
       setTrips(board.items.map((t) => toTrip(t, offset)));
       setMe(standing.key);
       setStrikes(standing.strikes);
+      setOnlinePayment(standing.onlinePayment ?? true);
       setSuspendedUntil(standing.suspendedUntil ? Date.parse(standing.suspendedUntil) - offset : null);
       setError(null);
     } catch (e) {
@@ -215,8 +223,14 @@ export function TaxiProvider({ children }: { children: ReactNode }) {
       join: async (id, method) => {
         const { payment } = await taxiApi.join(id, method);
         await refresh();
-        return pay(id, payment);
+        if (payment) return pay(id, payment);
+        // A reservation: in the trip (and its chat) at once.
+        haptics.success();
+        remind(find(id));
+        chats.refresh();
+        return 'joined';
       },
+      onlinePayment,
       resumePayment: async (id) => {
         const paying = find(id)?.paying;
         if (!paying) return 'failed';
@@ -262,7 +276,7 @@ export function TaxiProvider({ children }: { children: ReactNode }) {
         await refresh();
       },
     };
-  }, [me, user, trips, loading, error, strikes, suspendedUntil, refresh, chats]);
+  }, [me, user, trips, loading, error, strikes, suspendedUntil, onlinePayment, refresh, chats]);
 
   return <TaxiContext.Provider value={value}>{children}</TaxiContext.Provider>;
 }

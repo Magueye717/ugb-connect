@@ -87,7 +87,15 @@ export default function MenusDuJour() {
                   <MealTab key={x} meal={x} resto={current} published={!!resto?.menus[x]} live={meal.live && meal.key === x} on={m === x} onPress={() => setShown(x)} />
                 ))}
               </View>
-              <MealCard key={`${current.id}-${m}-${resto?.menus[m]?.updatedAt ?? 'none'}`} resto={current} menu={resto?.menus[m] ?? null} meal={m} date={day.date} onChanged={refresh} />
+              <MealCard
+                key={`${current.id}-${m}-${resto?.menus[m]?.updatedAt ?? 'none'}`}
+                resto={current}
+                menu={resto?.menus[m] ?? null}
+                meal={m}
+                other={resto?.menus[m === 'lunch' ? 'dinner' : 'lunch'] ?? null}
+                date={day.date}
+                onChanged={refresh}
+              />
             </>
           )}
         </KeyboardAwareScrollView>
@@ -136,12 +144,35 @@ function MealTab({ meal, resto, published, live, on, onPress }: { meal: Meal; re
 }
 
 /** One meal of one restaurant: compose and publish it, or (published) the stock level of each dish. */
-function MealCard({ resto, menu, meal, date, onChanged }: { resto: StaffRestoDto; menu: PublicRestoDto['menus'][Meal]; meal: Meal; date: string; onChanged: () => Promise<void> }) {
+function MealCard({
+  resto,
+  menu,
+  meal,
+  other,
+  date,
+  onChanged,
+}: {
+  resto: StaffRestoDto;
+  menu: PublicRestoDto['menus'][Meal];
+  meal: Meal;
+  /** The day's other meal, if published: its dishes can be taken again (often the same, or close). */
+  other: PublicRestoDto['menus'][Meal];
+  date: string;
+  onChanged: () => Promise<void>;
+}) {
   const [editing, setEditing] = useState(!menu);
   const [dishes, setDishes] = useState<DishInput[]>(() => (menu?.dishes.length ? menu.dishes.map((d) => ({ id: d.id, name: d.name, detail: d.detail })) : []));
   const [saving, setSaving] = useState(false);
   const label = MEAL_LABEL[meal].toLowerCase();
 
+  // The other meal's dishes not on this menu yet: one tap brings them, then remove or change what differs.
+  const otherMeal: Meal = meal === 'lunch' ? 'dinner' : 'lunch';
+  const reusable = (other?.dishes ?? []).filter((d) => !dishes.some((x) => fold(x.name) === fold(d.name)));
+  const reuse = () => {
+    haptics.select();
+    // As new dishes here (no id): this meal's stock starts fresh.
+    setDishes((list) => [...list, ...reusable.map((d) => ({ name: d.name, detail: d.detail }))].slice(0, MAX_DISHES));
+  };
   const set = (i: number, patch: Partial<DishInput>) => setDishes((list) => list.map((d, j) => (j === i ? { ...d, ...patch } : d)));
   const filled = dishes.filter((d) => d.name.trim().length >= 2);
   const publish = async () => {
@@ -170,6 +201,26 @@ function MealCard({ resto, menu, meal, date, onChanged }: { resto: StaffRestoDto
         <Text style={styles.muted}>
           {resto.name} · {hmLabel(resto.services[meal].start)}-{hmLabel(resto.services[meal].end)}
         </Text>
+        {reusable.length > 0 && dishes.length < MAX_DISHES && (
+          <View style={styles.reuse}>
+            <View style={styles.reuseHead}>
+              <Ionicons name={otherMeal === 'lunch' ? 'sunny-outline' : 'moon-outline'} size={16} color={colors.primary} />
+              <Text style={styles.reuseTitle}>
+                {dishes.length ? `Ajouter les plats du ${MEAL_LABEL[otherMeal].toLowerCase()} ?` : `Même menu qu’au ${MEAL_LABEL[otherMeal].toLowerCase()} ?`}
+              </Text>
+            </View>
+            <Text style={styles.reuseDishes} numberOfLines={2}>
+              {reusable.map((d) => d.name).join(' · ')}
+            </Text>
+            <Pressable style={styles.reuseBtn} onPress={reuse} accessibilityRole="button" accessibilityLabel={`Reprendre ${reusable.length} plat${reusable.length > 1 ? 's' : ''} du ${MEAL_LABEL[otherMeal].toLowerCase()}`}>
+              <Ionicons name="copy-outline" size={15} color="#fff" />
+              <Text style={styles.reuseBtnText}>
+                Reprendre {reusable.length > 1 ? `les ${reusable.length} plats` : 'ce plat'}
+              </Text>
+            </Pressable>
+            <Text style={styles.muted}>Tu pourras ensuite retirer ou changer un plat avant de publier.</Text>
+          </View>
+        )}
         {dishes.map((d, i) => (
           <View key={`${d.name}-${i}`} style={styles.dishEdit}>
             <View style={{ flex: 1, gap: 6 }}>
@@ -343,6 +394,12 @@ function DishRow({ dish, resto, onSet }: { dish: DishDto; resto: string; onSet: 
 }
 
 const styles = StyleSheet.create({
+  reuse: { gap: 8, padding: 12, borderRadius: radii.md, backgroundColor: colors.primarySofter, borderWidth: 1, borderColor: colors.primarySoft },
+  reuseHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  reuseTitle: { ...typo.smallStrong, color: colors.navy, flex: 1 },
+  reuseDishes: { ...typo.small, color: colors.text },
+  reuseBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', minHeight: 36, paddingHorizontal: 14, borderRadius: radii.pill, backgroundColor: colors.primary },
+  reuseBtnText: { ...typo.smallStrong, color: '#fff' },
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
   h1: { ...typo.h1, color: colors.navy },

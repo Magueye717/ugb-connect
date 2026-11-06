@@ -1,14 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
+import { File as FsFile } from 'expo-file-system';
 import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EmptyState, ErrorState } from '@/components/states';
-import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, Segmented } from '@/components/ui';
+import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, Segmented, SheetHeader, Toggle } from '@/components/ui';
 import { formatDateTime } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCampus } from '@/context/CampusContext';
@@ -16,7 +17,7 @@ import { REGIONS, UFRS } from '@/features/register/validation';
 import { audienceLabel, EVERYONE, staffApi, type AdminAlertDto, type AlertBody, type AlertDto, type Audience } from '@/features/restos/api';
 import { ApiError } from '@/lib/api';
 import { pickPhoto } from '@/lib/pickPhoto';
-import { fileSize } from '@/lib/fileSize';
+import { fileSize, toMb } from '@/lib/fileSize';
 import { uploadDocument, uploadImage } from '@/lib/upload';
 
 type Placement = AlertDto['placement'];
@@ -83,6 +84,10 @@ const days = (extra?: Date | null) => {
 export default function Communication() {
   const { refresh: refreshHome } = useCampus();
   const [items, setItems] = useState<AdminAlertDto[] | null>(null);
+  // The server's rule: how many photos an announcement may have.
+  const [maxImages, setMaxImages] = useState(1);
+  // The largest PDF, in Mo (null: unknown, the server checks on upload).
+  const [maxPdfMb, setMaxPdfMb] = useState<number | null>(null);
   // The first load failed (no network…): « Impossible de charger », with « Réessayer » (not an empty list).
   const [loadFailed, setLoadFailed] = useState(false);
   const [placement, setPlacement] = useState<Placement>('headline');
@@ -90,7 +95,14 @@ export default function Communication() {
 
   const load = useCallback(() => {
     setLoadFailed(false);
-    staffApi.alerts().then((r) => setItems(r.items), () => setLoadFailed(true));
+    staffApi.alerts().then(
+      (r) => {
+        setItems(r.items);
+        setMaxImages(r.limits.images);
+        setMaxPdfMb(r.limits.documentMb);
+      },
+      () => setLoadFailed(true),
+    );
   }, []);
   useFocusEffect(load);
 
@@ -165,6 +177,8 @@ export default function Communication() {
           key={editing === 'new' ? `new-${placement}` : editing.id}
           editing={editing === 'new' ? null : editing}
           placement={editing === 'new' ? placement : editing.placement}
+          maxImages={maxImages}
+          maxPdfMb={maxPdfMb}
           onClose={() => setEditing(null)}
           onSaved={(saved) => {
             setEditing(null);
@@ -232,6 +246,18 @@ function AlertCard({ a, onEdit, onWithdraw }: { a: AdminAlertDto; onEdit?: () =>
 }
 
 
+/** One way to add an attachment: the camera, the gallery, or the phone's files. */
+function AttachButton({ icon, label, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void }) {
+  return (
+    <Pressable style={styles.attachBtn} onPress={onPress} accessibilityRole="button">
+      <Ionicons name={icon} size={20} color={colors.primary} />
+      <Text style={styles.attachAddText} numberOfLines={2}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 /** A row of day chips: the date pickers of the form. */
 function DayPicker({ list, value, onChange, none }: { list: Date[]; value: Date | null; onChange: (d: Date | null) => void; none?: string }) {
   return (
@@ -249,41 +275,83 @@ function DayPicker({ list, value, onChange, none }: { list: Date[]; value: Date 
   );
 }
 
-function Composer({ editing, placement: initial, onClose, onSaved }: { editing: AdminAlertDto | null; placement: Placement; onClose: () => void; onSaved: (a: AdminAlertDto) => void }) {
+function Composer({ editing, placement: initial, maxImages, maxPdfMb, onClose, onSaved }: { editing: AdminAlertDto | null; placement: Placement; maxImages: number; maxPdfMb: number | null; onClose: () => void; onSaved: (a: AdminAlertDto) => void }) {
   const live = editing?.status === 'live';
   const [placement, setPlacement] = useState<Placement>(initial);
   const [tag, setTag] = useState(editing?.tag ?? '');
   const [title, setTitle] = useState(editing?.title ?? '');
   const [body, setBody] = useState(editing?.body ?? '');
-  // Its page: the whole text, a picture, a PDF. Undefined: unchanged since opened; null: removed.
+  // « S'imprégner »: the whole text, and photos or a PDF (not both). Attachment undefined: unchanged since opened.
   const [details, setDetails] = useState(editing?.details ?? '');
-  const [image, setImage] = useState<{ id: string; url: string } | null | undefined>(undefined);
+  const [images, setImages] = useState<{ id: string; url: string }[]>(() => (editing ? editing.imageIds.map((id, i) => ({ id, url: editing.images[i] ?? '' })) : []));
+  // Sent only when changed (another editor's photos can't be re-attached by id).
+  const [imagesTouched, setImagesTouched] = useState(false);
+  const changeImages = (next: (list: { id: string; url: string }[]) => { id: string; url: string }[]) => {
+    setImagesTouched(true);
+    setImages(next);
+  };
   const [attachment, setAttachment] = useState<{ id: string; name: string; bytes: number } | null | undefined>(undefined);
   const [uploading, setUploading] = useState<'image' | 'pdf' | null>(null);
-  const shownImage = image === undefined ? (editing?.image ?? null) : (image?.url ?? null);
+  const roomForImages = maxImages - images.length;
   const shownPdf = attachment === undefined ? (editing?.attachment ?? null) : attachment;
-  const pickImage = async () => {
-    const [asset] = await pickPhoto({ title: 'Image de l’annonce' });
-    if (!asset) return;
+  // What students read for the PDF (its file name is for the team only). Empty: the default label.
+  const [docLabel, setDocLabel] = useState(editing?.attachmentLabel ?? '');
+  const [docLabelTouched, setDocLabelTouched] = useState(false);
+  const sendImages = async (assets: { uri: string; file?: Blob }[]) => {
     setUploading('image');
     try {
-      const up = await uploadImage(asset, 'alert');
-      setImage({ id: up.id, url: up.url });
+      for (const asset of assets) {
+        const up = await uploadImage(asset, 'alert');
+        changeImages((list) => (list.length < maxImages ? [...list, { id: up.id, url: up.url }] : list));
+      }
     } catch (err) {
       Alert.alert('Image refusée', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
     } finally {
       setUploading(null);
     }
   };
-  const pickPdf = async () => {
-    const res = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', copyToCacheDirectory: true });
-    if (res.canceled || !res.assets[0]) return;
+  /** A photo taken now, or from the gallery. */
+  const takeImage = async (source: 'camera' | 'library') => {
+    const assets = await pickPhoto({ source, multiple: roomForImages });
+    if (assets.length) await sendImages(assets.slice(0, roomForImages));
+  };
+  /** A file: a PDF, or a picture kept in the phone's files (it then goes in the picture's place). */
+  const pickFile = async () => {
+    // Phones: expo-file-system's picker hands back a file the app may read (expo-document-picker's cached copy sits
+    // outside the folders the file module is allowed to open, so reading it failed: "Missing READ permission").
+    // Web: the browser's File, from expo-document-picker.
+    const accepted = images.length ? ['image/*'] : ['image/*', 'application/pdf'];
+    let doc: { uri: string; name: string; type?: string | null; mimeType?: string; size?: number; file?: Blob };
+    try {
+      if (Platform.OS === 'web') {
+        const res = await DocumentPicker.getDocumentAsync({ type: accepted });
+        if (res.canceled || !res.assets[0]) return;
+        doc = res.assets[0];
+      } else {
+        const res = await FsFile.pickFileAsync({ mimeTypes: accepted });
+        if (res.canceled || !res.result) return;
+        doc = { uri: res.result.uri, name: res.result.name, type: res.result.type, file: res.result };
+      }
+    } catch (err) {
+      Alert.alert('Sélecteur de fichiers indisponible', `Mets l’application à jour puis réessaie.${__DEV__ ? `\n\n${err instanceof Error ? err.message : String(err)}` : ''}`);
+      return;
+    }
+    const type = doc.type || doc.mimeType || '';
+    if (type.startsWith('image/') || /\.(jpe?g|png|webp|heic|heif)$/i.test(doc.name)) {
+      if (roomForImages <= 0) return Alert.alert(`${maxImages} photos au plus`, 'Retire une photo pour en mettre une autre.');
+      return sendImages([doc]);
+    }
+    if (images.length) return Alert.alert('Un PDF ou des photos', 'Une annonce montre un PDF, ou des photos : pas les deux. Retire les photos pour joindre un PDF.');
+    // Checked here in Mo, before a long upload for nothing (the server checks again).
+    const bytes = doc.file?.size ?? doc.size ?? 0;
+    if (maxPdfMb !== null && toMb(bytes) > maxPdfMb)
+      return Alert.alert('PDF trop lourd', `Ce PDF fait ${fileSize(bytes)} : ${String(maxPdfMb).replace('.', ',')} Mo au plus. Compresse-le ou envoie une version allégée.`);
     setUploading('pdf');
     try {
-      const up = await uploadDocument(res.assets[0], 'alert');
+      const up = await uploadDocument(doc, 'alert');
       setAttachment({ id: up.id, name: up.name, bytes: up.bytes });
     } catch (err) {
-      Alert.alert('Document refusé', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
+      Alert.alert('Document refusé', err instanceof ApiError ? err.message : `Réessaie dans un instant.${__DEV__ ? `\n\n${err instanceof Error ? err.message : String(err)}` : ''}`);
     } finally {
       setUploading(null);
     }
@@ -313,8 +381,9 @@ function Composer({ editing, placement: initial, onClose, onSaved }: { editing: 
       body: body.trim(),
       details: headline ? details.trim() : '',
       // Sent only when changed: the server keeps the others.
-      ...(headline && image !== undefined ? { imageId: image?.id ?? null } : {}),
+      ...(headline && imagesTouched ? { imageIds: images.map((i) => i.id) } : {}),
       ...(headline && attachment !== undefined ? { attachmentId: attachment?.id ?? null } : {}),
+      ...(headline && (docLabelTouched || attachment !== undefined) ? { attachmentLabel: shownPdf ? docLabel.trim() || null : null } : {}),
       tone,
       icon: headline ? iconForTag(tag) : toneOf(tone).icon,
       eventAt: headline && eventDay ? at(eventDay, 8).toISOString() : null,
@@ -335,7 +404,7 @@ function Composer({ editing, placement: initial, onClose, onSaved }: { editing: 
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <ScrollView style={styles.sheet} contentContainerStyle={{ gap: 12, paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
-          <Text style={styles.sheetTitle}>{editing ? 'Modifier' : 'Nouvelle annonce'}</Text>
+          <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>{editing ? 'Modifier' : 'Nouvelle annonce'}</SheetHeader>
           {!editing && (
             <Segmented
               options={[
@@ -376,41 +445,59 @@ function Composer({ editing, placement: initial, onClose, onSaved }: { editing: 
                 <Field placeholder="Tout ce que les étudiants doivent savoir : lieux, pièces à fournir, contacts…" value={details} onChangeText={setDetails} maxLength={3000} multiline />
               </LabeledField>
               <Text style={styles.label}>Pièces jointes (facultatif)</Text>
-              <Text style={styles.hint}>Une affiche ou un emploi du temps en image, la note officielle en PDF : ils s’ouvrent sur la page de l’annonce.</Text>
-              <View style={styles.attachRow}>
-                {shownImage ? (
-                  <View>
-                    <Image source={{ uri: shownImage }} style={styles.attachImage} contentFit="cover" accessibilityLabel="Image de l’annonce" />
-                    <Pressable style={styles.attachRemove} onPress={() => setImage(null)} hitSlop={6} accessibilityRole="button" accessibilityLabel="Retirer l’image">
-                      <Ionicons name="close" size={14} color="#fff" />
-                    </Pressable>
-                  </View>
-                ) : (
-                  <Pressable style={styles.attachAdd} onPress={pickImage} disabled={!!uploading} accessibilityRole="button">
-                    {uploading === 'image' ? <ActivityIndicator color={colors.primary} /> : <Ionicons name="image-outline" size={20} color={colors.primary} />}
-                    <Text style={styles.attachAddText}>Image</Text>
-                  </Pressable>
-                )}
-                {shownPdf ? (
-                  <View style={styles.pdf}>
-                    <Ionicons name="document-text" size={22} color={colors.dangerText} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.pdfName} numberOfLines={2}>
-                        {shownPdf.name}
-                      </Text>
-                      <Text style={styles.hint}>{fileSize(shownPdf.bytes)}</Text>
+              <Text style={styles.hint}>Un PDF (la note officielle{maxPdfMb !== null ? `, ${String(maxPdfMb).replace('.', ',')} Mo au plus` : ''}), ou jusqu’à {maxImages} photo{maxImages > 1 ? 's' : ''} (prises sur le moment, de la galerie ou des fichiers) : les étudiants les voient en touchant « S’imprégner ».</Text>
+              {(images.length > 0 || shownPdf || uploading) && (
+                <View style={styles.attachRow}>
+                  {images.map((img, i) => (
+                    <View key={img.id}>
+                      <Image source={{ uri: img.url }} style={styles.attachImage} contentFit="cover" accessibilityLabel={`Photo ${i + 1}`} />
+                      <Pressable style={styles.attachRemove} onPress={() => changeImages((list) => list.filter((x) => x.id !== img.id))} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Retirer la photo ${i + 1}`}>
+                        <Ionicons name="close" size={14} color="#fff" />
+                      </Pressable>
                     </View>
-                    <Pressable onPress={() => setAttachment(null)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retirer le PDF">
-                      <Ionicons name="close-circle" size={20} color={colors.muted} />
-                    </Pressable>
-                  </View>
-                ) : (
-                  <Pressable style={styles.attachAdd} onPress={pickPdf} disabled={!!uploading} accessibilityRole="button">
-                    {uploading === 'pdf' ? <ActivityIndicator color={colors.primary} /> : <Ionicons name="document-attach-outline" size={20} color={colors.primary} />}
-                    <Text style={styles.attachAddText}>PDF</Text>
-                  </Pressable>
-                )}
-              </View>
+                  ))}
+                  {shownPdf && (
+                    <View style={styles.pdf}>
+                      <Ionicons name="document-text" size={22} color={colors.dangerText} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.pdfName} numberOfLines={2}>
+                          {shownPdf.name}
+                        </Text>
+                        <Text style={styles.hint}>{fileSize(shownPdf.bytes)}</Text>
+                      </View>
+                      <Pressable onPress={() => setAttachment(null)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retirer le PDF">
+                        <Ionicons name="close-circle" size={20} color={colors.muted} />
+                      </Pressable>
+                    </View>
+                  )}
+                  {uploading && (
+                    <View style={[styles.attachAdd, styles.attachBusy]}>
+                      <ActivityIndicator color={colors.primary} />
+                    </View>
+                  )}
+                </View>
+              )}
+              {shownPdf && (
+                <LabeledField label="Nom affiché aux étudiants (facultatif)">
+                  <Field
+                    placeholder={editing?.attachment?.label && !editing.attachmentLabel ? editing.attachment.label : 'Document officiel'}
+                    value={docLabel}
+                    onChangeText={(t) => {
+                      setDocLabel(t);
+                      setDocLabelTouched(true);
+                    }}
+                    maxLength={60}
+                    autoCapitalize="sentences"
+                  />
+                </LabeledField>
+              )}
+              {!uploading && !shownPdf && roomForImages > 0 && (
+                <View style={styles.attachRow}>
+                  {Platform.OS !== 'web' && <AttachButton icon="camera-outline" label="Caméra" onPress={() => takeImage('camera')} />}
+                  <AttachButton icon="images-outline" label="Galerie" onPress={() => takeImage('library')} />
+                  <AttachButton icon="document-attach-outline" label={images.length ? 'Fichier photo' : 'Fichier · photo ou PDF'} onPress={pickFile} />
+                </View>
+              )}
             </>
           )}
 
@@ -492,7 +579,7 @@ function Composer({ editing, placement: initial, onClose, onSaved }: { editing: 
                   : `${narrowing && targeted ? `Aux étudiants concernés (${audienceLabel(audience)})` : 'À tous les utilisateurs de l’app'}${willPushLater ? ', au moment de la mise en ligne' : ''}. Pour l’important seulement.`}
               </Text>
             </View>
-            <Switch value={push} onValueChange={setPush} disabled={!!editing?.pushedAt} trackColor={{ true: colors.primary, false: colors.border }} />
+            <Toggle value={push} onValueChange={setPush} disabled={!!editing?.pushedAt} />
           </View>
           <PrimaryButton
             label={editing ? 'Enregistrer' : startDay ? 'Programmer' : push ? 'Publier et notifier' : 'Publier'}
@@ -529,9 +616,11 @@ const styles = StyleSheet.create({
   sheet: { flexShrink: 1, backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20, maxHeight: '88%' },
   sheetTitle: { ...typo.h3, color: colors.navy },
   label: { ...typo.smallStrong, color: colors.navy },
-  attachRow: { flexDirection: 'row', gap: 10, alignItems: 'stretch' },
+  attachRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'stretch' },
   attachAdd: { width: 84, height: 84, borderRadius: radii.md, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.primary, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', gap: 2 },
-  attachAddText: { ...typo.label, color: colors.primary },
+  attachAddText: { ...typo.label, color: colors.primary, textAlign: 'center' },
+  attachBtn: { flex: 1, minHeight: 64, paddingHorizontal: 6, borderRadius: radii.md, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.primary, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', gap: 4 },
+  attachBusy: { borderStyle: 'solid' },
   attachImage: { width: 84, height: 84, borderRadius: radii.md, backgroundColor: colors.border },
   attachRemove: { position: 'absolute', top: 4, right: 4, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(10,16,40,0.7)', alignItems: 'center', justifyContent: 'center' },
   pdf: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },

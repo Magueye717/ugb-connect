@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AvatarPicker } from '@/components/AvatarPicker';
+import { ProfileHero } from '@/components/ProfileHero';
+import { formatPhone, phoneDigits } from '@/features/register/validation';
 import { SpacesList, spaceInfo } from '@/components/SpacesList';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
@@ -17,15 +18,8 @@ export default function StaffCompte() {
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <Text style={styles.h1}>Compte</Text>
 
-        <View style={[styles.card, shadow.card, styles.hero]}>
-          <AvatarPicker size={56} />
-          <View style={{ flex: 1, gap: 4 }}>
-            <Text style={styles.name}>
-              {user?.firstName} {user?.lastName}
-            </Text>
-            <Text style={styles.muted}>Équipe campus · {user?.phone}</Text>
-          </View>
-        </View>
+        {/* The same card as on the student profile: only the chips say which space. */}
+        <ProfileHero chips={['Équipe campus', here?.title, user?.phone ? `+221 ${formatPhone(phoneDigits(user.phone.replace(/^\+221/, '')))}` : null]} />
 
         {here && (
           <View style={[styles.card, shadow.card, { gap: 10 }]}>

@@ -11,8 +11,9 @@ import {
   Keyboard,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
-  Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import Animated, {
@@ -31,6 +32,7 @@ import {
 } from "react-native-safe-area-context";
 
 import { SpaceRows, spaceInfo } from "@/components/SpacesList";
+import { SheetHeader } from "@/components/ui";
 import { popIn } from "@/components/motion";
 import { colors, motion, radii, shadow, typo } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
@@ -51,6 +53,18 @@ const subscribe = (l: () => void) => {
   return () => listeners.delete(l);
 };
 
+/**
+ * Room to leave at the end of a scrolling list so its last item can scroll clear of the space button (54 high,
+ * 14 above the tab bar, plus a margin).
+ */
+/**
+ * The floating button appears from this many spaces. With 2 or 3, switching happens from the account screen's
+ * « Mes espaces » (every space has one), and the corner stays free for the screen.
+ */
+export const FAB_MIN_SPACES = 4;
+
+export const SPACE_BUTTON_CLEARANCE = 54 + 14 + 16;
+
 /** Something pinned at the bottom of this screen: the space button rises by `px` while it's focused (0: not now). */
 export function useLiftSpaceButton(px: number) {
   const id = useId();
@@ -70,6 +84,7 @@ export function useLiftSpaceButton(px: number) {
 export function SpaceSwitcher() {
   const { spaces, current } = useAuth();
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   const raised = useSyncExternalStore(subscribe, () => lift);
   const [open, setOpen] = useState(false);
   const [keyboard, setKeyboard] = useState(false);
@@ -86,7 +101,7 @@ export function SpaceSwitcher() {
     };
   }, []);
 
-  if (spaces.length < 2 || !current || keyboard) return null;
+  if (spaces.length < FAB_MIN_SPACES || !current || keyboard) return null;
   // Above the tab bar (62 + the system bar); a screen's pinned bar lifts it further (animated, see FabButton).
   const bottom = 62 + Math.max(insets.bottom, 10) + 14;
 
@@ -112,13 +127,20 @@ export function SpaceSwitcher() {
           onPress={() => setOpen(false)}
           accessibilityLabel="Fermer"
         />
-        <SafeAreaView edges={["bottom"]} style={styles.sheet}>
+        {/* At most most of the screen: a long list of spaces scrolls, the title and ✕ stay in sight. */}
+        <SafeAreaView edges={["bottom"]} style={[styles.sheet, { maxHeight: height * 0.85 }]}>
           <View style={styles.handle} />
-          <Text style={styles.title}>Mes espaces</Text>
-          <Text style={styles.sub}>
-            Tu es dans : {spaceInfo(current).title}
-          </Text>
-          <SpaceRows onOpen={() => setOpen(false)} />
+          <SheetHeader onClose={() => setOpen(false)} titleStyle={styles.title} subtitle={`Tu es dans : ${spaceInfo(current).title}`}>
+            Mes espaces
+          </SheetHeader>
+          <View style={{ height: 6 }} />
+          <ScrollView
+            style={{ flexShrink: 1 }}
+            contentContainerStyle={{ gap: 6, paddingBottom: 4 }}
+            showsVerticalScrollIndicator
+          >
+            <SpaceRows onOpen={() => setOpen(false)} />
+          </ScrollView>
         </SafeAreaView>
       </Modal>
     </>
@@ -264,5 +286,4 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   title: { ...typo.h3, color: colors.navy },
-  sub: { ...typo.small, color: colors.muted2, marginBottom: 8 },
 });

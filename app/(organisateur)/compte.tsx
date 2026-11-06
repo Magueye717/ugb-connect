@@ -3,34 +3,21 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AvatarPicker } from '@/components/AvatarPicker';
-import { OrganizerLine } from '@/components/caravan';
+import { ProfileHero } from '@/components/ProfileHero';
 import { SpacesList } from '@/components/SpacesList';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { isOwner, useAuth } from '@/context/AuthContext';
 
 export default function Compte() {
-  const { user, organizer, logout } = useAuth();
+  const { organizer, logout } = useAuth();
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <Text style={styles.h1}>Compte</Text>
 
-        <View style={[styles.card, shadow.card, styles.hero]}>
-          <AvatarPicker size={56} />
-          <View style={{ flex: 1, gap: 4 }}>
-            <Text style={styles.name}>
-              {user?.firstName} {user?.lastName}
-            </Text>
-            {organizer && <OrganizerLine organizer={organizer} />}
-            {organizer && (
-              <Text style={styles.muted}>
-                {organizer.kind} · {organizer.trips} trajets effectués
-              </Text>
-            )}
-          </View>
-        </View>
+        {/* The same card as on the student profile: only the chips say which organization. */}
+        <ProfileHero chips={[organizer?.name, organizer?.kind, organizer ? `${organizer.trips} trajet${organizer.trips > 1 ? 's' : ''} effectué${organizer.trips > 1 ? 's' : ''}` : null]} />
 
         <SpacesList />
 

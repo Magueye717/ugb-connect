@@ -34,9 +34,10 @@ export type AlertDto = {
   body: string;
   /** The whole text, on its page ("" when none). */
   details: string;
-  /** A picture (poster, timetable) and a PDF, on its page. */
-  image: string | null;
-  attachment: { url: string; name: string; bytes: number } | null;
+  /** Photos (poster, timetable: a few) or a PDF, never both: shown by « S’imprégner ». */
+  images: string[];
+  /** `label`: what it is ("Liste des admis", by default "Document officiel"), never its file name. `pages`: null if unknown. */
+  attachment: { url: string; label: string; bytes: number; pages: number | null } | null;
   icon: string;
   tone: 'info' | 'warning' | 'danger' | 'success';
   /** App route opened on tap; null: display only. */
@@ -60,6 +61,12 @@ export function audienceLabel(a: Audience) {
 
 /** Back office: status, push state, and what this editor may do. */
 export type AdminAlertDto = AlertDto & {
+  /** The ids of `images`, same order: sent back to keep them. */
+  imageIds: string[];
+  /** The team also sees the PDF's file name. */
+  attachment: (NonNullable<AlertDto['attachment']> & { name: string }) | null;
+  /** The name the team gave the PDF; null: the default label. */
+  attachmentLabel: string | null;
   status: 'scheduled' | 'live' | 'ended' | 'withdrawn';
   push: boolean;
   pushedAt: string | null;
@@ -73,9 +80,11 @@ export type AlertBody = {
   title: string;
   body: string;
   details: string;
-  /** Uploads (purpose alert); null: removed. Left out: unchanged. */
-  imageId?: string | null;
+  /** Uploads (purpose alert): photos ([] removes them) or a PDF (null removes it), not both. Left out: unchanged. */
+  imageIds?: string[];
   attachmentId?: string | null;
+  /** What students read for the PDF; null: the default. Left out: unchanged. */
+  attachmentLabel?: string | null;
   tone: AlertDto['tone'];
   icon: string;
   eventAt: string | null;
@@ -85,11 +94,19 @@ export type AlertBody = {
   push: boolean;
 };
 
+/** An older server: one `image`, and a PDF with only its file name. */
+type Legacy = { image?: string | null; attachment: ({ label?: string; pages?: number | null; name?: string } & { url: string; bytes: number }) | null };
+const attachmentOf = (x: Legacy['attachment']) => (x ? { ...x, label: x.label ?? 'Document officiel', pages: x.pages ?? null } : null);
+const alert = <T extends AlertDto>(a: Omit<T, 'attachment'> & Legacy): T =>
+  ({ ...a, images: a.images ?? (a.image ? [a.image] : []), attachment: attachmentOf(a.attachment) }) as unknown as T;
+const adminAlert = (a: Omit<AdminAlertDto, 'attachment'> & Legacy): AdminAlertDto =>
+  ({ ...alert<AdminAlertDto>(a), imageIds: a.imageIds ?? [], attachmentLabel: a.attachmentLabel ?? null }) as AdminAlertDto;
+
 export const restosApi = {
   day: (date?: string) => api<RestosDayDto>('GET', `/public-restos${date ? `?date=${date}` : ''}`, auth),
-  alerts: () => api<{ items: AlertDto[] }>('GET', '/alerts', auth),
+  alerts: () => api<{ items: AlertDto[] }>('GET', '/alerts', auth).then((r) => ({ items: r.items.map(alert) })),
   /** One announcement's page: only one this student sees now (404 otherwise). */
-  alert: (id: string) => api<AlertDto>('GET', `/alerts/${id}`, auth),
+  alert: (id: string) => api<AlertDto>('GET', `/alerts/${id}`, auth).then(alert),
 };
 
 /** Campus staff: stock levels during the service (restaurant staff), alerts (communication team). */
@@ -112,9 +129,14 @@ export const staffApi = {
   /** `notify` (with a rupture): a push to everyone with the app, on top of the home screen alert. */
   setDishStatus: (restoId: string, date: string, meal: Meal, dishId: string, status: DishStatus, notify = false) =>
     api<MenuDto>('PATCH', `/admin/public-restos/${restoId}/menus/${date}/${meal}/dishes/${dishId}`, { ...auth, body: { status, notify } }),
-  alerts: () => api<{ items: AdminAlertDto[] }>('GET', '/admin/alerts', auth),
-  postAlert: (body: AlertBody) => api<AdminAlertDto>('POST', '/admin/alerts', { ...auth, body }),
-  updateAlert: (id: string, body: AlertBody) => api<AdminAlertDto>('PUT', `/admin/alerts/${id}`, { ...auth, body }),
+  /** `limits`: the most photos on one announcement, the largest PDF in Mo (the server's rules). */
+  alerts: () =>
+    api<{ items: AdminAlertDto[]; limits?: { images?: number; documentMb?: number } }>('GET', '/admin/alerts', auth).then((r) => ({
+      items: r.items.map(adminAlert),
+      limits: { images: r.limits?.images ?? 1, documentMb: r.limits?.documentMb ?? null },
+    })),
+  postAlert: (body: AlertBody) => api<AdminAlertDto>('POST', '/admin/alerts', { ...auth, body }).then(adminAlert),
+  updateAlert: (id: string, body: AlertBody) => api<AdminAlertDto>('PUT', `/admin/alerts/${id}`, { ...auth, body }).then(adminAlert),
   withdrawAlert: (id: string) => api<AdminAlertDto>('DELETE', `/admin/alerts/${id}`, auth),
 };
 

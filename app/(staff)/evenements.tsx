@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { eventWhen } from '@/components/home';
 import { EmptyState, ErrorState } from '@/components/states';
-import { Field, LabeledField, PrimaryButton, SafeBottom, Segmented } from '@/components/ui';
+import { Field, LabeledField, PrimaryButton, SafeBottom, Segmented, SheetHeader } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { eventsApi, type OrgEventDto } from '@/features/events/api';
@@ -131,7 +131,7 @@ function MessageSheet(p: { title: string; note: string; placeholder: string; con
       <Pressable style={styles.backdrop} onPress={p.onClose} accessibilityLabel="Fermer" />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <View style={styles.sheet}>
-          <Text style={styles.sheetTitle}>{p.title}</Text>
+          <SheetHeader onClose={p.onClose} titleStyle={styles.sheetTitle}>{p.title}</SheetHeader>
           <Text style={styles.meta}>{p.note}</Text>
           <LabeledField label="Message à l’étudiant">
             <Field placeholder={p.placeholder} value={message} onChangeText={setMessage} maxLength={500} multiline />

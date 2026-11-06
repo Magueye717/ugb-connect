@@ -6,9 +6,10 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Animated, { LayoutAnimationConfig } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Chip, Field, LabeledField, PrimaryButton } from '@/components/ui';
+import { Chip, Field, LabeledField, PrimaryButton, SheetHeader } from '@/components/ui';
 import { PopOnChange, popIn } from '@/components/motion';
 import { EmptyState, ErrorState, SkeletonCard } from '@/components/states';
+import { SPACE_BUTTON_CLEARANCE } from '@/components/SpaceSwitcher';
 import { formatFcfa, TAXI_LOCK_MIN, TAXI_STRIKES_LIMIT, taxiSeatPrice } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useTaxi, type TaxiTrip } from '@/context/TaxiContext';
@@ -76,7 +77,9 @@ export function SunuTaxiBoard() {
         <View style={styles.hero}>
           <View style={{ flex: 1 }}>
             <Text style={styles.heroTitle}>Tu pars quelque part ?</Text>
-            <Text style={styles.heroSub}>Propose un trajet, d’autres étudiants paient leur place et vous partagez le prix.</Text>
+            <Text style={styles.heroSub}>
+              {taxi.onlinePayment ? 'Propose un trajet, d’autres étudiants paient leur place et vous partagez le prix.' : 'Propose un trajet, d’autres étudiants réservent une place et vous partagez le prix.'}
+            </Text>
           </View>
           <Pressable
             style={[styles.heroBtn, suspended && { opacity: 0.5 }]}
@@ -88,9 +91,7 @@ export function SunuTaxiBoard() {
         </View>
 
         <View style={[styles.rules, shadow.card]}>
-          <Rule icon="wallet-outline" text="Tu paies ta place en rejoignant : prix fixe, connu d’avance." />
-          <Rule icon="lock-closed-outline" text={`Places verrouillées ${TAXI_LOCK_MIN} min avant (à mi-chemin pour un départ proche) : quitter n’est plus remboursé.`} />
-          <Rule icon="shield-checkmark-outline" text="Trajet annulé par l’organisateur : remboursé à 100 %." />
+          <TaxiRules payOnline={taxi.onlinePayment} />
         </View>
 
         {strikes > 0 && (
@@ -291,7 +292,13 @@ export function TripCard({
         <View style={[styles.lock, locked && styles.lockOn]}>
           <Ionicons name={locked ? 'lock-closed' : 'lock-open-outline'} size={13} color={locked ? colors.warningText : colors.muted2} />
           <Text style={[styles.lockText, locked && { color: colors.warningText }]}>
-            {locked ? 'Places verrouillées · quitter n’est plus remboursé' : `Verrouillage dans ${lockIn} min · quitter est remboursé`}
+            {t.payOnline
+              ? locked
+                ? 'Places verrouillées · quitter n’est plus remboursé'
+                : `Verrouillage dans ${lockIn} min · quitter est remboursé`
+              : locked
+                ? 'Au rendez-vous · ta part se règle dans le taxi'
+                : `Ta part : ${formatFcfa(t.seatPrice)}, à régler dans le taxi`}
           </Text>
         </View>
       )}
@@ -328,7 +335,7 @@ export function TripCard({
             <Pressable style={[styles.action, styles.actionOutline, { flex: 1 }]} onPress={onOpen} accessibilityRole="button">
               <Ionicons name={t.departed ? 'car' : 'checkmark-circle'} size={16} color={colors.successText} />
               <Text style={[styles.actionText, { color: colors.successText }]} numberOfLines={1}>
-                {t.departed ? 'En route · voir le trajet' : isOrganizer ? 'Ton trajet · gérer' : 'Place payée · voir le trajet'}
+                {t.departed ? 'En route · voir le trajet' : isOrganizer ? 'Ton trajet · gérer' : t.payOnline ? 'Place payée · voir le trajet' : 'Place réservée · voir le trajet'}
               </Text>
             </Pressable>
           )}
@@ -397,7 +404,7 @@ export function TripCard({
         ) : (
           <Pressable style={[styles.action, styles.actionOutline]} onPress={() => onLeave(false)}>
             <Ionicons name="checkmark-circle" size={16} color={colors.successText} />
-            <Text style={[styles.actionText, { color: colors.successText }]}>Place payée · Quitter</Text>
+            <Text style={[styles.actionText, { color: colors.successText }]}>{t.payOnline ? 'Place payée · Quitter' : 'Place réservée · Annuler'}</Text>
           </Pressable>
         )
       ) : (
@@ -406,7 +413,7 @@ export function TripCard({
           disabled={full || suspended}
           onPress={busy ? onBusy : onJoin}>
           <Text style={styles.actionText}>
-            {full ? 'Complet' : suspended ? 'Suspendu' : busy ? 'Déjà dans un trajet' : `Rejoindre · ${formatFcfa(t.seatPrice)}`}
+            {full ? 'Complet' : suspended ? 'Suspendu' : busy ? 'Déjà dans un trajet' : t.payOnline ? `Rejoindre · ${formatFcfa(t.seatPrice)}` : `Réserver · ${formatFcfa(t.seatPrice)}`}
           </Text>
         </Pressable>
       )}
@@ -435,6 +442,31 @@ export function ChatButton({ count, onPress }: { count: number; onPress: () => v
         </View>
       )}
     </Pressable>
+  );
+}
+
+/**
+ * Sunu Taxi's rules, the same in the list and on a trip: a reservation (nothing paid in the app, the share given in
+ * the taxi), or seats paid in the app (lock, refunds). `price`: a trip's share, when shown on that trip.
+ */
+export function TaxiRules({ payOnline, price }: { payOnline: boolean; price?: number }) {
+  const share = price ? formatFcfa(price) : null;
+  if (payOnline)
+    return (
+      <>
+        <Rule icon="wallet-outline" text="Tu paies ta place en rejoignant : prix fixe, connu d’avance." />
+        <Rule icon="lock-closed-outline" text={`Places verrouillées ${TAXI_LOCK_MIN} min avant (à mi-chemin pour un départ proche) : quitter n’est plus remboursé.`} />
+        <Rule icon="shield-checkmark-outline" text="Trajet annulé par l’organisateur : remboursé à 100 %." />
+      </>
+    );
+  return (
+    <>
+      <Rule icon="bookmark-outline" text="Tu réserves ta place en un geste : rien à payer dans l’app." />
+      <Rule icon="cash-outline" text={share ? `Ta part (${share}), fixe et connue d’avance, se règle dans le taxi : donne-la à l’organisateur.` : 'Ta part, fixe et connue d’avance, se règle dans le taxi : donne-la à l’organisateur.'} />
+      <Rule icon="hand-left-outline" text="Sois à l’heure au point de départ et appuie sur « Je suis là » en arrivant." />
+      <Rule icon="close-circle-outline" text="Un empêchement ? Annule ta réservation au plus tôt : la place revient aux autres." />
+      <Rule icon="alert-circle-outline" text={`L’organisateur qui annule au dernier moment reçoit un avertissement : ${TAXI_STRIKES_LIMIT} en 30 jours suspendent Sunu Taxi 7 jours.`} />
+    </>
   );
 }
 
@@ -476,6 +508,7 @@ function NewTripSheet({
   const fareValue = Number(fare.replace(/\D/g, ''));
   const fareError = fareValue > 0 && (fareValue < FARE_MIN || fareValue > FARE_MAX) ? `Entre ${formatFcfa(FARE_MIN)} et ${formatFcfa(FARE_MAX)}.` : null;
   // Only delays shorter than the time before departure; one that no longer fits falls back to the default.
+  const { onlinePayment } = useTaxi();
   const lockOptions = LOCK_OPTIONS.filter((m) => m === 0 || m < leaveIn);
   const lockMinutes = lockOptions.includes(lock) ? lock : 0;
   const shownLock = lockMinutes || Math.min(DEFAULT_LOCK, Math.floor(leaveIn / 2));
@@ -502,7 +535,7 @@ function NewTripSheet({
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <SafeAreaView edges={['bottom']} style={styles.sheet}>
           <View style={styles.handle} />
-          <Text style={styles.sheetTitle}>Proposer un trajet</Text>
+          <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>Proposer un trajet</SheetHeader>
           <ScrollView contentContainerStyle={{ gap: 16 }} keyboardShouldPersistTaps="handled">
             <LabeledField label="Départ">
               <Field icon="radio-button-on-outline" placeholder="UGB · Village E" value={from} onChangeText={setFrom} />
@@ -513,12 +546,17 @@ function NewTripSheet({
             <LabeledField label="Départ dans">
               <Chips options={LEAVE_IN} value={leaveIn} onChange={setLeaveIn} label={leaveLabel} />
             </LabeledField>
-            <LabeledField label="Non remboursable avant le départ">
-              <Chips options={lockOptions} value={lockMinutes} onChange={setLock} label={(m) => (m ? `${m} min` : `${DEFAULT_LOCK}m`)} />
-            </LabeledField>
-            <Text style={styles.hint}>
-              Un passager qui quitte le trajet moins de {shownLock} min avant le départ n’est pas remboursé : sa place reste payée.
-            </Text>
+            {/* Only when seats are paid in the app: a reservation has nothing to refund. */}
+            {onlinePayment && (
+              <>
+                <LabeledField label="Non remboursable avant le départ">
+                  <Chips options={lockOptions} value={lockMinutes} onChange={setLock} label={(m) => (m ? `${m} min` : `${DEFAULT_LOCK}m`)} />
+                </LabeledField>
+                <Text style={styles.hint}>
+                  Un passager qui quitte le trajet moins de {shownLock} min avant le départ n’est pas remboursé : sa place reste payée.
+                </Text>
+              </>
+            )}
             <LabeledField label="Places dans le taxi (toi compris)">
               <Chips options={SEAT_OPTIONS} value={seats} onChange={setSeats} label={String} />
             </LabeledField>
@@ -534,7 +572,9 @@ function NewTripSheet({
             </LabeledField>
             {fareValue > 0 && !fareError && (
               <Text style={styles.hint}>
-                Chaque passager paie {formatFcfa(taxiSeatPrice({ fare: fareValue, seats }))} en rejoignant. Tu couvres les places vides.
+                {onlinePayment
+                  ? `Chaque passager paie ${formatFcfa(taxiSeatPrice({ fare: fareValue, seats }))} en rejoignant. Tu couvres les places vides.`
+                  : `Chaque passager réserve sa place et te donne sa part (${formatFcfa(taxiSeatPrice({ fare: fareValue, seats }))}) dans le taxi. Tu couvres les places vides.`}
               </Text>
             )}
             {error && <Text style={styles.error}>{error}</Text>}
@@ -571,7 +611,7 @@ function Chips<T extends number>({
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
-  body: { padding: 20, gap: 12, paddingBottom: 32 },
+  body: { padding: 20, gap: 12, paddingBottom: SPACE_BUTTON_CLEARANCE },
   hero: {
     backgroundColor: colors.primary,
     borderRadius: radii.lg,
@@ -637,7 +677,7 @@ const styles = StyleSheet.create({
   taxiText: { ...typo.smallStrong, flex: 1, color: colors.navy },
   chat: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40, paddingHorizontal: 14, borderRadius: radii.pill, backgroundColor: colors.primarySoft },
   chatText: { ...typo.bodyStrong, color: colors.primary },
-  chatCount: { minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  chatCount: { minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: colors.dangerText, alignItems: 'center', justifyContent: 'center' },
   chatRound: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   chatBadgeWrap: { position: 'absolute', top: -2, right: -2 },
   chatBadge: {

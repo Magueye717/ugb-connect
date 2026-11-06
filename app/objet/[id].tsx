@@ -5,10 +5,12 @@ import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Tex
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Field, OutlineButton, PrimaryButton, SafeBottom } from '@/components/ui';
+import { Field, OutlineButton, PrimaryButton, SafeBottom, SheetHeader } from '@/components/ui';
 import { lostCategory, lostOffice, lostSafetyTip, lostTone } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
+import { UnreadBadge, unreadLabel } from '@/components/UnreadBadge';
 import { useLost } from '@/context/LostContext';
+import { useChats } from '@/features/chat/ChatContext';
 import { declaredAgo, lostApi, WHEN_LABEL, type CardType, type LostItemDetail } from '@/features/lost/api';
 import { LostVisual } from '@/features/lost/LostVisual';
 import { CardVisual } from '@/features/lost/CardVisual';
@@ -31,6 +33,7 @@ export default function ObjetScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const { upsert } = useLost();
+  const chats = useChats();
   const [item, setItem] = useState<LostItemDetail | null>(null);
   const [missing, setMissing] = useState(false);
   const [claiming, setClaiming] = useState(false);
@@ -182,7 +185,10 @@ export default function ObjetScreen() {
 
               {/* Actions: my conversation, claim, report found. */}
               {item.myClaimId ? (
-                <PrimaryButton label="Ouvrir la discussion" onPress={() => openChat(item.myClaimId!)} />
+                <PrimaryButton
+                  label={chats.unreadOf('lost_claim', item.myClaimId) ? `Ouvrir la discussion · ${unreadLabel(chats.unreadOf('lost_claim', item.myClaimId))}` : 'Ouvrir la discussion'}
+                  onPress={() => openChat(item.myClaimId!)}
+                />
               ) : item.mine || item.isOwner ? null : found ? (
                 item.holder === 'finder' && <PrimaryButton label="C’est à moi" onPress={() => setClaiming(true)} />
               ) : (
@@ -198,7 +204,7 @@ export default function ObjetScreen() {
                       <Ionicons name="chatbubbles-outline" size={18} color={colors.primary} />
                       <Text style={[styles.infoValue, { flex: 1 }]}>{c.with}</Text>
                       <Text style={styles.hint}>{c.role === 'claim' ? 'Dit que c’est à lui' : c.role === 'card' ? 'Propriétaire' : 'L’a trouvé'}</Text>
-                      <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+                      {chats.unreadOf('lost_claim', c.claimId) ? <UnreadBadge count={chats.unreadOf('lost_claim', c.claimId)} /> : <Ionicons name="chevron-forward" size={16} color={colors.muted} />}
                     </Pressable>
                   ))}
                 </View>
@@ -270,7 +276,7 @@ function ClaimSheet({
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <View style={styles.sheet}>
-          <Text style={styles.sheetTitle}>Prouve que c’est à toi</Text>
+          <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>Prouve que c’est à toi</SheetHeader>
           <Text style={styles.sheetText}>
             Décris un détail qui ne se voit pas sur la photo. La personne qui l’a trouvé vérifie avant de te le rendre.
           </Text>

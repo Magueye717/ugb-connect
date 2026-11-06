@@ -8,20 +8,20 @@ import { CaravanSummary, FillBar, OrganizerLine } from '@/components/caravan';
 import { HoldCountdown } from '@/components/HoldCountdown';
 import { ErrorState } from '@/components/states';
 import { BackButton } from '@/components/ui';
-import { caravanState, formatDateTime, formatFcfa, paymentMethods, type Caravan, type CaravanStop } from '@/constants/data';
+import { caravanState, cashMethod, formatDateTime, formatFcfa, paymentMethods, type Caravan, type CaravanStop } from '@/constants/data';
 import { PaymentLogo } from '@/components/PaymentLogo';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCaravans, type BookingOutcome } from '@/context/CaravansContext';
 import { caravansApi, isCaravanTicket, toCaravan, type PassengerDto, type SeatMap } from '@/features/caravans/api';
 import { CompanionSheet } from '@/features/caravans/CompanionSheet';
-import type { PaymentMethod } from '@/features/payments/checkout';
+import type { TicketMethod } from '@/features/payments/checkout';
 import { ApiError } from '@/lib/api';
 import { haptics } from '@/lib/haptics';
 import { scheduleCaravanReminder } from '@/lib/notifications';
 
 const SERVICE_FEE = 0;
 /** The app's payment choices, as the API names them. */
-const METHOD: Record<string, PaymentMethod> = { wave: 'wave', om: 'orange_money' };
+const METHOD: Record<string, TicketMethod> = { wave: 'wave', om: 'orange_money', cash: 'cash' };
 
 export default function CaravaneReservation() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -46,7 +46,7 @@ export default function CaravaneReservation() {
   const dropoff = droppedOff ?? (c?.dropoffs.length === 1 ? c.dropoffs[0]! : null);
   const [picked, setPayment] = useState(paymentMethods[0].id);
   // Only the providers this trip accepts; the choice falls back to the first of them.
-  const accepted = paymentMethods.filter((m) => !c || c.paymentMethods.includes(METHOD[m.id] ?? 'wave'));
+  const accepted = [...paymentMethods, cashMethod].filter((m) => (c ? c.paymentMethods.includes(METHOD[m.id] ?? 'wave') : m.id !== 'cash'));
   const payment = accepted.some((m) => m.id === picked) ? picked : (accepted[0]?.id ?? picked);
   const [paying, setPaying] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -74,8 +74,15 @@ export default function CaravaneReservation() {
   }, [id, caravans, loadSeats]);
 
   const perRow = map?.seatsPerRow ?? 4;
-  // First and last seat of each row are by the window.
-  const isWindow = (n: number) => (n - 1) % perRow === 0 || (n - 1) % perRow === perRow - 1;
+  // Numbered from the front: the first row has 2 seats on the right (door and driver on the left), then full rows.
+  const first = map?.firstRowSeats ?? 2;
+  const columnOf = (n: number) => (n <= first ? perRow - first + (n - 1) : (n - 1 - first) % perRow);
+  const rowOf = (n: number) => (n <= first ? 1 : 2 + Math.floor((n - 1 - first) / perRow));
+  // First and last column of each row are by the window.
+  const isWindow = (n: number) => columnOf(n) === 0 || columnOf(n) === perRow - 1;
+  // 5 per row: the middle one is the folding seat in the aisle (« versailler »).
+  const isMiddle = (n: number) => perRow % 2 === 1 && columnOf(n) === Math.floor(perRow / 2);
+  const seatKind = (n: number) => (isWindow(n) ? 'Fenêtre' : isMiddle(n) ? 'Versailler' : 'Couloir');
   const taken = useMemo(() => new Set([...(map?.taken ?? []), ...(map?.blocked ?? [])]), [map]);
 
   if (!c) {
@@ -145,10 +152,23 @@ export default function CaravaneReservation() {
     setShowMap(true);
   };
   const { confirmed } = caravanState(c);
-  const rows = Array.from({ length: Math.ceil((map?.capacity ?? 0) / perRow) }, (_, r) =>
-    Array.from({ length: perRow }, (_, i) => r * perRow + i + 1).filter((n) => n <= (map?.capacity ?? 0)),
-  );
+  // Each row as its `perRow` places, front first: a seat number, or null for an empty place (the left of the first row,
+  // where the door and the driver are; the end of a short last row).
+  const capacity = map?.capacity ?? 0;
+  const rows: (number | null)[][] = capacity
+    ? [
+        Array.from({ length: perRow }, (_, c) => (c >= perRow - first && c - (perRow - first) + 1 <= capacity ? c - (perRow - first) + 1 : null)),
+        ...Array.from({ length: Math.ceil(Math.max(0, capacity - first) / perRow) }, (_, r) =>
+          Array.from({ length: perRow }, (_, c) => {
+            const n = first + r * perRow + c + 1;
+            return n <= capacity ? n : null;
+          }),
+        ),
+      ]
+    : [];
   const total = (c.price + SERVICE_FEE) * Math.max(1, picks.length);
+  // Cash: the seats are booked now, the price handed over at boarding.
+  const cash = payment === 'cash';
   const ready = picks.length > 0 && !!pickup && !!dropoff && !paying;
   const ordered = [...picks].sort((a, b) => Number(!!a.passenger) - Number(!!b.passenger));
   const held = c.myBooking;
@@ -223,6 +243,7 @@ export default function CaravaneReservation() {
           <View style={styles.divider} />
           <Guarantee icon="document-text-outline" text="Assurance, visite technique et permis du chauffeur vérifiés" />
           <Guarantee icon="person-outline" text={`${c.totalSeats} places assises, pas une de plus`} />
+          {c.vehicle.airConditioned && <Guarantee icon="snow-outline" text="Car climatisé" />}
           <Guarantee
             icon="wallet-outline"
             text={
@@ -331,7 +352,7 @@ export default function CaravaneReservation() {
                       Place n° {p.seat} · {p.passenger ? p.passenger.name : 'Toi'}
                     </Text>
                     <Text style={styles.muted}>
-                      {p.passenger ? `Accompagnant · ${p.passenger.phone}` : `${isWindow(p.seat) ? 'Fenêtre' : 'Couloir'} · rangée ${Math.ceil(p.seat / perRow)}`}
+                      {p.passenger ? `Accompagnant · ${p.passenger.phone}` : `${seatKind(p.seat)} · rangée ${rowOf(p.seat)}`}
                     </Text>
                   </View>
                   {p.passenger && <Ionicons name="create-outline" size={18} color={colors.muted2} />}
@@ -375,6 +396,7 @@ export default function CaravaneReservation() {
                 <Legend style={styles.seatTaken} label="Occupée" />
                 {!existing && <Legend style={styles.seatSelected} label="Toi" />}
                 {limit > 1 || existing || paid.length ? <Legend style={styles.seatCompanion} label="Accompagnant" /> : null}
+                {perRow === 5 && <Legend style={[styles.seatFree, styles.seatMiddle]} label="Versailler" />}
               </View>
               {/* Which seat the next tap places: mine, a companion's, or a new companion. */}
               {(picks.length > 0 || paid.length > 0) && (
@@ -425,8 +447,11 @@ export default function CaravaneReservation() {
                 {!map && !seatsFailed && <ActivityIndicator color={colors.primary} />}
                 {!map && seatsFailed && <ErrorState text="Le plan des places n’a pas pu être chargé." onRetry={retrySeats} />}
                 {rows.map((row) => (
-                  <View key={row[0]} style={styles.seatRow}>
+                  <View key={row.find((n) => n !== null)} style={styles.seatRow}>
                     {row.map((n, i) => {
+                      // 4 per row: the aisle before the third seat. 5: the folding middle seat sits in it.
+                      const aisle = perRow % 2 === 0 ? i === perRow / 2 && styles.afterAisle : i === Math.floor(perRow / 2) && styles.inAisle;
+                      if (n === null) return <View key={`empty-${i}`} style={[styles.seat, aisle]} />;
                       const isTaken = taken.has(n);
                       const pick = picks.find((p) => p.seat === n);
                       const own = paidSeat(n);
@@ -443,12 +468,12 @@ export default function CaravaneReservation() {
                                 ? `Place ${n}, occupée`
                                 : pick
                                   ? `Place ${n}, ${pick.passenger ? pick.passenger.name : 'ta place'}`
-                                  : `Place ${n}`
+                                  : `Place ${n}${isMiddle(n) ? ', versailler' : ''}`
                           }
                           style={[
                             styles.seat,
-                            i === Math.floor(perRow / 2) && styles.afterAisle,
-                            own ? [styles.seatCompanion, styles.seatPaid] : isTaken ? styles.seatTaken : pick ? (pick.passenger ? styles.seatCompanion : styles.seatSelected) : styles.seatFree,
+                            aisle,
+                            own ? [styles.seatCompanion, styles.seatPaid] : isTaken ? styles.seatTaken : pick ? (pick.passenger ? styles.seatCompanion : styles.seatSelected) : [styles.seatFree, isMiddle(n) && styles.seatMiddle],
                             selected && styles.seatMoving,
                           ]}>
                           {own ? (
@@ -535,21 +560,29 @@ export default function CaravaneReservation() {
           </View>
 
           <Pressable disabled={!ready} onPress={pay} style={[styles.pay, !ready && styles.payDisabled]}>
-            <Ionicons name="checkmark" size={18} color="#fff" />
-            <Text style={styles.payText}>
+            <Ionicons name={cash ? 'cash-outline' : 'checkmark'} size={18} color="#fff" />
+            <Text style={styles.payText} numberOfLines={1}>
               {paying
-                ? 'Paiement en cours…'
+                ? cash
+                  ? 'Réservation…'
+                  : 'Paiement en cours…'
                 : !picks.length
                 ? 'Choisis une place'
                 : !pickup
                   ? 'Choisis le point de montée'
                   : !dropoff
                     ? 'Choisis la descente'
-                    : `Payer ${formatFcfa(total)}`}
+                    : cash
+                      ? `Réserver · ${formatFcfa(total)}`
+                      : `Payer ${formatFcfa(total)}`}
             </Text>
           </Pressable>
           <Text style={styles.note}>
-            {picks.length > 1 ? 'Un billet avec QR code par place dans ton app après paiement' : 'Billet avec QR code dans l’app après paiement'}
+            {cash
+              ? `En espèces, à l’embarquement · ${picks.length > 1 ? 'tes billets arrivent' : 'ton billet arrive'} tout de suite`
+              : picks.length > 1
+                ? 'Un billet avec QR code par place dans ton app après paiement'
+                : 'Billet avec QR code dans l’app après paiement'}
           </Text>
           </>
         ) : null}
@@ -690,7 +723,8 @@ const styles = StyleSheet.create({
   sectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
   section: { ...typo.section, color: colors.navy, marginTop: 4 },
   free: { ...typo.captionStrong, color: colors.success },
-  legend: { flexDirection: 'row', gap: 14 },
+  // Wraps to a second line when there are many (Libre, Occupée, Toi, Accompagnant, Versailler).
+  legend: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 14, rowGap: 6 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendBox: { width: 12, height: 12, borderRadius: 3 },
   legendText: { ...typo.caption, color: colors.muted2 },
@@ -709,6 +743,8 @@ const styles = StyleSheet.create({
   seatRow: { flexDirection: 'row', gap: 8 },
   seat: { width: 40, height: 40, borderRadius: radii.sm, alignItems: 'center', justifyContent: 'center' },
   afterAisle: { marginLeft: 28 },
+  inAisle: { marginHorizontal: 4 },
+  seatMiddle: { borderStyle: 'dashed', borderColor: colors.accent },
   seatFree: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
   seatTaken: { backgroundColor: colors.border },
   seatSelected: { backgroundColor: colors.primary },

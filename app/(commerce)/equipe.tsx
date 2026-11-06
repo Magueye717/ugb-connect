@@ -5,5 +5,7 @@ import { TeamScreen } from '@/features/team/TeamScreen';
 export default function Equipe() {
   const { business } = useAuth();
   if (!business) return null;
-  return <TeamScreen orgId={business.orgId} name={business.name} intro="Gérants et employés reçoivent les nouvelles commandes de leur espace." />;
+  return <TeamScreen orgId={business.orgId} name={business.name} intro="Gérants et employés reçoivent les nouvelles commandes de leur espace."
+      addHint="Fais-toi aider au comptoir : un gérant ou un employé reçoit les commandes avec toi, sur son propre téléphone. Tu gardes la main sur tout."
+    />;
 }

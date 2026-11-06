@@ -20,7 +20,7 @@ const ACTIVE = ['pending_payment', 'placed', 'accepted', 'ready'];
 
 export function OrdersProvider({ children }: { children: ReactNode }) {
   const { status, user } = useAuth();
-  const enabled = status === 'signedIn' && !!user?.studentId;
+  const enabled = status === 'signedIn' && !!user?.isStudent;
   const [orders, setOrders] = useState<OrderDto[]>([]);
 
   const refresh = useCallback(async () => {

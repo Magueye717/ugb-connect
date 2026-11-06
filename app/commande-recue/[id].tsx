@@ -5,7 +5,7 @@ import { ActivityIndicator, Alert, Linking, Modal, Pressable, ScrollView, StyleS
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BackButton, Chip, Field, PrimaryButton, SafeBottom, StatusChip } from '@/components/ui';
+import { BackButton, Chip, Field, PrimaryButton, SafeBottom, SheetHeader, StatusChip } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
@@ -127,7 +127,7 @@ export default function CommandeRecue() {
         <Pressable style={styles.backdrop} onPress={() => setRefusing(false)} />
         <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
           <View style={styles.sheet}>
-            <Text style={styles.sheetTitle}>Refuser la commande {o.code}</Text>
+            <SheetHeader onClose={() => setRefusing(false)} titleStyle={styles.sheetTitle}>Refuser la commande {o.code}</SheetHeader>
             <Text style={styles.muted}>{o.method === 'cash' ? 'Le client reçoit ton motif (rien n’a été payé).' : `Le client est remboursé (${formatFcfa(o.total)}) et reçoit ton motif.`}</Text>
             <View style={styles.chips}>
               {REFUSALS.map((r) => (

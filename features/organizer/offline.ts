@@ -5,7 +5,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ed25519 } from '@noble/curves/ed25519.js';
 
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import type { ManifestDto, ManifestPassenger, ScanGroup } from '@/features/caravans/api';
 
 export type OfflinePack = {
@@ -15,8 +15,13 @@ export type OfflinePack = {
   versions: Record<string, number>;
   /** typed code → ticketId */
   codes: Record<string, string>;
+  /** ticketId → FCFA still to collect in cash at boarding (packs saved before cash have none). */
+  cash?: Record<string, number>;
   manifest: ManifestDto;
 };
+
+/** "Le bus repart de cet arrêt" pressed offline, waiting to be sent (after the scans: who boarded there isn't absent). */
+export type QueuedLeave = { orgId: string; departureId: string; stopId: string; leftAt: string };
 
 /** A scan made offline, waiting to be sent. */
 export type QueuedScan = {
@@ -34,6 +39,9 @@ export type OfflineResult = { tone: 'success' | 'warning' | 'danger'; title: str
 const PACK = (departureId: string) => `ugb.offline.pack.${departureId}`;
 const PACKS = 'ugb.offline.packs';
 const QUEUE = 'ugb.offline.queue';
+const LEAVES = 'ugb.offline.leaves';
+/** A list older than this is refreshed whenever there's network (passengers keep booking until it closes). */
+export const PACK_MAX_AGE_MS = 15 * 60_000;
 
 export const fetchPack = (orgId: string, departureId: string) => api<OfflinePack>('GET', `/org/${orgId}/departures/${departureId}/offline-pack`, { auth: true });
 
@@ -70,6 +78,40 @@ export async function queued(): Promise<QueuedScan[]> {
 async function enqueue(scan: QueuedScan) {
   const list = await queued();
   await AsyncStorage.setItem(QUEUE, JSON.stringify([...list, scan]));
+}
+
+export async function queuedLeaves(): Promise<QueuedLeave[]> {
+  return JSON.parse((await AsyncStorage.getItem(LEAVES)) ?? '[]');
+}
+
+/** Offline "Le bus repart": kept on the phone, applied to the list at once, sent with the scans later. */
+export async function queueLeave(leave: QueuedLeave) {
+  const list = await queuedLeaves();
+  if (list.some((x) => x.departureId === leave.departureId && x.stopId === leave.stopId)) return;
+  await AsyncStorage.setItem(LEAVES, JSON.stringify([...list, leave]));
+}
+
+async function dropLeave(leave: QueuedLeave) {
+  const list = await queuedLeaves();
+  await AsyncStorage.setItem(LEAVES, JSON.stringify(list.filter((x) => !(x.departureId === leave.departureId && x.stopId === leave.stopId))));
+}
+
+/**
+ * How current a kept list is. `complete`: downloaded once booking had closed, so no ticket can be missing from it
+ * (until then a ticket bought, cancelled or transferred after the download isn't known offline).
+ */
+export function packFreshness(pack: OfflinePack, now = Date.now()) {
+  const at = Date.parse(pack.generatedAt);
+  const closes = Date.parse(pack.manifest.departure.bookingClosesAt ?? '') || Date.parse(pack.manifest.departure.departureAt);
+  return { at, complete: at >= closes, stale: at < closes && now - at > PACK_MAX_AGE_MS };
+}
+
+/** Whether a kept list should be downloaded again (soon departures only; past ones are pruned elsewhere). */
+export function packNeedsRefresh(pack: OfflinePack, now = Date.now()) {
+  const f = packFreshness(pack, now);
+  const closes = Date.parse(pack.manifest.departure.bookingClosesAt ?? '') || Date.parse(pack.manifest.departure.departureAt);
+  // Booking has closed since the download: one last download makes it complete. Before that: every 15 min.
+  return !f.complete && (now >= closes || now - f.at > PACK_MAX_AGE_MS);
 }
 
 async function dequeue(ids: string[]) {
@@ -127,7 +169,7 @@ const newScanId = () => `off-${Date.now().toString(36)}-${Math.random().toString
  * Checks a QR code or a typed code against the packs on this phone and, when valid, boards the passenger
  * locally (queued for the server). Same answers as the server, marked "hors ligne".
  */
-export async function checkOffline(raw: string, orgId: string, departureId?: string): Promise<OfflineResult> {
+export async function checkOffline(raw: string, orgId: string, departureId?: string, scanId?: string): Promise<OfflineResult> {
   const packs = departureId ? [await loadPack(departureId)].filter((p): p is OfflinePack => !!p) : await loadPacks();
   if (!packs.length) {
     return { tone: 'danger', title: 'Pas de connexion', text: 'Liste non téléchargée sur ce téléphone : ouvre le départ une fois avec du réseau avant de partir.' };
@@ -153,7 +195,7 @@ export async function checkOffline(raw: string, orgId: string, departureId?: str
     ticketId = pack?.codes[code];
     if (!pack || !ticketId) return { tone: 'danger', title: 'Billet non valable', text: `${code || 'Ce code'} n’est pas sur la liste : billet annulé, faux ou mal saisi.` };
   }
-  return boardOffline(pack, orgId, ticketId, isQr ? { qr: value } : { code: value.toUpperCase() });
+  return boardOffline(pack, orgId, ticketId, isQr ? { qr: value } : { code: value.toUpperCase() }, scanId);
 }
 
 /** The buyer's other seats on the departure, as the server's scan answer gives them (from the kept list). */
@@ -165,8 +207,11 @@ function groupOf(passengers: ManifestPassenger[], p: ManifestPassenger): ScanGro
   return { size: others.length + 1, purchaser: p.purchaser.name, others: others.map((o) => ({ ticketId: o.ticketId, seat: o.seat, name: o.name, admitted: o.admitted })) };
 }
 
-/** "Faire monter" from the list while offline. */
-export async function boardOffline(pack: OfflinePack, orgId: string, ticketId: string, how: { qr?: string; code?: string } = {}): Promise<OfflineResult> {
+/**
+ * "Faire monter" from the list while offline. `scanId`: the id of the online attempt that timed out, so if that
+ * request did reach the server, the queued copy is recognized as the same scan (no false "déjà à bord" at sync).
+ */
+export async function boardOffline(pack: OfflinePack, orgId: string, ticketId: string, how: { qr?: string; code?: string } = {}, scanId?: string): Promise<OfflineResult> {
   // With the scans already queued on this phone: someone boarded offline is on board.
   const passengers = (await withQueued(pack)).manifest.passengers;
   const p = passengers.find((x) => x.ticketId === ticketId)!;
@@ -176,16 +221,19 @@ export async function boardOffline(pack: OfflinePack, orgId: string, ticketId: s
   if (p.admitted) {
     return { tone: 'warning', title: 'Déjà à bord', text: `${who}. Vérifie qu’il n’y a pas deux personnes avec ce billet.`, caravanId: eventId, group };
   }
-  await enqueue({ clientScanId: newScanId(), orgId, eventId, ticketId, ...how, scannedAt: new Date().toISOString() });
+  await enqueue({ clientScanId: scanId ?? newScanId(), orgId, eventId, ticketId, ...how, scannedAt: new Date().toISOString() });
+  // Paid in cash: collect it now, like online (asked once: a second scan says "Déjà à bord").
+  const cashDue = pack.cash?.[ticketId] ?? 0;
   const d = pack.manifest.departure;
   const dropoff = d.dropoffs.find((s) => s.stopId === p.dropoffStopId)?.place;
   const here = d.pickups.find((s) => !d.stopsLeft.some((l) => l.stopId === s.stopId));
   const booked = d.pickups.find((s) => s.stopId === p.pickupStopId);
   const elsewhere = here && booked && here.stopId !== booked.stopId;
   return {
-    tone: elsewhere ? 'warning' : 'success',
+    tone: elsewhere || cashDue ? 'warning' : 'success',
     title: who,
     text: [
+      cashDue ? `À encaisser : ${String(cashDue).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} FCFA en espèces.` : '',
       p.companionOf ? `Accompagnant de ${p.companionOf}. Vérifie le nom sur sa pièce d’identité.` : '',
       elsewhere ? `Monte à ${here.place} au lieu de ${booked.place}.` : '',
       `Descend à ${dropoff ?? '?'}. Hors ligne : envoyé dès le retour du réseau.`,
@@ -199,10 +247,13 @@ export async function boardOffline(pack: OfflinePack, orgId: string, ticketId: s
 
 /** The queued scans applied to a cached list: what the phone shows while offline. */
 export async function withQueued(pack: OfflinePack): Promise<OfflinePack> {
-  const waiting = new Set((await queued()).filter((s) => s.eventId === pack.manifest.departure.id).map((s) => s.ticketId));
-  if (!waiting.size) return pack;
+  const id = pack.manifest.departure.id;
+  const waiting = new Set((await queued()).filter((s) => s.eventId === id).map((s) => s.ticketId));
+  const left = (await queuedLeaves()).filter((l) => l.departureId === id && !pack.manifest.departure.stopsLeft.some((x) => x.stopId === l.stopId));
+  if (!waiting.size && !left.length) return pack;
   const passengers = pack.manifest.passengers.map((p) => (waiting.has(p.ticketId) ? { ...p, admitted: true } : p));
-  return { ...pack, manifest: { ...pack.manifest, passengers } };
+  const departure = { ...pack.manifest.departure, stopsLeft: [...pack.manifest.departure.stopsLeft, ...left.map((l) => ({ stopId: l.stopId, at: l.leftAt }))] };
+  return { ...pack, manifest: { ...pack.manifest, departure, passengers } };
 }
 
 type BatchResult = { result: 'admitted' | 'duplicate' | 'rejected'; title: string; text: string };
@@ -212,6 +263,24 @@ type BatchResult = { result: 'admitted' | 'duplicate' | 'rejected'; title: strin
  * the server didn't accept (boarded by another phone first, ticket cancelled meanwhile…), to show the organizer.
  */
 export async function syncQueued(orgId: string): Promise<{ sent: number; problems: BatchResult[] }> {
+  const scans = await syncScans(orgId);
+  // Then the stops left offline: after the scans, so who boarded there offline isn't marked absent.
+  const problems = [...scans.problems];
+  let sent = scans.sent;
+  for (const leave of (await queuedLeaves()).filter((l) => l.orgId === orgId)) {
+    try {
+      await api('POST', `/org/${orgId}/departures/${leave.departureId}/stops/${leave.stopId}/leave`, { auth: true, body: { leftAt: leave.leftAt } });
+      sent++;
+    } catch (e) {
+      if (e instanceof ApiError && e.isNetwork) throw e;
+      problems.push({ result: 'rejected', title: 'Départ d’un arrêt', text: e instanceof ApiError ? e.message : 'Refusé par le serveur.' });
+    }
+    await dropLeave(leave);
+  }
+  return { sent, problems };
+}
+
+async function syncScans(orgId: string): Promise<{ sent: number; problems: BatchResult[] }> {
   const mine = (await queued()).filter((s) => s.orgId === orgId).slice(0, 200);
   if (!mine.length) return { sent: 0, problems: [] };
   const res = await api<{ items: BatchResult[] }>('POST', `/org/${orgId}/admissions/batch`, {

@@ -1,5 +1,5 @@
 // Events (parties, conferences, outings) and their tickets. Tickets are generic (see features/caravans/api.ts).
-import { paymentReturnUrl, type PaymentDto, type PaymentMethod } from '@/features/payments/checkout';
+import { paymentReturnUrl, type PaymentDto, type PaymentMethod, type TicketMethod } from '@/features/payments/checkout';
 import { api } from '@/lib/api';
 
 const auth = { auth: true } as const;
@@ -26,6 +26,8 @@ export type EventDto = {
   salesOpen: boolean;
   minPrice: number;
   maxPerStudent: number;
+  /** How the organizer accepts payment (cash: at the door). Missing: Wave and Orange Money. */
+  paymentMethods?: TicketMethod[];
   ticketTypes: TicketTypeDto[];
   cancellation: { at: string; reason: string } | null;
   /** Student's event: what the admins asked to correct, or why it was refused. */
@@ -109,6 +111,7 @@ export type EventInput = {
   endsAt: string;
   ticketTypes: { name: string; description: string | null; price: number; capacity: number }[];
   maxPerStudent: number;
+  paymentMethods: TicketMethod[];
 };
 
 export const EVENT_STATUS: Record<EventStatus, { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' }> = {
@@ -126,7 +129,8 @@ export const eventsApi = {
   /** Published events for this student (their UFR, campus, village, region), soonest first. */
   list: () => api<{ items: EventDto[] }>('GET', '/events', auth),
   get: (id: string) => api<EventDto>('GET', `/events/${id}`, auth),
-  book: (id: string, body: { items: { typeId: string; qty: number }[]; method: PaymentMethod }) =>
+  /** `cash` (or a free event): the tickets are issued at once, `payment` is null. */
+  book: (id: string, body: { items: { typeId: string; qty: number }[]; method: TicketMethod }) =>
     api<{ booking: EventBookingDto; payment: PaymentDto | null }>('POST', `/events/${id}/bookings`, { ...auth, body: { ...body, returnUrl: paymentReturnUrl() } }),
   booking: (id: string) => api<EventBookingDto>('GET', `/events/bookings/${id}`, auth),
   release: (id: string) => api<void>('DELETE', `/events/bookings/${id}`, auth),

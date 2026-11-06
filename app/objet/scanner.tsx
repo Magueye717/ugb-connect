@@ -1,9 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -12,10 +10,14 @@ import { lostOffice } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useLost } from '@/context/LostContext';
 import { CARD_TYPES, lostApi, readCardPhoto, type CardType, type StudentMatch } from '@/features/lost/api';
+import { CardCamera } from '@/features/lost/CardCamera';
+import { unreadable, type ScanAttempt } from '@/features/lost/useAutoScan';
 import { CardVisual } from '@/features/lost/CardVisual';
 import { PlacePicker } from '@/features/lost/PlacePicker';
 import { STUDENT_ID_RE } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
+import { CAMERA_CLOSE_MS, scanFeel } from '@/lib/haptics';
+import { sounds } from '@/lib/sounds';
 
 type HandOver = 'office' | 'finder';
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
@@ -33,10 +35,7 @@ const isCardType = (v: string | undefined): v is CardType => CARD_TYPES.some((t)
 export default function ScanCard() {
   const params = useLocalSearchParams<{ type?: string }>();
   const { upsert } = useLost();
-  const camera = useRef<CameraView>(null);
-  const [permission, requestPermission] = useCameraPermissions();
   const [cardType, setCardType] = useState<CardType>(isCardType(params.type) ? params.type : 'student');
-  const [reading, setReading] = useState(false);
   const [number, setNumber] = useState('');
   const [name, setName] = useState('');
   const [searching, setSearching] = useState(false);
@@ -58,32 +57,32 @@ export default function ScanCard() {
     setSearched(null);
   };
 
-  const read = async (uri: string) => {
-    setReading(true);
+  // One frame of the scan: an unreadable one is retried quietly; a reading (or a real refusal) stops the scan.
+  const read: ScanAttempt = async (uri) => {
     try {
       const r = await readCardPhoto(uri);
+      // Nothing at all on this frame (blurred, no card yet): the scan goes on.
+      if (!r.cardType && !r.studentNumber && !r.names.length) return 'retry';
       if (r.cardType) setCardType(r.cardType);
       if (r.studentNumber) setNumber(r.studentNumber);
+      // Felt at once: someone found, or nothing to go on.
+      if (r.owner || r.candidates.length) {
+        // A match: the vibration and the scanner's « bip », once the camera has closed.
+        scanFeel.found(CAMERA_CLOSE_MS);
+        setTimeout(sounds.success, CAMERA_CLOSE_MS);
+      } else scanFeel.nothing(CAMERA_CLOSE_MS);
       if (r.owner) setOwner(r.owner);
       else {
         setSearched(r.names.join(' ') || null);
         setCandidates(r.candidates);
       }
+      return 'done';
     } catch (err) {
+      if (unreadable(err)) return 'retry';
+      scanFeel.refused();
       fail('Lecture impossible')(err);
-    } finally {
-      setReading(false);
+      return 'done';
     }
-  };
-
-  const shoot = async () => {
-    const photo = await camera.current?.takePictureAsync({ quality: 0.8 }).catch(() => null);
-    if (photo) await read(photo.uri);
-  };
-
-  const fromGallery = async () => {
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
-    if (!res.canceled && res.assets[0]) await read(res.assets[0].uri);
   };
 
   const lookup = async () => {
@@ -91,6 +90,10 @@ export default function ScanCard() {
     setSearching(true);
     try {
       const r = await lostApi.lookupCard(n);
+      if (r.owner) {
+        scanFeel.found();
+        sounds.success();
+      } else scanFeel.nothing();
       if (r.owner) setOwner(r.owner);
       else {
         setSearched(n);
@@ -106,7 +109,12 @@ export default function ScanCard() {
   const search = async (q = name) => {
     setSearching(true);
     try {
-      setCandidates((await lostApi.searchCard(q.trim())).items);
+      const found = (await lostApi.searchCard(q.trim())).items;
+      if (found.length) {
+        scanFeel.found();
+        sounds.success();
+      } else scanFeel.nothing();
+      setCandidates(found);
       setSearched(q.trim());
     } catch (err) {
       fail('Recherche impossible')(err);
@@ -150,31 +158,10 @@ export default function ScanCard() {
           {owner === undefined && candidates === null && (
             <>
               <TypePicker value={cardType} onChange={setCardType} />
-              <View style={styles.camera}>
-                {!permission ? null : permission.granted ? (
-                  <>
-                    <CameraView ref={camera} style={StyleSheet.absoluteFill} facing="back" />
-                    <View style={styles.frame} pointerEvents="none" />
-                    {reading && (
-                      <View style={styles.reading}>
-                        <ActivityIndicator color="#fff" />
-                        <Text style={styles.readingText}>Lecture de la carte…</Text>
-                      </View>
-                    )}
-                  </>
-                ) : (
-                  <View style={styles.permission}>
-                    <Ionicons name="camera-outline" size={32} color="#fff" />
-                    <Text style={styles.permissionText}>La caméra sert à photographier la carte pour lire le nom de son propriétaire.</Text>
-                    <Pressable style={styles.permissionBtn} onPress={() => (permission.canAskAgain ? requestPermission() : Linking.openSettings())}>
-                      <Text style={styles.permissionBtnText}>{permission.canAskAgain ? 'Autoriser la caméra' : 'Ouvrir les réglages'}</Text>
-                    </Pressable>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.hint}>Cadre la carte à plat, avec de la lumière. La photo sert juste à lire le nom (et le numéro d’une carte étudiant) : elle n’est pas gardée.</Text>
-              <PrimaryButton label="Photographier la carte" disabled={!permission?.granted || reading} loading={reading} onPress={shoot} />
-              <TextButton label="Choisir une photo dans la galerie" onPress={fromGallery} disabled={reading} style={{ alignSelf: 'center' }} />
+              <CardCamera
+                onScan={read}
+                why="La caméra sert à scanner la carte pour retrouver son propriétaire."
+              />
 
               <View style={styles.or}>
                 <View style={styles.orLine} />
@@ -404,16 +391,6 @@ const styles = StyleSheet.create({
   type: { width: '48.5%', flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, minHeight: 44, borderRadius: radii.md, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
   typeOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   typeText: { ...typo.smallStrong, color: colors.navy, flexShrink: 1 },
-  camera: { height: 240, borderRadius: radii.lg, overflow: 'hidden', backgroundColor: colors.navy, alignItems: 'center', justifyContent: 'center' },
-  // Card-shaped target in the middle of the camera (ID-1 format).
-  frame: { width: '86%', aspectRatio: 1.586, borderRadius: radii.md, borderWidth: 3, borderColor: '#fff' },
-  reading: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(10,16,40,0.6)', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  readingText: { ...typo.bodyStrong, color: '#fff' },
-  permission: { alignItems: 'center', gap: 10, padding: 24 },
-  permissionText: { ...typo.body, color: '#fff', textAlign: 'center' },
-  permissionBtn: { backgroundColor: '#fff', paddingHorizontal: 16, minHeight: 38, borderRadius: radii.pill, justifyContent: 'center' },
-  permissionBtnText: { color: colors.navy, fontWeight: '700' },
-  hint: { ...typo.small, color: colors.muted2, textAlign: 'center', lineHeight: 18 },
   hintLeft: { ...typo.small, color: colors.muted2, lineHeight: 18, marginTop: -6 },
   or: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 4 },
   orLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.border },

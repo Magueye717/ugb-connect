@@ -6,6 +6,7 @@ import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } 
 import { CaravanSummary, FillBar } from '@/components/caravan';
 import { EmptyState, ErrorState, SkeletonCard } from '@/components/states';
 import { Field, Segmented } from '@/components/ui';
+import { SPACE_BUTTON_CLEARANCE } from '@/components/SpaceSwitcher';
 import { formatFcfa, type Caravan, type CaravanDirection } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCaravans } from '@/context/CaravansContext';
@@ -184,7 +185,7 @@ export function CaravanBoard() {
                 <View style={{ flexShrink: 1 }}>
                   <Text style={styles.price}>{formatFcfa(c.price)}</Text>
                   <Text style={styles.seats} numberOfLines={1}>
-                    {c.seats > 0 ? `${c.seats} libres` : 'Complet'} · {c.vehicle.label}
+                    {c.seats > 0 ? `${c.seats} libres` : 'Complet'} · {c.vehicle.airConditioned ? 'Climatisé · ' : ''}{c.vehicle.label}
                   </Text>
                 </View>
                 {mine ? (
@@ -213,7 +214,7 @@ export function CaravanBoard() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
-  body: { padding: 20, gap: 14, paddingBottom: 32 },
+  body: { padding: 20, gap: 14, paddingBottom: SPACE_BUTTON_CLEARANCE },
   hero: {
     backgroundColor: colors.primary,
     borderRadius: radii.lg,

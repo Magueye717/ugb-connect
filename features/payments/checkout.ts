@@ -6,6 +6,9 @@ import { api } from '@/lib/api';
 
 export type PaymentMethod = 'wave' | 'orange_money';
 export const methodLabel: Record<PaymentMethod, string> = { wave: 'Wave', orange_money: 'Orange Money' };
+/** A ticket (caravan, event): Wave, Orange Money, or cash handed to the organizer at boarding / the door. */
+export type TicketMethod = PaymentMethod | 'cash';
+export const ticketMethodLabel: Record<TicketMethod, string> = { ...methodLabel, cash: 'Espèces' };
 
 /** `purpose` and `purposeRef`: what was paid (an order, a booking, a banner…), to open it after the payment page. */
 export type PaymentPurpose = 'taxi_seat' | 'caravan_booking' | 'event_booking' | 'event_publication' | 'banner' | 'commerce_order';

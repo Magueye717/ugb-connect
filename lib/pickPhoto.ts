@@ -7,6 +7,8 @@ type Options = {
   /** Gallery: several at once, up to this many (the camera takes one). */
   multiple?: number;
   title?: string;
+  /** Skip the question: straight to the camera or the gallery. */
+  source?: 'camera' | 'library';
 };
 
 /** Camera or gallery: asked first. On the web there is no camera prompt, the file picker opens. */
@@ -25,8 +27,8 @@ function askSource(title: string): Promise<'camera' | 'library' | null> {
  * A picture for a dish, an article, a business or a place: taken on the spot, or from the gallery. Returns the chosen
  * images (empty when cancelled or the camera is refused), ready for `uploadImage`.
  */
-export async function pickPhoto({ aspect, multiple, title = 'Ajouter une photo' }: Options = {}): Promise<ImagePicker.ImagePickerAsset[]> {
-  const source = await askSource(title);
+export async function pickPhoto({ aspect, multiple, title = 'Ajouter une photo', source: given }: Options = {}): Promise<ImagePicker.ImagePickerAsset[]> {
+  const source = given ?? (await askSource(title));
   if (!source) return [];
   const crop = aspect ? { allowsEditing: true, aspect } : {};
   if (source === 'camera') {

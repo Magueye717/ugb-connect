@@ -29,7 +29,7 @@ export default function ALaUne() {
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={pull} />}>
         {items.length === 0 && <EmptyState icon="newspaper-outline" title="Rien à la une" text="Les annonces du campus apparaîtront ici." />}
         {items.map((a) => (
-          <HeadlineItem key={a.id} a={a} />
+          <HeadlineItem key={a.id} a={a} more />
         ))}
       </ScrollView>
     </SafeAreaView>

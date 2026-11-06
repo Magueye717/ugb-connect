@@ -14,7 +14,7 @@ import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCampus } from '@/context/CampusContext';
 import { restosApi, type AlertDto } from '@/features/restos/api';
 import { ApiError } from '@/lib/api';
-import { fileSize } from '@/lib/fileSize';
+import { documentMeta } from '@/lib/fileSize';
 
 /**
  * An "À la une" announcement in full: its picture (a poster, a timetable: tap to zoom), the whole text and its PDF
@@ -26,7 +26,7 @@ export default function AlertePage() {
   const known = alerts.find((a) => a.id === id) ?? null;
   const [fetched, setFetched] = useState<AlertDto | null>(null);
   const [gone, setGone] = useState(false);
-  const [zoom, setZoom] = useState(false);
+  const [zoom, setZoom] = useState<number | null>(null);
   const [opening, setOpening] = useState(false);
   const { width } = useWindowDimensions();
   const a = known ?? fetched;
@@ -62,14 +62,14 @@ export default function AlertePage() {
         )
       ) : (
         <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-          {a.image && (
-            <Pressable onPress={() => setZoom(true)} accessibilityRole="button" accessibilityLabel="Agrandir l’image">
-              <Image source={{ uri: a.image }} style={[styles.image, { height: Math.round((width - 40) * 0.62) }]} contentFit="cover" transition={200} />
+          {a.images.map((uri, i) => (
+            <Pressable key={uri} onPress={() => setZoom(i)} accessibilityRole="button" accessibilityLabel={`Agrandir la photo ${i + 1}`}>
+              <Image source={{ uri }} style={[styles.image, { height: Math.round((width - 40) * 0.62) }]} contentFit="cover" transition={200} />
               <View style={styles.zoomHint}>
                 <Ionicons name="expand-outline" size={13} color="#fff" />
               </View>
             </Pressable>
-          )}
+          ))}
           <View style={styles.meta}>
             {!!a.tag && (
               <View style={[styles.tag, a.tone === 'danger' && { backgroundColor: colors.dangerBg }]}>
@@ -93,9 +93,9 @@ export default function AlertePage() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.pdfName} numberOfLines={2}>
-                  {a.attachment.name}
+                  {a.attachment.label}
                 </Text>
-                <Text style={styles.pdfSize}>PDF · {fileSize(a.attachment.bytes)}</Text>
+                <Text style={styles.pdfSize}>{documentMeta(a.attachment)}</Text>
               </View>
             </View>
           )}
@@ -107,7 +107,7 @@ export default function AlertePage() {
           )}
         </ScrollView>
       )}
-      <PhotoGallery photos={a?.image ? [a.image] : []} start={zoom ? 0 : null} title={a?.title ?? ''} onClose={() => setZoom(false)} />
+      <PhotoGallery photos={a?.images ?? []} start={zoom} title={a?.title ?? ''} onClose={() => setZoom(null)} />
     </SafeAreaView>
   );
 }

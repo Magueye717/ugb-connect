@@ -3,9 +3,11 @@ import { Tabs } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ScanTabButton } from '@/components/ScanTabButton';
 import { SpaceSwitcher } from '@/components/SpaceSwitcher';
 import { colors } from '@/constants/theme';
 import { isOwner, useAuth } from '@/context/AuthContext';
+import { useFreshPacks } from '@/features/organizer/boarding';
 
 // Organizer space: few tabs, the scanner in the middle, one tap away at the bus door.
 const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
@@ -26,6 +28,8 @@ const activeIcons: Record<string, keyof typeof Ionicons.glyphMap> = {
 
 export default function OrganizerTabLayout() {
   const { organizer } = useAuth();
+  // The passenger lists kept for offline scanning stay current while there's network.
+  useFreshPacks();
   // Android edge-to-edge: the system navigation bar sits over the app, so the tab bar grows by its height.
   const insets = useSafeAreaInsets();
   const bottom = Math.max(insets.bottom, 10);
@@ -54,7 +58,14 @@ export default function OrganizerTabLayout() {
           },
         })}>
         <Tabs.Screen name="activites" options={{ title: 'Activités' }} />
-        <Tabs.Screen name="scanner" options={{ title: 'Scanner' }} />
+        {/* Raised round button with a pulse: the bus door's one tap. */}
+        <Tabs.Screen
+          name="scanner"
+          options={{
+            title: 'Scanner',
+            tabBarButton: (p) => <ScanTabButton onPress={p.onPress} onLongPress={p.onLongPress} selected={!!(p['aria-selected'] ?? p.accessibilityState?.selected)} />,
+          }}
+        />
         {/* The team is the owner's: managers and scanners never see this tab. */}
         <Tabs.Screen name="mon-equipe" options={{ title: 'Équipe', href: isOwner(organizer?.roles) ? undefined : null }} />
         <Tabs.Screen name="compte" options={{ title: 'Compte' }} />

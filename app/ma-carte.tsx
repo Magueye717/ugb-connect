@@ -1,8 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -10,9 +9,13 @@ import { BackButton, Field, LabeledField, PrimaryButton, TextButton } from '@/co
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { readMyCardPhoto, saveIdentity } from '@/features/lost/api';
+import { CardScanModal } from '@/features/lost/CardScanModal';
 import { CardVisual } from '@/features/lost/CardVisual';
+import { unreadable, type ScanAttempt } from '@/features/lost/useAutoScan';
 import { CAMPUSES } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
+import { CAMERA_CLOSE_MS, scanFeel } from '@/lib/haptics';
+import { sounds } from '@/lib/sounds';
 import { toast } from '@/lib/toast';
 import { rentreeLabel } from '@/lib/rentree';
 
@@ -42,40 +45,46 @@ export default function MaCarte() {
   const missing = !id?.birthDate || !id?.birthPlace || !id?.nationality;
   const locked = !!until && !missing;
   const keep = (v: string | null | undefined) => !!until && !!v;
-  const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [birthDate, setBirthDate] = useState(toFr(id?.birthDate ?? null));
   const [birthPlace, setBirthPlace] = useState(id?.birthPlace ?? '');
   const [nationality, setNationality] = useState(id?.nationality ?? '');
+  // « Scanner ma carte »: the full-screen camera, closed once the card is read.
+  const [scanning, setScanning] = useState(false);
 
   if (!user) return null;
   const campus = CAMPUSES.find((c) => user.campus.includes(c.label))?.label ?? null;
   const back = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profil'));
 
-  const scan = async (source: 'camera' | 'library') => {
-    if (source === 'camera') {
-      const { granted } = await ImagePicker.requestCameraPermissionsAsync();
-      if (!granted) {
-        Alert.alert('Caméra refusée', 'Autorise la caméra dans les réglages, ou choisis une photo de ta carte.');
-        return;
-      }
-    }
-    const res = source === 'camera' ? await ImagePicker.launchCameraAsync({ quality: 0.8 }) : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
-    if (res.canceled || !res.assets[0]) return;
-    setReading(true);
+  // One frame of the scan: an unreadable one is retried quietly; a reading (or a real refusal) closes the scan.
+  const scan: ScanAttempt = async (uri) => {
     try {
-      const r = await readMyCardPhoto(res.assets[0].uri);
+      const r = await readMyCardPhoto(uri);
+      const found = !!(r.birthDate || r.birthPlace || r.nationality);
+      // A student without a number: their card just gave it (saved by the server).
+      if (!user.studentId) reloadAccount().catch(() => undefined);
+      // The card is the student's own (its number matched): the camera closes, then the phone vibrates (iOS mutes it
+      // while the camera runs).
+      setScanning(false);
+      if (found) {
+        // A match: the vibration and the scanner's « bip », once the camera has closed.
+        scanFeel.found(CAMERA_CLOSE_MS);
+        setTimeout(sounds.success, CAMERA_CLOSE_MS);
+      } else scanFeel.nothing(CAMERA_CLOSE_MS);
       // What was read fills the form; what wasn't keeps what the student had.
       // Kept until the rentrée: what's already saved isn't replaced by the new reading.
       if (r.birthDate && !keep(id?.birthDate)) setBirthDate(toFr(r.birthDate));
       if (r.birthPlace && !keep(id?.birthPlace)) setBirthPlace(r.birthPlace);
       if (r.nationality && !keep(id?.nationality)) setNationality(r.nationality);
       setEditing(true);
-      if (!r.birthDate && !r.birthPlace && !r.nationality) Alert.alert('Rien de lisible', 'C’est bien ta carte, mais ces informations n’ont pas pu être lues. Complète-les ou réessaie avec une photo plus nette.');
+      if (!found) Alert.alert('Rien de lisible', 'C’est bien ta carte, mais ces informations n’ont pas pu être lues. Complète-les ou scanne-la encore, avec plus de lumière.');
+      return 'done';
     } catch (err) {
+      if (unreadable(err)) return 'retry';
+      setScanning(false);
+      scanFeel.refused(CAMERA_CLOSE_MS);
       Alert.alert('Lecture impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
-    } finally {
-      setReading(false);
+      return 'done';
     }
   };
 
@@ -138,14 +147,14 @@ export default function MaCarte() {
                   <View style={styles.tip}>
                     <Ionicons name="sparkles-outline" size={18} color={colors.primary} />
                     <Text style={styles.tipText}>
-                      Facultatif mais conseillé : photographie ta carte étudiant. Son numéro doit être le tien ({user.studentId}) ; on remplit tes informations, tu vérifies, puis tu enregistres pour l’année (modifiable à chaque rentrée). La photo n’est pas gardée.
+                      Facultatif mais conseillé : scanne ta carte étudiant.{' '}
+                      {user.studentId ? `Son numéro doit être le tien (${user.studentId}) ; ` : 'Ton numéro étudiant est enregistré depuis la carte ; '}
+                      on remplit tes informations, tu vérifies, puis tu enregistres pour l’année (modifiable à chaque rentrée).
                     </Text>
                   </View>
-                  <PrimaryButton label={reading ? 'Lecture de ta carte…' : 'Scanner ma carte étudiant'} loading={reading} disabled={reading} onPress={() => scan('camera')} />
-                  <TextButton label="Choisir une photo de ma carte" icon="images-outline" style={{ alignSelf: 'center' }} disabled={reading} onPress={() => scan('library')} />
+                  <PrimaryButton label="Scanner ma carte étudiant" onPress={() => setScanning(true)} />
                 </>
               )}
-              {reading && <ActivityIndicator color={colors.primary} />}
             </>
           ) : (
             <>
@@ -170,6 +179,13 @@ export default function MaCarte() {
             </>
           )}
         </KeyboardAwareScrollView>
+      <CardScanModal
+        visible={scanning}
+        onClose={() => setScanning(false)}
+        onScan={scan}
+        title="Scanner ma carte"
+        why="La caméra sert à scanner ta carte étudiant pour remplir tes informations."
+      />
     </SafeAreaView>
   );
 }

@@ -2,13 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MultiSelect } from '@/components/Select';
 import { ErrorState } from '@/components/states';
-import { BackButton, Field, LabeledField, PrimaryButton, Segmented, TextButton } from '@/components/ui';
+import { BackButton, Field, LabeledField, PrimaryButton, Segmented, TextButton, Toggle } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { ownShop, useAuth } from '@/context/AuthContext';
 import { commerceApi, type BusinessDto, type BusinessRef, type OrderMethod } from '@/features/commerce/api';
@@ -88,7 +88,7 @@ function MyShop({ orgId, spaceKey }: { orgId: string; spaceKey: string }) {
                       {b.specialty} · {b.acceptingOrders ? 'Commandes ouvertes' : 'Commandes en pause'}
                     </Text>
                   </View>
-                  <Switch value={b.acceptingOrders} onValueChange={pause} disabled={saving} trackColor={{ true: colors.success }} accessibilityLabel="Accepter les commandes" />
+                  <Toggle value={b.acceptingOrders} onValueChange={pause} disabled={saving} accessibilityLabel="Accepter les commandes" />
                 </View>
                 <View style={styles.bannerActions}>
                   <Pressable style={({ pressed }) => [styles.action, pressed && { opacity: 0.8 }]} onPress={() => openSpace(spaceKey)} accessibilityRole="button">

@@ -16,15 +16,17 @@ import {
   type ScrollViewInstance,
 } from 'react-native';
 
-import { caravanState, formatFcfa, schedule, weekDays } from '@/constants/data';
+import { formatFcfa, schedule, weekDays } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useCampus } from '@/context/CampusContext';
 import { useCaravans } from '@/context/CaravansContext';
-import { OrganizerLine } from '@/components/caravan';
+import { AlertSheet } from '@/components/AlertSheet';
+import { FillBar, OrganizerLine, shortPlace } from '@/components/caravan';
 import { type LiveBannerDto } from '@/features/banners/api';
 import { currentMeal, type AlertDto, type DishStatus } from '@/features/restos/api';
 import { useTaxi } from '@/context/TaxiContext';
+import { documentMeta } from '@/lib/fileSize';
 
 const BODY_PADDING = 20;
 const AUTO_SCROLL_MS = 5000;
@@ -80,7 +82,7 @@ export function AlertStrip() {
 export function OriginPrompt() {
   const { user } = useAuth();
   const [later, setLater] = useState(false);
-  if (!user?.studentId || (user.ufrCode && user.region) || later) return null;
+  if (!user?.isStudent || (user.ufrCode && user.region) || later) return null;
   return (
     <Pressable style={[styles.alert, { backgroundColor: colors.primarySoft, borderLeftColor: colors.primary }]} onPress={() => router.push('/mes-etudes')} accessibilityRole="link">
       <Ionicons name="school-outline" size={20} color={colors.primary} />
@@ -232,8 +234,9 @@ function formatTimeLeft(ms: number) {
 
 /** The campus, as the caravans name it. */
 const CAMPUS = 'UGB';
-/** "Plus que N places" from this many down. */
+/** « Plus que N places » from this many down. */
 const FEW_SEATS = 5;
+const DAY_MS = 24 * 3600 * 1000;
 
 /**
  * The next caravan to book. Usually the next departure from the campus; a student who already has a ticket out sees
@@ -252,7 +255,6 @@ export function CaravanCard() {
   const myReturns = myTrip ? returns.filter((c) => c.from === myTrip.to && c.departureAt > myTrip.departureAt) : [];
   const list = myReturns.length ? myReturns : outbound.length ? outbound : returns;
   const next = list[0];
-  const othersThisWeek = list.slice(1).filter((c) => c.departureAt - now < WEEK_MS).length;
   const label = myReturns.length ? 'TON RETOUR AU CAMPUS' : next?.to === CAMPUS ? 'RETOUR AU CAMPUS' : 'PROCHAINE CARAVANE';
 
   if (!next) {
@@ -270,54 +272,57 @@ export function CaravanCard() {
     );
   }
 
-  const urgent = next.departureAt - now < URGENT_MS;
-  const state = caravanState(next);
+  // Orange only on the last day: when everything is urgent, nothing is.
+  const soon = next.departureAt - now < DAY_MS;
   const first = next.pickups[0];
-  const few = next.seats <= FEW_SEATS;
+  const open = (id: string) => router.push(`/caravane/${id}`);
+  const othersThisWeek = list.slice(1).filter((c) => c.departureAt - now < WEEK_MS).length;
 
   return (
-    <Pressable style={[styles.infoCard, shadow.card]} onPress={() => router.push(`/caravane/${next.id}`)} accessibilityRole="button" accessibilityLabel={`${label.toLowerCase()} : ${next.from} vers ${next.to}, ${next.date} à ${next.time}, ${formatFcfa(next.price)}, ${next.organizer.name}`}>
-      {/* What it is and when it leaves, then who runs it (with its rating) */}
+    <Pressable
+      style={[styles.infoCard, shadow.card, { gap: 10 }]}
+      onPress={() => open(next.id)}
+      accessibilityRole="button"
+      accessibilityLabel={`${label.toLowerCase()} : ${next.from} vers ${next.to}, ${next.date} à ${next.time}, ${formatFcfa(next.price)}, ${next.organizer.name}`}>
       <View style={styles.rowBetween}>
         <View style={styles.label}>
           <Ionicons name="bus-outline" size={12} color={colors.primary} />
           <Text style={styles.labelText}>{label}</Text>
         </View>
-        <Text style={[styles.timeLeft, urgent && { color: colors.orangeText }]}>{formatTimeLeft(next.departureAt - now)}</Text>
+        <Text style={[styles.timeLeft, soon && { color: colors.orangeText }]}>{formatTimeLeft(next.departureAt - now)}</Text>
       </View>
-      <OrganizerLine organizer={next.organizer} />
 
-      {/* Where, and the price */}
-      <View style={styles.rowBetween}>
-        <View style={[styles.route, { flexShrink: 1 }]}>
-          <Text style={styles.city} numberOfLines={1}>
+      {/* Where to, first: what a student scans for. The price on the same line. */}
+      <View style={[styles.rowBetween, { alignItems: 'flex-end' }]}>
+        <View style={styles.cvRoute}>
+          <Text style={styles.cvCity} numberOfLines={1}>
             {next.from}
           </Text>
-          <View style={styles.link}>
-            <Ionicons name="arrow-forward" size={12} color={colors.primary} />
+          <View style={styles.cvTrack}>
+            <View style={styles.cvLine} />
+            <Ionicons name="bus" size={14} color={colors.primary} />
+            <View style={styles.cvLine} />
           </View>
-          <Text style={[styles.city, { flexShrink: 1 }]} numberOfLines={1}>
+          <Text style={[styles.cvCity, { flexShrink: 1 }]} numberOfLines={1}>
             {next.to}
           </Text>
         </View>
-        <Text style={styles.caravanPrice}>{formatFcfa(next.price)}</Text>
+        <Text style={styles.cvPrice}>{formatFcfa(next.price)}</Text>
       </View>
       <Text style={styles.detail} numberOfLines={1}>
-        {next.date} · {first ? `${first.place} · ${first.time}` : next.time}
+        {next.date} · {next.time}
+        {first ? ` · ${shortPlace(first.place, next.from)}${next.pickups.length > 1 ? ` +${next.pickups.length - 1}` : ''}` : ''}
       </Text>
 
-      {/* How many bookings it still needs to go ahead (or confirmed, and the seats left), and the action */}
-      <View style={styles.rowBetween}>
-        {/* Takes the room the button leaves, on two lines if needed: never cut. */}
-        <View style={[styles.label, { flex: 1, alignItems: 'flex-start' }]}>
-          <Ionicons name={state.confirmed ? 'checkmark-circle' : 'people-outline'} size={14} color={state.confirmed ? colors.successText : colors.warningText} style={{ marginTop: 1 }} />
-          <Text style={[styles.caravanState, { flex: 1, color: state.confirmed ? (few ? colors.orangeText : colors.successText) : colors.warningText }]} numberOfLines={2}>
-            {state.confirmed
-              ? `Confirmé · ${few ? `plus que ${next.seats}` : next.seats} place${next.seats > 1 ? 's' : ''}`
-              : `Encore ${state.missing} place${state.missing > 1 ? 's' : ''} pour confirmer`}
-          </Text>
+      {/* One message: how many bookings it still needs, confirmed, or nearly full. */}
+      <FillBar caravan={next} count={false} few={FEW_SEATS} />
+
+      {/* Who runs it, right where the student decides. */}
+      <View style={[styles.rowBetween, styles.cvFoot]}>
+        <View style={{ flex: 1 }}>
+          <OrganizerLine organizer={next.organizer} wrap />
         </View>
-        <Pressable style={styles.cta} onPress={() => router.push(`/caravane/${next.id}`)} accessibilityRole="button">
+        <Pressable style={styles.cta} onPress={() => open(next.id)} hitSlop={6} accessibilityRole="button">
           <Text style={styles.ctaText}>Réserver</Text>
         </Pressable>
       </View>
@@ -330,6 +335,7 @@ export function CaravanCard() {
           <Ionicons name="chevron-forward" size={14} color={colors.primary} />
         </Pressable>
       )}
+
     </Pressable>
   );
 }
@@ -534,12 +540,16 @@ function headlineWhen(a: AlertDto, now: number) {
   return ago <= 0 ? 'Aujourd’hui' : ago === 1 ? 'Hier' : `Il y a ${ago} j`;
 }
 
-export function HeadlineItem({ a }: { a: AlertDto }) {
+/** `more`: the home screen's card offers « S’imprégner » (its page) when the announcement has more to show. */
+export function HeadlineItem({ a, more = false }: { a: AlertDto; more?: boolean }) {
   const now = useNow();
+  const [reading, setReading] = useState(false);
   // One neutral style; red only for what is urgent.
   const urgent = a.tone === 'danger';
+  const extra = more && (!!a.details || a.images.length > 0 || !!a.attachment);
   const content = (
     <>
+      <View style={styles.newsRow}>
       <View style={[styles.newsIcon, { backgroundColor: urgent ? colors.dangerBg : colors.primarySoft }]}>
         <Ionicons name={alertIcon(a.icon)} size={18} color={urgent ? colors.dangerText : colors.primary} />
       </View>
@@ -554,29 +564,65 @@ export function HeadlineItem({ a }: { a: AlertDto }) {
             {a.body}
           </Text>
         )}
-        {(a.image || a.attachment) && (
-          <View style={styles.newsExtras}>
-            {a.image && <Ionicons name="image-outline" size={13} color={colors.muted2} />}
-            {a.attachment && (
-              <>
-                <Ionicons name="document-attach-outline" size={13} color={colors.muted2} />
-                <Text style={styles.newsExtrasText}>PDF</Text>
-              </>
-            )}
-          </View>
-        )}
       </View>
+      </View>
+    {/* More than the card: a glimpse of what's inside, and « S'imprégner » to open it all in a popup. */}
+    {extra && (
+      <Pressable
+        onPress={() => setReading(true)}
+        style={styles.newsFoot}
+        accessibilityRole="button"
+        accessibilityLabel={`S’imprégner : ${a.title}`}
+        accessibilityHint="Affiche l’annonce complète">
+        <View style={styles.newsPeek}>
+          {a.attachment ? (
+            <>
+              <View style={styles.newsPdf}>
+                <Text style={styles.newsPdfText}>PDF</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.newsPeekTitle} numberOfLines={1}>
+                  {a.attachment.label}
+                </Text>
+                <Text style={styles.newsPeekSub}>{documentMeta(a.attachment)}</Text>
+              </View>
+            </>
+          ) : a.images.length ? (
+            <>
+              <View style={styles.newsThumbs}>
+                {a.images.map((uri, i) => (
+                  <Image key={uri} source={{ uri }} style={[styles.newsThumb, i > 0 && { marginLeft: -12 }]} contentFit="cover" />
+                ))}
+              </View>
+              <Text style={styles.newsPeekSub}>{a.images.length > 1 ? `${a.images.length} photos` : 'Photo'}</Text>
+            </>
+          ) : (
+            <>
+              <Ionicons name="reader-outline" size={16} color={colors.muted2} />
+              <Text style={styles.newsPeekSub}>Texte complet</Text>
+            </>
+          )}
+        </View>
+        <View style={styles.newsMore}>
+          <Text style={styles.newsMoreText}>S’imprégner</Text>
+          <Ionicons name="arrow-forward" size={14} color={colors.primary} />
+        </View>
+      </Pressable>
+    )}
     </>
   );
-  // More than the card (the whole text, a picture, a PDF): its page. Otherwise the screen it points to, if any.
-  const page = !!a.details || !!a.image || !!a.attachment;
-  const target = page ? `/alerte/${a.id}` : a.href;
-  return target ? (
-    <Pressable style={[styles.news, shadow.card]} onPress={() => router.push(target as never)} accessibilityRole="link" accessibilityHint={page ? 'Ouvre l’annonce complète' : undefined}>
+  const sheet = more && <AlertSheet alert={a} visible={reading} onClose={() => setReading(false)} />;
+  // The card opens its link; without one, it opens the popup (the footer always does).
+  return a.href || extra ? (
+    <Pressable style={[styles.news, shadow.card]} onPress={() => (a.href ? router.push(a.href as never) : setReading(true))} accessibilityRole={a.href ? 'link' : 'button'}>
       {content}
+      {sheet}
     </Pressable>
   ) : (
-    <View style={[styles.news, shadow.card]}>{content}</View>
+    <View style={[styles.news, shadow.card]}>
+      {content}
+      {sheet}
+    </View>
   );
 }
 
@@ -599,7 +645,7 @@ export function Headlines() {
         )}
       </View>
       {items.slice(0, HOME_HEADLINES).map((a) => (
-        <HeadlineItem key={a.id} a={a} />
+        <HeadlineItem key={a.id} a={a} more />
       ))}
     </View>
   );
@@ -673,15 +719,24 @@ const styles = StyleSheet.create({
   alertTitle: { ...typo.bodyStrong, color: colors.navy },
   newsHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
   newsSection: { ...typo.section, color: colors.navy },
-  news: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14, flexDirection: 'row', gap: 12, alignItems: 'center' },
+  news: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14 },
+  newsRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
   newsIcon: { width: 40, height: 40, borderRadius: radii.sm, alignItems: 'center', justifyContent: 'center' },
   newsTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
   newsTag: { ...typo.label, letterSpacing: 0.4 },
   newsTime: { fontSize: 11, color: colors.muted2 },
   newsTitle: { ...typo.bodyStrong, color: colors.navy },
   newsBody: { ...typo.small, color: colors.muted2, marginTop: 2 },
-  newsExtras: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
-  newsExtrasText: { ...typo.label, color: colors.muted2 },
+  newsFoot: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  newsPeek: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  newsPeekTitle: { ...typo.smallStrong, color: colors.navy },
+  newsPeekSub: { ...typo.caption, color: colors.muted2 },
+  newsPdf: { width: 30, height: 36, borderRadius: 5, backgroundColor: colors.dangerBg, alignItems: 'center', justifyContent: 'center' },
+  newsPdfText: { fontSize: 9, fontWeight: '800', color: colors.dangerText },
+  newsThumbs: { flexDirection: 'row' },
+  newsThumb: { width: 36, height: 36, borderRadius: 8, borderWidth: 2, borderColor: colors.card, backgroundColor: colors.border },
+  newsMore: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, minHeight: 32, borderRadius: radii.pill, backgroundColor: colors.primarySoft },
+  newsMoreText: { ...typo.smallStrong, color: colors.primary },
   dishOut: { textDecorationLine: 'line-through', color: colors.muted2 },
   alertSub: { ...typo.caption, color: colors.muted2, marginTop: 2 },
 
@@ -738,8 +793,13 @@ const styles = StyleSheet.create({
   eventThumb: { width: 52, height: 52, borderRadius: radii.sm, backgroundColor: colors.border },
   eventTitle: { ...typo.title, color: colors.navy },
   seats: { fontSize: 12, fontWeight: '600', color: colors.successText },
-  caravanPrice: { ...typo.bodyStrong, color: colors.navy },
   caravanState: { ...typo.captionStrong, flexShrink: 1 },
+  cvRoute: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
+  cvCity: { ...typo.title, color: colors.navy },
+  cvTrack: { flexDirection: 'row', alignItems: 'center', gap: 4, width: 64 },
+  cvLine: { flex: 1, height: 1.5, backgroundColor: colors.border },
+  cvPrice: { ...typo.title, color: colors.primary },
+  cvFoot: { paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   more: {
     flexDirection: 'row',
     alignItems: 'center',

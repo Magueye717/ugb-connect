@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
-import { Field, PrimaryButton, SafeBottom, TextButton } from '@/components/ui';
+import { Field, PrimaryButton, SafeBottom, SheetHeader, TextButton } from '@/components/ui';
 import { colors, radii, typo } from '@/constants/theme';
 import { ApiError } from '@/lib/api';
 import { haptics } from '@/lib/haptics';
@@ -71,7 +71,9 @@ export function RatingSheet({ item, initial, prompted, onClose, onDone }: { item
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <View style={styles.sheet}>
           <View style={styles.handle} />
-          <Text style={styles.kicker}>{item.ratedName ? `NOTER ${item.ratedName.toUpperCase()}` : 'TA NOTE'}</Text>
+          <SheetHeader onClose={later} titleStyle={styles.kicker} label="Plus tard">
+            {item.ratedName ? `NOTER ${item.ratedName.toUpperCase()}` : 'TA NOTE'}
+          </SheetHeader>
           <Text style={styles.question}>{ratingQuestion(item)}</Text>
           <Text style={styles.muted}>Facultatif · anonyme pour les autres étudiants · une note par {item.subject === 'order' ? 'commerce' : item.subject === 'caravan' ? 'trajet' : 'événement'}.</Text>
           <Stars value={stars} onChange={setStars} />

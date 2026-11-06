@@ -7,15 +7,20 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BrandLogo } from '@/components/BrandLogo';
-import { Field, OutlineButton, PrimaryButton } from '@/components/ui';
+import { Field, LabeledField, OutlineButton, PrimaryButton } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { colors, radii, typo } from '@/constants/theme';
+import { formatPhone, PHONE_PREFIX, phoneDigits, validatePhone } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
 
 export default function LoginScreen() {
   const { login } = useAuth();
   const insets = useSafeAreaInsets();
+  // 9 digits, shown spaced after +221 as on sign-up ("77 790 28 80"), checked the same way.
   const [phone, setPhone] = useState('');
+  const [touched, setTouched] = useState(false);
+  const phoneError = validatePhone(phone);
+  const showError = (touched || phone.length === 9) && !!phoneError;
   const [password, setPassword] = useState('');
   const [hidden, setHidden] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -25,7 +30,7 @@ export default function LoginScreen() {
     setSubmitting(true);
     setError(null);
     try {
-      // The phone as typed ("77 123 45 67", "+221…"): the backend normalizes it. A student number works too.
+      // 9 digits: the backend adds +221.
       await login(phone, password);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Une erreur est survenue. Réessaie.');
@@ -47,18 +52,24 @@ export default function LoginScreen() {
           <Text style={styles.title}>Se connecter</Text>
           <Text style={styles.subtitle}>Bon retour sur le campus !</Text>
 
-          <Field
-            icon="phone-portrait-outline"
-            placeholder="Numéro de téléphone"
-            keyboardType="phone-pad"
-            value={phone}
-            onChangeText={(t) => {
-              setPhone(t);
-              setError(null);
-            }}
-            autoComplete="tel"
-            textContentType="telephoneNumber"
-          />
+          <LabeledField label="Numéro de téléphone" error={showError ? phoneError : null}>
+            <Field
+              icon="phone-portrait-outline"
+              prefix={PHONE_PREFIX}
+              placeholder="77 790 28 80"
+              keyboardType="number-pad"
+              value={formatPhone(phone)}
+              onChangeText={(t) => {
+                setPhone(phoneDigits(t));
+                setError(null);
+              }}
+              onBlur={() => setTouched(true)}
+              invalid={showError}
+              maxLength={12}
+              autoComplete="tel"
+              textContentType="telephoneNumber"
+            />
+          </LabeledField>
           <Field
             icon="lock-closed-outline"
             placeholder="Mot de passe"
@@ -71,7 +82,7 @@ export default function LoginScreen() {
             autoComplete="current-password"
             textContentType="password"
             returnKeyType="go"
-            onSubmitEditing={() => phone && password && !submitting && submit()}
+            onSubmitEditing={() => !phoneError && phone && password && !submitting && submit()}
             right={
               <Pressable
                 onPress={() => setHidden((v) => !v)}
@@ -93,7 +104,7 @@ export default function LoginScreen() {
             </Text>
           )}
 
-          <PrimaryButton accent label="Se connecter" onPress={submit} loading={submitting} disabled={!phone.trim() || !password} />
+          <PrimaryButton accent label="Se connecter" onPress={submit} loading={submitting} disabled={!phone || !!phoneError || !password} />
 
           <View style={styles.divider}>
             <View style={styles.line} />

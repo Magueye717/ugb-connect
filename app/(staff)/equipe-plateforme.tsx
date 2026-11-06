@@ -6,7 +6,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ErrorState } from '@/components/states';
-import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, TextButton } from '@/components/ui';
+import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, SheetHeader, TextButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { passwordRules, validatePassword } from '@/features/register/validation';
@@ -181,7 +181,12 @@ function MemberSheet({ member, roles, restos, restosFailed, onRetryRestos, self,
       <Pressable style={styles.backdrop} onPress={onClose} />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <ScrollView style={styles.sheet} contentContainerStyle={{ gap: 12, paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
-          <Text style={styles.sheetTitle}>{member ? `${member.firstName} ${member.lastName}` : 'Ajouter à l’équipe'}</Text>
+          <SheetHeader
+            onClose={onClose}
+            titleStyle={styles.sheetTitle}
+            subtitle={member ? 'Ses rôles changent tout de suite, et la personne est prévenue.' : 'Fais-toi aider : chaque rôle ouvre un espace de travail, et rien de plus.'}>
+            {member ? `${member.firstName} ${member.lastName}` : 'Ajouter à l’équipe'}
+          </SheetHeader>
 
           {!member &&
             (!found ? (

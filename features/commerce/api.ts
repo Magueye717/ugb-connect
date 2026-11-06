@@ -9,6 +9,23 @@ export type BusinessKind = 'restaurant' | 'shop';
 /** How an order is paid: in cash to the business, or online. */
 export type OrderMethod = 'cash' | PaymentMethod;
 export type BusinessRef = { orgId: string; kind: BusinessKind };
+/** « Mes ventes » for a period: completed orders only; in-progress, refused and cancelled ones counted apart. */
+export type SalesDto = {
+  from: string;
+  to: string;
+  /** FCFA, delivery included. */
+  revenue: number;
+  orders: number;
+  average: number;
+  methods: { method: OrderMethod; label: string; amount: number; orders: number }[];
+  /** Wave / Orange Money sales not yet received on the owner's number. */
+  owed: number;
+  days: { date: string; revenue: number; orders: number }[];
+  top: { itemId: string; name: string; qty: number; revenue: number }[];
+  inProgress: number;
+  refused: number;
+  cancelled: number;
+};
 /** Whose profile and catalog: the business's own space, or Référencement (an editor, by the business's id). */
 /** An entity a number owns (Référencement): what it runs, and whether it is a student's own (their shop). */
 export type OwnedEntity = { orgId: string; name: string; personal: boolean; /** It organizes caravans or events. */ organizer: boolean; kinds: BusinessKind[]; businesses: { id: string; kind: BusinessKind; name: string }[] };
@@ -45,6 +62,14 @@ export type ItemDto = {
   available: boolean;
   /** False: shown for information only (a service done on the spot: printing…), never added to an order. */
   orderable: boolean;
+  /** Students who like it (the heart). */
+  likes: number;
+  /** I like it. */
+  liked: boolean;
+  /** When it was added (ISO): the newest come first. */
+  createdAt?: string;
+  /** Done on the spot (not orderable): the caller said « Intéressé ». */
+  interested?: boolean;
 };
 
 export type BusinessDto = {
@@ -82,9 +107,14 @@ export type BusinessDto = {
   byStudent: boolean;
   /** May take Wave and Orange Money. A student's shop: false until the team has verified it (cash only). */
   onlinePayments: boolean;
+  /** Its items have a heart (shops; restaurants: none). */
+  itemLikes: boolean;
 };
 export type ListedBusiness = BusinessDto & { highlights: ItemDto[]; minPrice: number | null; itemsCount: number; /** Every available item: for searching. */ itemNames: string[] };
 /** The market: every article of every shop, each with its shop. */
+/** Someone interested in an article done on the spot: who to call back. */
+export type InterestDto = { id: string; at: string; item: { id: string; name: string }; student: { name: string; phone: string } };
+
 export type MarketItem = ItemDto & { businessId: string };
 export type BusinessDetail = BusinessDto & {
   items: ItemDto[];
@@ -170,12 +200,31 @@ export const ORDER_STATUS_LABEL: Record<OrderStatus, { label: string; tone: 'suc
   expired: { label: 'Non payée', tone: 'neutral' },
 };
 
+/**
+ * A server one deploy behind sends older shapes (one `photo`, no viewer, no online-payments flag): the screens get
+ * today's, filled in the safe way, rather than breaking on a missing field.
+ */
+type Wire<T> = Partial<T> & Record<string, unknown>;
+const item = <T extends ItemDto>(i: Wire<T>): T =>
+  ({ ...i, photos: i.photos ?? (i.photo ? [i.photo] : []), photoIds: i.photoIds ?? (typeof i.photoId === 'string' ? [i.photoId] : []), likes: i.likes ?? 0, liked: i.liked ?? false }) as T;
+const business = <T extends BusinessDto>(b: Wire<T>): T => ({ ...b, onlinePayments: b.onlinePayments ?? !b.byStudent, itemLikes: b.itemLikes ?? b.kind === 'shop' }) as T;
+const listed = (b: Wire<ListedBusiness>) => ({ ...business(b), highlights: (b.highlights ?? []).map(item) }) as ListedBusiness;
+const detail = (b: Wire<BusinessDetail>) => ({ ...business(b), items: (b.items ?? []).map(item), viewer: b.viewer ?? { member: false, canEdit: false } }) as BusinessDetail;
+
 export const commerceApi = {
   // Students
-  list: (kind: BusinessKind) => api<{ items: ListedBusiness[] }>('GET', `/businesses?kind=${kind}`, auth),
-  get: (id: string) => api<BusinessDetail>('GET', `/businesses/${id}`, auth),
-  market: (kind: BusinessKind) => api<{ businesses: BusinessDto[]; items: MarketItem[] }>('GET', `/market?kind=${kind}`, auth),
+  list: (kind: BusinessKind) => api<{ items: ListedBusiness[] }>('GET', `/businesses?kind=${kind}`, auth).then((r) => ({ items: r.items.map(listed) })),
+  get: (id: string) => api<BusinessDetail>('GET', `/businesses/${id}`, auth).then(detail),
+  market: (kind: BusinessKind) =>
+    api<{ businesses: BusinessDto[]; items: MarketItem[] }>('GET', `/market?kind=${kind}`, auth).then((r) => ({ businesses: r.businesses.map(business), items: r.items.map(item) })),
   reference: () => api<CommerceReference>('GET', '/reference/commerce'),
+  /** The heart on an article or a dish: on, or off. Gives back the count now. */
+  like: (itemId: string, on: boolean) => api<{ liked: boolean; likes: number }>(on ? 'PUT' : 'DELETE', `/items/${itemId}/like`, auth),
+  /** « Intéressé » on an article done on the spot: the shop is told who (with the phone), to call back. */
+  interest: (itemId: string, on: boolean) => api<{ interested: boolean }>(on ? 'PUT' : 'DELETE', `/items/${itemId}/interest`, auth),
+  /** The shop's side: who said « Intéressé » lately (30 days). */
+  interests: (t: { orgId: string; kind: BusinessKind }) =>
+    api<{ items: InterestDto[] }>('GET', `/org/${t.orgId}/${t.kind}/interests`, auth),
   order: (id: string, body: { lines: { itemId: string; qty: number }[]; mode: OrderMode; zone?: DeliveryZone | null; address?: string | null; note?: string | null; method: OrderMethod }) =>
     api<{ order: OrderDto; payment: PaymentDto | null }>('POST', `/businesses/${id}/orders`, { ...auth, body: { ...body, returnUrl: paymentReturnUrl() } }),
   myOrders: () => api<{ items: OrderDto[] }>('GET', '/me/orders', auth),
@@ -183,12 +232,14 @@ export const commerceApi = {
   cancel: (id: string) => api<OrderDto>('POST', `/me/orders/${id}/cancel`, auth),
   // The business's own space (its team: features/team)
   // Profile and catalog: also Référencement's (an editor of the kind), with the same screens.
-  mine: (t: BusinessTarget) => api<BusinessDto>('GET', profileOf(t), auth),
-  updateMine: (t: BusinessTarget, body: BusinessPatch) => api<BusinessDto>('PATCH', profileOf(t), { ...auth, body }),
-  catalog: (t: BusinessTarget) => api<{ items: ItemDto[] }>('GET', catalogOf(t), auth),
-  addItem: (t: BusinessTarget, body: ItemInput) => api<ItemDto>('POST', catalogOf(t), { ...auth, body }),
-  updateItem: (t: BusinessTarget, itemId: string, body: Partial<ItemInput>) => api<ItemDto>('PATCH', `${catalogOf(t)}/${itemId}`, { ...auth, body }),
+  mine: (t: BusinessTarget) => api<BusinessDto>('GET', profileOf(t), auth).then(business),
+  updateMine: (t: BusinessTarget, body: BusinessPatch) => api<BusinessDto>('PATCH', profileOf(t), { ...auth, body }).then(business),
+  catalog: (t: BusinessTarget) => api<{ items: ItemDto[] }>('GET', catalogOf(t), auth).then((r) => ({ items: r.items.map(item) })),
+  addItem: (t: BusinessTarget, body: ItemInput) => api<ItemDto>('POST', catalogOf(t), { ...auth, body }).then(item),
+  updateItem: (t: BusinessTarget, itemId: string, body: Partial<ItemInput>) => api<ItemDto>('PATCH', `${catalogOf(t)}/${itemId}`, { ...auth, body }).then(item),
   removeItem: (t: BusinessTarget, itemId: string) => api<void>('DELETE', `${catalogOf(t)}/${itemId}`, auth),
+  /** « Mes ventes » (owners and managers): days `YYYY-MM-DD`, both included. */
+  sales: (b: BusinessRef, from: string, to: string) => api<SalesDto>('GET', `${own(b)}/sales?from=${from}&to=${to}`, auth),
   queue: (b: BusinessRef, scope: 'active' | 'done' = 'active') => api<{ items: OrderDto[] }>('GET', `${own(b)}/orders?scope=${scope}`, auth),
   businessOrder: (b: BusinessRef, id: string) => api<OrderDto>('GET', `${own(b)}/orders/${id}`, auth),
   step: (b: BusinessRef, id: string, step: 'accept' | 'ready' | 'complete') => api<OrderDto>('POST', `${own(b)}/orders/${id}/${step}`, auth),
@@ -196,7 +247,7 @@ export const commerceApi = {
   handover: (b: BusinessRef, code: string) => api<OrderDto>('POST', `${own(b)}/orders/handover`, { ...auth, body: { code } }),
   refuse: (b: BusinessRef, id: string, reason: string) => api<OrderDto>('POST', `${own(b)}/orders/${id}/refuse`, { ...auth, body: { reason } }),
   // Admins
-  all: () => api<{ items: BusinessDto[] }>('GET', '/admin/businesses', auth),
+  all: () => api<{ items: BusinessDto[] }>('GET', '/admin/businesses', auth).then((r) => ({ items: r.items.map(business) })),
   /** A new entity with its owner, or `orgId`: a restaurant's entity also opens a shop (or the reverse). */
   create: (body: { kind: BusinessKind; name: string; specialties: string[]; orgId?: string; owner?: { phone: string; firstName: string; lastName: string; password?: string } } & BusinessPatch) =>
     api<BusinessDto>('POST', '/admin/businesses', { ...auth, body }),

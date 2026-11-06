@@ -4,7 +4,7 @@ import { useCallback, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { TextButton } from '@/components/ui';
+import { SheetHeader, TextButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { ratingsApi, reviewedAgo, type ReviewsDto } from './api';
 import { Stars } from './RatingSheet';
@@ -46,7 +46,7 @@ export function ReviewsSection({ businessId }: { businessId: string }) {
         <Pressable style={styles.backdrop} onPress={() => setOpen(false)} accessibilityLabel="Fermer" />
         <SafeAreaView edges={['bottom']} style={styles.sheet}>
           <View style={styles.handle} />
-          <Text style={styles.h2}>Avis</Text>
+          <SheetHeader onClose={() => setOpen(false)} titleStyle={styles.h2}>Avis</SheetHeader>
           <ScrollView contentContainerStyle={{ gap: 10, paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
             <Summary data={data} />
             {data.items.map((r, i) => (

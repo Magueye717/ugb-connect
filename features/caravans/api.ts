@@ -1,7 +1,7 @@
 // Caravans and tickets on the backend. Tickets are generic (caravan seats now, other events later): a ticket
 // has a `kind`, an `event` card, and kind-specific `details`. Errors are ApiError: `message` is French.
 import type { Caravan, CaravanOrganizer, CaravanStop } from '@/constants/data';
-import { paymentReturnUrl, type PaymentDto, type PaymentMethod } from '@/features/payments/checkout';
+import { paymentReturnUrl, type PaymentDto, type PaymentMethod, type TicketMethod } from '@/features/payments/checkout';
 import type { EventTicketDetails } from '@/features/events/api';
 import { api } from '@/lib/api';
 
@@ -24,8 +24,8 @@ export type DepartureDto = {
   price: number;
   /** Seats one student can buy here: their own + companions (2 by default). */
   maxSeatsPerStudent: number;
-  /** Providers the organizer accepts for this trip. */
-  paymentMethods: ('wave' | 'orange_money')[];
+  /** How the organizer accepts payment for this trip (cash: at boarding). */
+  paymentMethods: TicketMethod[];
   totalSeats: number;
   seatsFree: number;
   seatsBooked: number;
@@ -33,7 +33,7 @@ export type DepartureDto = {
   confirmBy: string;
   confirmed: boolean;
   bookingOpen: boolean;
-  vehicle: { label: string; plate: string | null };
+  vehicle: { label: string; plate: string | null; airConditioned: boolean };
   myTicketId?: string | null;
   purchasedHere?: boolean;
   /** Seats I can still buy here (purchases count even once given away). */
@@ -54,7 +54,12 @@ export type HeldBooking = {
 };
 
 export type OrgDepartureDto = DepartureDto & {
-  vehicle: { label: string; plate: string };
+  vehicle: { label: string; plate: string | null; airConditioned: boolean };
+  /** To edit a draft. */
+  vehicleId: string;
+  /** Stops someone boards or gets off at: they can't be removed. */
+  bookedStopIds: string[];
+  bookingClosesAt: string;
   stopsLeft: { stopId: string; at: string }[];
   /** Seats sold, students who bought them, passengers on board. */
   counts: { booked: number; buyers: number; admitted: number };
@@ -63,7 +68,34 @@ export type OrgDepartureDto = DepartureDto & {
   claim: { amount: number; payout: { id: string; status: string; amount: number } | null } | null;
 };
 
-export type SeatMap = { capacity: number; seatsPerRow: number; blocked: number[]; taken: number[]; suggested: number | null };
+export type VehicleDto = { id: string; label: string; plate: string | null; airConditioned: boolean; capacity: number; seatsPerRow: number; blockedSeats: number[] };
+export type VehicleInput = { label: string; capacity: number; airConditioned: boolean; /** 4: 2 + aisle + 2; 5: with the folding middle seat (« versailler »). */ seatsPerRow: 4 | 5 };
+/** What the departure form allows (sent by the server with the vehicles). */
+export type DepartureLimits = { maxSeatsPerStudent: number; defaultSeatsPerStudent: number };
+
+/** A departure as the organizer writes it: a draft until published. Stops in route order, times ISO. */
+export type DepartureInput = {
+  vehicleId: string;
+  direction: 'aller' | 'retour';
+  from: string;
+  to: string;
+  pickups: { place: string; at: string }[];
+  dropoffs: { place: string; at: string }[];
+  price: number;
+  maxSeatsPerStudent: number;
+  paymentMethods: TicketMethod[];
+  minPassengers: number;
+};
+
+export type SeatMap = {
+  capacity: number;
+  seatsPerRow: number;
+  /** Seats of the first row, on the right (door and driver on the left); then full rows. Numbered from the front. */
+  firstRowSeats?: number;
+  blocked: number[];
+  taken: number[];
+  suggested: number | null;
+};
 
 export type BookingDto = {
   id: string;
@@ -99,7 +131,7 @@ export type CaravanTicketDetails = {
   to: string;
   pickup: StopDto;
   dropoff: StopDto;
-  vehicle: { label: string; plate: string };
+  vehicle: { label: string; plate: string | null; airConditioned?: boolean };
   confirmed: boolean;
   minPassengers: number;
   seatsBooked: number;
@@ -112,7 +144,9 @@ type TicketBase = {
   status: 'active' | 'cancelled' | 'transferred';
   seat: number | null;
   price: number;
-  paidWith: PaymentMethod;
+  paidWith: TicketMethod;
+  /** Paid in cash: still to hand over at boarding / the door (0: nothing due). */
+  cashDue?: number;
   event: { id: string; kind: string; title: string; startsAt: string; status: string; organizer: OrgCardDto };
   /** Companion ticket: who travels on it (I booked it for them). */
   passenger: PassengerDto | null;
@@ -181,8 +215,9 @@ export const caravansApi = {
   departures: (direction?: 'aller' | 'retour') => api<{ items: DepartureDto[] }>('GET', `/caravans/departures${direction ? `?direction=${direction}` : ''}`, auth),
   departure: (id: string) => api<DepartureDto>('GET', `/caravans/departures/${id}`, auth),
   seats: (id: string) => api<SeatMap>('GET', `/caravans/departures/${id}/seats`, auth),
-  book: (id: string, body: { seats: SeatRequest[]; pickupStopId: string; dropoffStopId: string; method: PaymentMethod }) =>
-    api<{ booking: BookingDto; payment: PaymentDto }>('POST', `/caravans/departures/${id}/bookings`, { ...auth, body: { ...body, returnUrl: paymentReturnUrl() } }),
+  /** `cash`: booked at once, `payment` is null. */
+  book: (id: string, body: { seats: SeatRequest[]; pickupStopId: string; dropoffStopId: string; method: TicketMethod }) =>
+    api<{ booking: BookingDto; payment: PaymentDto | null }>('POST', `/caravans/departures/${id}/bookings`, { ...auth, body: { ...body, returnUrl: paymentReturnUrl() } }),
   booking: (id: string) => api<BookingDto>('GET', `/caravans/bookings/${id}`, auth),
   release: (id: string) => api<void>('DELETE', `/caravans/bookings/${id}`, auth),
 
@@ -197,6 +232,23 @@ export const caravansApi = {
 
   // Organizer
   orgDepartures: (orgId: string, scope: 'upcoming' | 'past' = 'upcoming') => api<{ items: OrgDepartureDto[] }>('GET', `/org/${orgId}/departures?scope=${scope}`, auth),
+  orgDeparture: (orgId: string, id: string) => api<OrgDepartureDto>('GET', `/org/${orgId}/departures/${id}`, auth),
+  vehicles: (orgId: string) => api<{ items: VehicleDto[]; limits: DepartureLimits }>('GET', `/org/${orgId}/vehicles`, auth),
+  /** Owner only. */
+  addVehicle: (orgId: string, body: VehicleInput) => api<VehicleDto>('POST', `/org/${orgId}/vehicles`, { ...auth, body }),
+  /** Owner only. Drafts take the change; published departures keep their vehicle. */
+  updateVehicle: (orgId: string, id: string, body: VehicleInput) => api<VehicleDto>('PUT', `/org/${orgId}/vehicles/${id}`, { ...auth, body }),
+  /** Owner only. Refused while a planned departure uses it. */
+  deleteVehicle: (orgId: string, id: string) => api<void>('DELETE', `/org/${orgId}/vehicles/${id}`, auth),
+  createDeparture: (orgId: string, body: DepartureInput) => api<OrgDepartureDto>('POST', `/org/${orgId}/departures`, { ...auth, body }),
+  /** Drafts only. */
+  updateDeparture: (orgId: string, id: string, body: DepartureInput) => api<OrgDepartureDto>('PUT', `/org/${orgId}/departures/${id}`, { ...auth, body }),
+  /** Published, before the bus leaves: new stops, removing the unbooked ones, or a vehicle with as many seats or more. */
+  extendDeparture: (orgId: string, id: string, body: { pickups?: { place: string; at: string }[]; dropoffs?: { place: string; at: string }[]; vehicleId?: string; /** stopIds nobody booked. */ remove?: string[] }) =>
+    api<OrgDepartureDto>('PATCH', `/org/${orgId}/departures/${id}`, { ...auth, body }),
+  publishDeparture: (orgId: string, id: string) => api<OrgDepartureDto>('POST', `/org/${orgId}/departures/${id}/publish`, auth),
+  /** Every ticket is refunded 100 %. */
+  cancelDeparture: (orgId: string, id: string, reason: string) => api<{ refunded: number }>('POST', `/org/${orgId}/departures/${id}/cancel`, { ...auth, body: { reason } }),
   manifest: (orgId: string, id: string) => api<ManifestDto>('GET', `/org/${orgId}/departures/${id}/manifest`, auth),
   scan: (orgId: string, body: { qr?: string; code?: string; ticketId?: string; eventId?: string; locationId?: string; clientScanId: string }) =>
     api<ScanResultDto>('POST', `/org/${orgId}/admissions`, { ...auth, body }),
@@ -283,3 +335,36 @@ export function byDeparture(tickets: CaravanTicketDto[]): CaravanTicketDto[][] {
 
 /** A unique id per scan, so a scan retried after a network error is recorded once. */
 export const newScanId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+
+// ---- Référencement: caravan organizers (caravan editors, admins) ------------------------------------------------
+
+export type OrganizerCategory = 'Entreprise' | 'Transporteur' | 'Amicale';
+export type OrganizerLevel = 'nouveau' | 'verifie' | 'confirme';
+export type CaravanOrganizerDto = {
+  id: string;
+  name: string;
+  category: OrganizerCategory;
+  level: OrganizerLevel;
+  status: 'pending' | 'active' | 'suspended';
+  rating: number | null;
+  trips: number;
+  payoutPhone: string | null;
+  owner: { firstName: string; lastName: string; phone: string } | null;
+};
+export type CaravanOrganizerInput = {
+  name: string;
+  category: OrganizerCategory;
+  level: OrganizerLevel;
+  payoutPhone?: string;
+  owner: { phone: string; firstName?: string; lastName?: string; password?: string };
+};
+
+export const caravanOrganizersApi = {
+  list: () => api<{ items: CaravanOrganizerDto[] }>('GET', '/admin/caravan-organizers', auth),
+  /** Before adding: the account of this number, and the caravan organizer it already runs (one per account). */
+  ownerLookup: (phone: string) =>
+    api<{ account: { firstName: string; lastName: string } | null; organizer: { name: string } | null }>('POST', '/admin/caravan-organizers/owner-lookup', { ...auth, body: { phone } }),
+  create: (body: CaravanOrganizerInput) => api<CaravanOrganizerDto>('POST', '/admin/caravan-organizers', { ...auth, body }),
+  update: (id: string, body: Partial<{ name: string; category: OrganizerCategory; level: OrganizerLevel; status: 'active' | 'suspended'; payoutPhone: string | null }>) =>
+    api<CaravanOrganizerDto>('PATCH', `/admin/caravan-organizers/${id}`, { ...auth, body }),
+};

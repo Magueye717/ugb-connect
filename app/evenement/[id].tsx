@@ -10,16 +10,16 @@ import { OrganizerLine } from '@/components/caravan';
 import { eventWhen } from '@/components/home';
 import { PaymentLogo } from '@/components/PaymentLogo';
 import { BackButton, TextButton } from '@/components/ui';
-import { formatDateTime, formatFcfa, paymentMethods } from '@/constants/data';
+import { cashMethod, formatDateTime, formatFcfa, paymentMethods } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCaravans } from '@/context/CaravansContext';
 import { toOrganizer } from '@/features/caravans/api';
 import { eventsApi, type EventBookingDto, type EventDto } from '@/features/events/api';
-import { payInBrowser, type PaymentMethod } from '@/features/payments/checkout';
+import { payInBrowser, type TicketMethod } from '@/features/payments/checkout';
 import { ApiError } from '@/lib/api';
 import { haptics } from '@/lib/haptics';
 
-const METHOD: Record<string, PaymentMethod> = { wave: 'wave', om: 'orange_money' };
+const METHOD: Record<string, TicketMethod> = { wave: 'wave', om: 'orange_money', cash: 'cash' };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const price = (n: number) => (n === 0 ? 'Gratuit' : formatFcfa(n));
 
@@ -78,6 +78,10 @@ export default function Evenement() {
 
   const count = Object.values(qty).reduce((n, q) => n + q, 0);
   const total = e.ticketTypes.reduce((n, t) => n + (qty[t.typeId] ?? 0) * t.price, 0);
+  // Only what the organizer accepts (cash: paid at the door); the choice falls back to the first of them.
+  const allowed = e.paymentMethods ?? ['wave', 'orange_money'];
+  const accepted = [...paymentMethods, cashMethod].filter((m) => allowed.includes(METHOD[m.id] ?? 'wave'));
+  const chosen = accepted.some((m) => m.id === method) ? method : (accepted[0]?.id ?? method);
   const add = (typeId: string, d: number) => {
     const t = e.ticketTypes.find((x) => x.typeId === typeId)!;
     const next = Math.max(0, Math.min((qty[typeId] ?? 0) + d, t.remaining));
@@ -111,7 +115,7 @@ export default function Evenement() {
     setPaying(true);
     try {
       const items = Object.entries(qty).filter(([, q]) => q > 0).map(([typeId, q]) => ({ typeId, qty: q }));
-      const { booking, payment } = await eventsApi.book(e.id, { items, method: METHOD[method] ?? 'wave' });
+      const { booking, payment } = await eventsApi.book(e.id, { items, method: METHOD[chosen] ?? 'wave' });
       if (payment) await payInBrowser(payment);
       await settle(booking.status === 'confirmed' ? booking : await eventsApi.booking(booking.id));
       setQty({});
@@ -217,12 +221,15 @@ export default function Evenement() {
                 {total > 0 && (
                   <>
                     <Text style={styles.section}>Moyen de paiement</Text>
-                    {paymentMethods.map((m) => {
-                      const on = m.id === method;
+                    {accepted.map((m) => {
+                      const on = m.id === chosen;
                       return (
                         <Pressable key={m.id} onPress={() => setMethod(m.id)} style={[styles.card, styles.payment, on && styles.paymentOn]}>
                           <PaymentLogo method={m} />
-                          <Text style={[styles.typeName, { flex: 1 }]}>{m.name}</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.typeName}>{m.name}</Text>
+                            {m.id === 'cash' && <Text style={styles.muted}>Billet tout de suite, payé à l’entrée</Text>}
+                          </View>
                           {on ? <Ionicons name="checkmark-circle" size={22} color={colors.primary} /> : <View style={styles.radio} />}
                         </Pressable>
                       );
@@ -242,7 +249,7 @@ export default function Evenement() {
             <Text style={styles.total}>{count ? price(total) : 'Choisis tes billets'}</Text>
           </View>
           <Pressable style={[styles.buy, (!count || paying) && styles.buyOff]} disabled={!count || paying} onPress={buy} accessibilityRole="button">
-            <Text style={styles.buyText}>{paying ? 'Un instant…' : total > 0 ? `Payer ${formatFcfa(total)}` : 'Réserver'}</Text>
+            <Text style={styles.buyText}>{paying ? 'Un instant…' : total > 0 ? (chosen === 'cash' ? 'Réserver · payer à l’entrée' : `Payer ${formatFcfa(total)}`) : 'Réserver'}</Text>
           </Pressable>
         </View>
       )}
