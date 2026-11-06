@@ -1,4 +1,5 @@
 import { Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -16,6 +17,26 @@ import { Toaster } from '@/components/Toaster';
 import { TaxiProvider } from '@/context/TaxiContext';
 import { ChatsProvider } from '@/features/chat/ChatContext';
 import { setupNotifications, useNotificationRouting } from '@/lib/notifications';
+
+// The native splash (the brand's blue and the logo, app.json) stays up while the saved session is checked, then fades
+// out: no blank screen between the splash and the first page.
+SplashScreen.preventAutoHideAsync().catch(() => {});
+SplashScreen.setOptions({ duration: 350, fade: true });
+/** Never more than this on the splash, even if the check is slow (weak network): the app opens anyway. */
+const SPLASH_MAX_MS = 5000;
+
+function SplashGate() {
+  const { status } = useAuth();
+  useEffect(() => {
+    if (status !== 'restoring') {
+      SplashScreen.hideAsync().catch(() => {});
+      return;
+    }
+    const t = setTimeout(() => SplashScreen.hideAsync().catch(() => {}), SPLASH_MAX_MS);
+    return () => clearTimeout(t);
+  }, [status]);
+  return null;
+}
 
 function NotificationRouter() {
   const { user, space } = useAuth();
@@ -120,6 +141,7 @@ export default function RootLayout() {
                 <ChatsProvider>
                   <TaxiProvider>
                     <LostProvider>
+                      <SplashGate />
                       <NotificationRouter />
                       <StatusBar style="light" />
                       <Screens />

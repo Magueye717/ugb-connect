@@ -65,7 +65,7 @@ export function TeamScreen({ orgId, name, intro, addHint }: { orgId: string; nam
     setPassword('');
   };
 
-  // Step 1: is this number already on UGB Campus? Already in the team: their roles, ticked.
+  // Step 1: is this number already on UGB Connect? Already in the team: their roles, ticked.
   const check = async () => {
     setChecking(true);
     try {
@@ -182,7 +182,7 @@ export function TeamScreen({ orgId, name, intro, addHint }: { orgId: string; nam
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.name}>{target.kind === 'existing' ? target.name : 'Nouveau compte'}</Text>
-                    <Text style={styles.muted}>{target.kind === 'existing' ? `${phone} a déjà un compte UGB Campus.` : `${phone} n’a pas encore de compte : crée-le.`}</Text>
+                    <Text style={styles.muted}>{target.kind === 'existing' ? `${phone} a déjà un compte UGB Connect.` : `${phone} n’a pas encore de compte : crée-le.`}</Text>
                   </View>
                   <TextButton label="Changer" onPress={restart} />
                 </View>

@@ -1,14 +1,15 @@
 {
   "expo": {
-    "name": "UGB Campus",
+    "name": "UGB Connect",
     "slug": "ugb-campus",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "ugbcampus",
+    "scheme": "ugbconnect",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ugbconnect.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -24,7 +25,7 @@
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION"
       ],
-      "package": "com.anonymous.ugbcampus"
+      "package": "com.ugbconnect.app"
     },
     "web": {
       "bundler": "metro",

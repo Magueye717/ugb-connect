@@ -43,7 +43,7 @@ export default function Infos() {
 
 /**
  * Optional at sign-up, given here once (or read from the card on « Ma carte étudiant »): it lets a found card come
- * back to its owner. Once saved it's shown locked: a typo is fixed by the UGB Campus team.
+ * back to its owner. Once saved it's shown locked: a typo is fixed by the UGB Connect team.
  */
 function StudentNumber({ current, onSaved }: { current: string | null; onSaved: () => Promise<void> }) {
   const [value, setValue] = useState('');
@@ -73,7 +73,7 @@ function StudentNumber({ current, onSaved }: { current: string | null; onSaved: 
             <Text style={[styles.label, { flex: 1 }]}>{current}</Text>
             <Ionicons name="lock-closed" size={14} color={colors.muted} />
           </View>
-          <Text style={styles.muted}>Une erreur ? Écris à l’équipe UGB Campus depuis « Aide & support ».</Text>
+          <Text style={styles.muted}>Une erreur ? Écris à l’équipe UGB Connect depuis « Aide & support ».</Text>
         </>
       ) : (
         <>

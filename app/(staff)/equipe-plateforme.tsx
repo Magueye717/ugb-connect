@@ -63,7 +63,7 @@ export default function EquipePlateforme() {
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <View style={styles.row}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.h1}>Équipe UGB Campus</Text>
+            <Text style={styles.h1}>Équipe UGB Connect</Text>
             <Text style={styles.sub}>{members ? `${members.length} membre${members.length > 1 ? 's' : ''}` : ' '}</Text>
           </View>
           <Pressable style={styles.add} onPress={() => setEditing('new')} accessibilityRole="button">

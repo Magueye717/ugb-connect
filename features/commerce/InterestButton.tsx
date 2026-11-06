@@ -35,7 +35,7 @@ export function InterestButton({ item, shop, variant = 'pill' }: Props) {
   }
 
   const openWhatsApp = () => {
-    const text = [`Bonjour ${shop.name}, je suis intéressé(e) par « ${item.name} » (${formatFcfa(item.price)}) vu sur UGB Campus.`, item.detail, item.photo].filter(Boolean).join('\n');
+    const text = [`Bonjour ${shop.name}, je suis intéressé(e) par « ${item.name} » (${formatFcfa(item.price)}) vu sur UGB Connect.`, item.detail, item.photo].filter(Boolean).join('\n');
     Linking.openURL(`https://wa.me/${intl(shop.phone)}?text=${encodeURIComponent(text)}`).catch(() =>
       Alert.alert('WhatsApp introuvable', `${shop.name} est prévenu et va te rappeler. Tu peux aussi l’appeler au ${shop.phone}.`, [
         { text: 'Fermer', style: 'cancel' },

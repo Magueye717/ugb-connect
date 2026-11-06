@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 import { deleteSecure, getSecure, setSecure } from './secureStorage';
 
 /**
- * Backend base URL. Set EXPO_PUBLIC_API_URL (e.g. https://api.ugb-campus.sn/api/v1) for real builds.
+ * Backend base URL. Set EXPO_PUBLIC_API_URL (e.g. https://api.ugb-connect.sn/api/v1) for real builds.
  * In development without it, the API is assumed on port 3000 of the machine running Metro, so a phone on the
  * same Wi-Fi reaches it without any configuration.
  */

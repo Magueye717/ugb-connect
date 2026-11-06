@@ -210,7 +210,7 @@ export default function ScanCard() {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.personName}>{c.name}</Text>
                     <Text style={styles.personMeta} numberOfLines={1}>
-                      {[c.ufr ? `UFR ${c.ufr}` : null, c.campus, c.village, c.numberHint].filter(Boolean).join(' · ') || 'Compte UGB Campus'}
+                      {[c.ufr ? `UFR ${c.ufr}` : null, c.campus, c.village, c.numberHint].filter(Boolean).join(' · ') || 'Compte UGB Connect'}
                     </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={16} color={colors.muted} />
@@ -325,7 +325,7 @@ function NoMatch({
       </View>
       <Text style={styles.emptyTitle}>Aucun propriétaire trouvé</Text>
       <Text style={styles.emptyText}>
-        {searched ? `Personne ne correspond à « ${searched} » dans UGB Campus.` : 'Le nom n’a pas pu être lu sur la photo.'} Essaie une autre orthographe, juste le nom de famille, ou dépose la carte au bureau.
+        {searched ? `Personne ne correspond à « ${searched} » dans UGB Connect.` : 'Le nom n’a pas pu être lu sur la photo.'} Essaie une autre orthographe, juste le nom de famille, ou dépose la carte au bureau.
       </Text>
       <View style={{ alignSelf: 'stretch', gap: 10 }}>
         <Field icon="person-outline" placeholder="Ex. Ndiaye" autoCapitalize="words" value={name} onChangeText={setName} returnKeyType="search" onSubmitEditing={() => onSearch(name)} maxLength={60} />

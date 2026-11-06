@@ -45,7 +45,7 @@ const dayStart = (key: string) => Date.parse(`${key}T00:00:00Z`);
 
 /**
  * A new paid banner: an ad (picture, short title and text, optional button), or — for an organization's owner or
- * manager — one of its published events. Paid with the chosen package, then checked by the UGB Campus team.
+ * manager — one of its published events. Paid with the chosen package, then checked by the UGB Connect team.
  */
 export default function NouvellePublicite() {
   const { organizer } = useAuth();
@@ -150,7 +150,7 @@ export default function NouvellePublicite() {
         done
           ? kind === 'event'
             ? 'Ton événement s’affiche sur l’accueil à partir du premier jour choisi.'
-            : 'L’équipe UGB Campus la vérifie. Tu reçois une notification dès qu’elle est validée.'
+            : 'L’équipe UGB Connect la vérifie. Tu reçois une notification dès qu’elle est validée.'
           : 'Termine le paiement depuis « Mes publicités » : la place est gardée 15 minutes.',
       );
     } catch (err) {
@@ -349,7 +349,7 @@ export default function NouvellePublicite() {
         <Text style={styles.hint}>
           {kind === 'event'
             ? 'Ton événement a déjà été validé : sa bannière s’affiche dès le paiement (à partir du premier jour choisi).'
-            : 'L’équipe UGB Campus vérifie chaque bannière avant sa diffusion (le jour même si tu choisis aujourd’hui). Refusée, elle est remboursée.'}
+            : 'L’équipe UGB Connect vérifie chaque bannière avant sa diffusion (le jour même si tu choisis aujourd’hui). Refusée, elle est remboursée.'}
         </Text>
 
         <Text style={styles.label}>Moyen de paiement</Text>
