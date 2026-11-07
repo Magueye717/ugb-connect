@@ -37,7 +37,7 @@ export default function MesEvenements() {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Organiser un événement</Text>
-            <Text style={styles.muted}>Soirée, conférence, sortie… avec billetterie. Validé par l’équipe UGB Campus avant la mise en vente.</Text>
+            <Text style={styles.muted}>Soirée, conférence, sortie… avec billetterie. Validé par l’équipe UGB Connect avant la mise en vente.</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.muted} />
         </Pressable>

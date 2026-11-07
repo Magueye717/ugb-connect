@@ -61,7 +61,7 @@ export default function Aide() {
           <View style={{ gap: 10 }}>
             <Contact icon="call" tint={colors.primary} bg={colors.primarySoft} title="Appeler" value={support.phone} onPress={() => Linking.openURL(`tel:+${intl(support.phone)}`)} />
             <Contact icon="logo-whatsapp" tint="#128C7E" bg="#DCF8E8" title="WhatsApp" value={support.whatsapp} onPress={() => Linking.openURL(`https://wa.me/${intl(support.whatsapp)}`)} />
-            <Contact icon="mail" tint={colors.orangeText} bg="#FFEDE3" title="E-mail" value={support.email} onPress={() => Linking.openURL(`mailto:${support.email}?subject=${encodeURIComponent('UGB Campus · Aide')}`)} />
+            <Contact icon="mail" tint={colors.orangeText} bg="#FFEDE3" title="E-mail" value={support.email} onPress={() => Linking.openURL(`mailto:${support.email}?subject=${encodeURIComponent('UGB Connect · Aide')}`)} />
             <Text style={styles.muted}>{support.hours}</Text>
           </View>
         )}

@@ -18,6 +18,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
+import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import Animated, { FadeInDown, interpolateColor, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -454,7 +455,53 @@ export function FilterChips<T extends string>({
   );
 }
 
+/** Room to leave under a form's last field so it never hides behind a StickyFooter (one button, or two). */
+export const STICKY_FOOTER_SPACE = { one: 96, two: 140 } as const;
+
+/**
+ * A form's main action, pinned under the scrolling content and lifted above the keyboard: it never scrolls away.
+ * Put it after the scroll view, inside a full-height screen (SafeAreaView with its bottom edge).
+ */
+export function StickyFooter({ children }: { children: ReactNode }) {
+  const insets = useSafeAreaInsets();
+  // The screen already keeps the home indicator's space: with the keyboard up, that gap would show above it.
+  return (
+    <KeyboardStickyView offset={{ opened: insets.bottom }}>
+      <View style={styles.stickyFooter}>{children}</View>
+    </KeyboardStickyView>
+  );
+}
+
+/**
+ * The same for a bottom sheet: its action pinned under the sheet's scroll view (the sheet's own keyboard avoidance
+ * already lifts it). Holds the home indicator's space.
+ */
+export function SheetFooter({ children }: { children: ReactNode }) {
+  return (
+    <View style={styles.sheetFooter}>
+      {children}
+      <SafeBottom />
+    </View>
+  );
+}
+
+/**
+ * Has the form changed since it opened? `value`: what would be saved (compared as JSON). A new `resetKey` (another
+ * item loaded, or just saved) starts over from the values at that moment.
+ */
+export function useDirty(value: unknown, resetKey: unknown = null) {
+  const now = JSON.stringify(value);
+  const [base, setBase] = useState({ key: resetKey, value: now });
+  if (base.key !== resetKey) {
+    setBase({ key: resetKey, value: now });
+    return false;
+  }
+  return now !== base.value;
+}
+
 const styles = StyleSheet.create({
+  sheetFooter: { gap: 8, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  stickyFooter: { gap: 8, paddingHorizontal: 20, paddingVertical: 12, backgroundColor: colors.bg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   sheetHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   sheetHeadTitle: { ...typo.h3, color: colors.navy },
   sheetHeadSub: { ...typo.small, color: colors.muted2 },

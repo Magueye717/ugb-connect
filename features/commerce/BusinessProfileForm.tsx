@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { MultiSelect } from '@/components/Select';
-import { Chip, Field, LabeledField, PrimaryButton, TextButton, Toggle } from '@/components/ui';
+import { Chip, Field, LabeledField, PrimaryButton, TextButton, Toggle, useDirty } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { commerceApi, type BusinessDto, type BusinessTarget, type CommerceReference, type DeliveryZone, type OrderMethod } from '@/features/commerce/api';
 import { PaymentMethodsPicker } from './PaymentMethodsPicker';
@@ -86,7 +86,9 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
   const location = lat && lng ? { lat: Number(lat), lng: Number(lng) } : null;
   const locationOk = (!lat && !lng) || (!!location && Math.abs(location.lat) <= 90 && Math.abs(location.lng) <= 180);
   const servicesOk = services.length > 0 && services.every((s) => HHMM.test(s.start) && HHMM.test(s.end) && s.start < s.end);
-  const ready = locationOk && servicesOk && specialties.length > 0 && name.trim().length >= 2 && !uploading && !saving;
+  // Usable once something changed; saved (a new `b`), it starts over.
+  const dirty = useDirty({ name, photo: photo.url, specialties, description, address, campus, phone, lat, lng, services, fees, methods }, b);
+  const ready = dirty && locationOk && servicesOk && specialties.length > 0 && name.trim().length >= 2 && !uploading && !saving;
 
   const save = async () => {
     setSaving(true);

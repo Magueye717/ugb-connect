@@ -109,7 +109,7 @@ export default function ForgotScreen() {
           </Pressable>
           <View style={styles.brand}>
             <BrandLogo size={28} />
-            <Text style={styles.brandText}>UGB Campus</Text>
+            <Text style={styles.brandText}>UGB Connect</Text>
           </View>
           <View style={{ width: 44 }} />
         </View>

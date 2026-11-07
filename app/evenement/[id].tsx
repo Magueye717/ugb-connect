@@ -8,6 +8,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { HoldCountdown } from '@/components/HoldCountdown';
 import { OrganizerLine } from '@/components/caravan';
 import { eventWhen } from '@/components/home';
+import { NudgeRight } from '@/components/motion';
 import { PaymentLogo } from '@/components/PaymentLogo';
 import { BackButton, TextButton } from '@/components/ui';
 import { cashMethod, formatDateTime, formatFcfa, paymentMethods } from '@/constants/data';
@@ -17,6 +18,7 @@ import { toOrganizer } from '@/features/caravans/api';
 import { eventsApi, type EventBookingDto, type EventDto } from '@/features/events/api';
 import { payInBrowser, type TicketMethod } from '@/features/payments/checkout';
 import { ApiError } from '@/lib/api';
+import { notice } from '@/lib/notice';
 import { haptics } from '@/lib/haptics';
 
 const METHOD: Record<string, TicketMethod> = { wave: 'wave', om: 'orange_money', cash: 'cash' };
@@ -46,6 +48,8 @@ export default function Evenement() {
   const [e, setE] = useState<EventDto | null>(null);
   const [missing, setMissing] = useState(false);
   const [qty, setQty] = useState<Record<string, number>>({});
+  // Its organizer orders for friends only: the ticket choice opens once they say so.
+  const [forFriends, setForFriends] = useState(false);
   const [method, setMethod] = useState(paymentMethods[0].id);
   const [paying, setPaying] = useState(false);
   const insets = useSafeAreaInsets();
@@ -55,7 +59,7 @@ export default function Evenement() {
     eventsApi.get(id).then((ev) => {
       setE(ev);
       const first = ev.ticketTypes.find((t) => !t.soldOut);
-      if (acheter && !preselected.current && first && ev.salesOpen && !ev.myBooking && ev.myTicketsLeft > 0) {
+      if (acheter && !preselected.current && first && ev.salesOpen && !ev.organizedByMe && !ev.myBooking && ev.myTicketsLeft > 0) {
         preselected.current = true;
         setQty({ [first.typeId]: 1 });
       }
@@ -104,10 +108,19 @@ export default function Evenement() {
       haptics.success();
       const first = b.tickets.find((t) => t.ticketId)?.ticketId;
       if (first) router.replace({ pathname: '/billet/[id]', params: { id: first, nouveau: '1' } });
+      if (forFriends) {
+        const n = b.tickets.length;
+        notice({
+          tone: 'success',
+          title: n > 1 ? `${n} billets prêts à offrir` : 'Billet prêt à offrir',
+          message: 'Ils sont dans « Mes billets ». Envoie chacun à un ami :',
+          steps: ['Ouvre le billet', 'Touche « Transférer à un ami » et entre son numéro', 'Il accepte : le billet et son QR code deviennent les siens'],
+        });
+      }
       return;
     }
-    if (b.status === 'held') Alert.alert('Paiement en attente', 'Tes billets sont gardés 10 minutes. Termine le paiement depuis cette page.');
-    else Alert.alert('Paiement non effectué', 'Les places ont été libérées. Tu peux réessayer.');
+    if (b.status === 'held') notice({ tone: 'pending', title: 'Paiement en attente', message: 'Tes billets sont gardés 10 minutes. Termine le paiement depuis cette page.' });
+    else notice({ tone: 'warning', title: 'Paiement non effectué', message: 'Les places ont été libérées. Tu peux réessayer.' });
     load();
   };
 
@@ -115,7 +128,7 @@ export default function Evenement() {
     setPaying(true);
     try {
       const items = Object.entries(qty).filter(([, q]) => q > 0).map(([typeId, q]) => ({ typeId, qty: q }));
-      const { booking, payment } = await eventsApi.book(e.id, { items, method: METHOD[chosen] ?? 'wave' });
+      const { booking, payment } = await eventsApi.book(e.id, { items, method: METHOD[chosen] ?? 'wave', ...(e.organizedByMe ? { forFriends: true } : {}) });
       if (payment) await payInBrowser(payment);
       await settle(booking.status === 'confirmed' ? booking : await eventsApi.booking(booking.id));
       setQty({});
@@ -139,6 +152,9 @@ export default function Evenement() {
   };
 
   const closed = !e.salesOpen;
+  // Its organizing team sees the page as students do, and orders only for friends.
+  const mine = e.organizedByMe;
+  const canPick = !mine || forFriends;
   return (
     <View style={styles.safe}>
       <ScrollView ref={scroll} contentContainerStyle={{ paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
@@ -188,7 +204,20 @@ export default function Evenement() {
           ) : (
             e.status === 'published' && (
               <View style={{ gap: 10 }} onLayout={(ev) => toTickets('tickets', ev.nativeEvent.layout.y)}>
-                <Text style={styles.section}>Billets</Text>
+                {mine && <OwnEventCard eventId={e.id} personal={e.organizer.category === 'Étudiant'} />}
+                {mine && !closed && !forFriends && <ForFriendsCard onPress={() => setForFriends(true)} />}
+                <View style={styles.sectionRow}>
+                  <Text style={[styles.section, { flex: 1 }]}>{forFriends ? 'Billets pour tes amis' : 'Billets'}</Text>
+                  {forFriends && (
+                    <TextButton
+                      label="Annuler"
+                      onPress={() => {
+                        setForFriends(false);
+                        setQty({});
+                      }}
+                    />
+                  )}
+                </View>
                 {e.ticketTypes.map((t) => {
                   const n = qty[t.typeId] ?? 0;
                   return (
@@ -201,7 +230,7 @@ export default function Evenement() {
                           {t.soldOut ? ' · Complet' : t.remaining <= 20 ? ` · Plus que ${t.remaining}` : ''}
                         </Text>
                       </View>
-                      {!closed && !t.soldOut && (
+                      {!closed && !t.soldOut && canPick && (
                         <View style={styles.stepper}>
                           <Pressable onPress={() => add(t.typeId, -1)} disabled={!n} style={[styles.step, !n && { opacity: 0.4 }]} accessibilityLabel={`Un billet ${t.name} de moins`}>
                             <Ionicons name="remove" size={18} color={colors.primary} />
@@ -215,8 +244,12 @@ export default function Evenement() {
                     </View>
                   );
                 })}
-                {e.myTicketsLeft < e.maxPerStudent && e.myTicketsLeft > 0 && <Text style={styles.muted}>Tu peux encore prendre {e.myTicketsLeft} billet{e.myTicketsLeft > 1 ? 's' : ''}.</Text>}
-                <Text style={styles.muted}>Un QR code par billet dans ton app. Tu peux en offrir à des amis depuis le billet.</Text>
+                {canPick && e.myTicketsLeft < e.maxPerStudent && e.myTicketsLeft > 0 && <Text style={styles.muted}>Tu peux encore prendre {e.myTicketsLeft} billet{e.myTicketsLeft > 1 ? 's' : ''}.</Text>}
+                {canPick && (
+                  <Text style={styles.muted}>
+                    {forFriends ? 'Aucun n’est pour toi : chaque billet s’envoie à un ami depuis « Mes billets », avec son propre QR code.' : 'Un QR code par billet dans ton app. Tu peux en offrir à des amis depuis le billet.'}
+                  </Text>
+                )}
 
                 {total > 0 && (
                   <>
@@ -242,14 +275,14 @@ export default function Evenement() {
         </View>
       </ScrollView>
 
-      {e.status === 'published' && !e.myBooking && !closed && (
+      {e.status === 'published' && !e.myBooking && !closed && canPick && (
         <View style={[styles.bar, { paddingBottom: 12 + insets.bottom }]}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.muted}>{count ? `${count} billet${count > 1 ? 's' : ''}` : `Dès ${price(e.minPrice)}`}</Text>
-            <Text style={styles.total}>{count ? price(total) : 'Choisis tes billets'}</Text>
+            <Text style={styles.muted}>{count ? `${count} billet${count > 1 ? 's' : ''}${forFriends ? ' à offrir' : ''}` : `Dès ${price(e.minPrice)}`}</Text>
+            <Text style={styles.total}>{count ? price(total) : forFriends ? 'Combien pour tes amis ?' : 'Choisis tes billets'}</Text>
           </View>
           <Pressable style={[styles.buy, (!count || paying) && styles.buyOff]} disabled={!count || paying} onPress={buy} accessibilityRole="button">
-            <Text style={styles.buyText}>{paying ? 'Un instant…' : total > 0 ? (chosen === 'cash' ? 'Réserver · payer à l’entrée' : `Payer ${formatFcfa(total)}`) : 'Réserver'}</Text>
+            <Text style={styles.buyText}>{paying ? 'Un instant…' : total > 0 ? (chosen === 'cash' ? 'Réserver · payer à l’entrée' : `Payer ${formatFcfa(total)}`) : forFriends ? 'Commander' : 'Réserver'}</Text>
           </Pressable>
         </View>
       )}
@@ -326,6 +359,55 @@ function Info({ icon, title, text }: { icon: keyof typeof Ionicons.glyphMap; tit
   );
 }
 
+/**
+ * Shown to its organizing team instead of the ticket choice: they run it, they don't book it. A student's own event
+ * opens « Mon événement »; an organization's is run from its organizer space.
+ */
+function OwnEventCard({ eventId, personal }: { eventId: string; personal: boolean }) {
+  return (
+    <View style={[styles.card, shadow.card, styles.own]}>
+      <View style={styles.ownIcon}>
+        <Ionicons name="sparkles" size={20} color={colors.primary} />
+      </View>
+      <View style={{ flex: 1, gap: 8 }}>
+        <View style={{ gap: 2 }}>
+          <Text style={styles.typeName}>C’est ton événement</Text>
+          <Text style={styles.muted}>
+            {personal ? 'Les étudiants réservent ici. Toi, tu le gères : photos, bannière, billets vendus.' : 'Les étudiants réservent ici. Ton équipe le gère depuis l’espace organisateur : billets vendus, scan à l’entrée.'}
+          </Text>
+        </View>
+        {personal && <TextButton label="Gérer mon événement" icon="settings-outline" onPress={() => router.push({ pathname: '/mes-evenements/[id]', params: { id: eventId } })} style={{ alignSelf: 'flex-start' }} />}
+      </View>
+    </View>
+  );
+}
+
+/** Its organizer's way to order: tickets for friends, each sent from « Mes billets ». */
+function ForFriendsCard({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={() => {
+        haptics.select();
+        onPress();
+      }}
+      style={({ pressed }) => [styles.card, shadow.card, styles.friends, pressed && { opacity: 0.85, transform: [{ scale: 0.99 }] }]}
+      accessibilityRole="button"
+      accessibilityLabel="Commander pour un ami"
+      accessibilityHint="Choisis des billets à offrir : aucun n’est pour toi">
+      <View style={styles.friendsIcon}>
+        <Ionicons name="gift" size={20} color="#fff" />
+      </View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={styles.typeName}>Commander pour un ami</Text>
+        <Text style={styles.muted}>Offre des billets : chacun s’envoie à un ami, avec son propre QR code.</Text>
+      </View>
+      <NudgeRight>
+        <Ionicons name="chevron-forward" size={20} color={colors.accent} />
+      </NudgeRight>
+    </Pressable>
+  );
+}
+
 function Banner({ tone, icon, text }: { tone: 'success' | 'danger'; icon: keyof typeof Ionicons.glyphMap; text: string }) {
   const c = tone === 'success' ? { bg: colors.successBg, fg: colors.successText } : { bg: colors.dangerBg, fg: colors.dangerText };
   return (
@@ -362,6 +444,11 @@ const styles = StyleSheet.create({
   heldTitle: { ...typo.title, color: colors.navy },
   heldBtn: { marginTop: 4, backgroundColor: colors.accent, paddingHorizontal: 22, minHeight: 42, borderRadius: radii.pill, justifyContent: 'center' },
   heldBtnText: { color: '#fff', fontWeight: '700' },
+  own: { flexDirection: 'row', gap: 12, borderWidth: 1.5, borderColor: colors.primarySoft },
+  friends: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderColor: colors.accentSoft, backgroundColor: colors.accentSoft },
+  friendsIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  ownIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   banner: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderRadius: radii.md },
   bannerText: { flex: 1, fontSize: 13, fontWeight: '600', lineHeight: 18 },
   backOver: { position: 'absolute', left: 16 },

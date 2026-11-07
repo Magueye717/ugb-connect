@@ -14,6 +14,7 @@ import { profileApi } from '@/features/profile/api';
 import { sendOtp, verifyOtp, type OtpChallenge } from '@/features/register/auth';
 import { CAMPUSES, STUDENT_ID_MAX, typeStudentId, validateStudentId, VILLAGES } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
+import { notice } from '@/lib/notice';
 import { toast } from '@/lib/toast';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
@@ -43,7 +44,7 @@ export default function Infos() {
 
 /**
  * Optional at sign-up, given here once (or read from the card on « Ma carte étudiant »): it lets a found card come
- * back to its owner. Once saved it's shown locked: a typo is fixed by the UGB Campus team.
+ * back to its owner. Once saved it's shown locked: a typo is fixed by the UGB Connect team.
  */
 function StudentNumber({ current, onSaved }: { current: string | null; onSaved: () => Promise<void> }) {
   const [value, setValue] = useState('');
@@ -73,7 +74,7 @@ function StudentNumber({ current, onSaved }: { current: string | null; onSaved: 
             <Text style={[styles.label, { flex: 1 }]}>{current}</Text>
             <Ionicons name="lock-closed" size={14} color={colors.muted} />
           </View>
-          <Text style={styles.muted}>Une erreur ? Écris à l’équipe UGB Campus depuis « Aide & support ».</Text>
+          <Text style={styles.muted}>Une erreur ? Écris à l’équipe UGB Connect depuis « Aide & support ».</Text>
         </>
       ) : (
         <>
@@ -194,7 +195,7 @@ function Phone({ current, onSaved }: { current: string; onSaved: () => Promise<v
       await profileApi.setPhone(r.verificationToken);
       await onSaved();
       reset();
-      Alert.alert('Numéro changé', 'Connecte-toi désormais avec ce numéro.');
+      notice({ tone: 'success', title: 'Numéro changé', message: 'Connecte-toi désormais avec ce numéro.' });
     } catch (err) {
       fail('Changement impossible')(err);
     } finally {

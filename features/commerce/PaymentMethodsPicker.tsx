@@ -51,7 +51,7 @@ export function PaymentMethodsPicker({
           <Ionicons name="shield-checkmark-outline" size={18} color={colors.muted2} />
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={styles.noticeText}>
-              Pour recevoir les paiements par Wave ou Orange Money, contacte l’équipe UGB Campus : elle vérifie ta boutique, puis les active. En attendant, tes clients paient en espèces.
+              Pour recevoir les paiements par Wave ou Orange Money, contacte l’équipe UGB Connect : elle vérifie ta boutique, puis les active. En attendant, tes clients paient en espèces.
             </Text>
             <Pressable onPress={() => router.push('/aide')} hitSlop={6} accessibilityRole="link">
               <Text style={styles.link}>Contacter l’équipe →</Text>

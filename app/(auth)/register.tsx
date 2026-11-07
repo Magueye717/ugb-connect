@@ -100,7 +100,7 @@ export default function RegisterScreen() {
         const go = await new Promise<boolean>((resolve) =>
           Alert.alert(
             'Ce numéro a déjà un compte',
-            'Tu fais partie d’une équipe sur UGB Campus. Ton profil étudiant s’ajoute à ce compte : tes rôles restent, et le mot de passe que tu vas choisir remplace l’ancien.',
+            'Tu fais partie d’une équipe sur UGB Connect. Ton profil étudiant s’ajoute à ce compte : tes rôles restent, et le mot de passe que tu vas choisir remplace l’ancien.',
             [
               { text: 'Annuler', style: 'cancel', onPress: () => resolve(false) },
               { text: 'Continuer', onPress: () => resolve(true) },
@@ -176,7 +176,7 @@ export default function RegisterScreen() {
           </Pressable>
           <View style={styles.brand}>
             <BrandLogo size={28} />
-            <Text style={styles.brandText}>UGB Campus</Text>
+            <Text style={styles.brandText}>UGB Connect</Text>
           </View>
           <Text style={styles.stepLabel}>
             {step}/{TOTAL_STEPS}

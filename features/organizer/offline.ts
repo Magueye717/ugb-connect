@@ -181,7 +181,7 @@ export async function checkOffline(raw: string, orgId: string, departureId?: str
 
   if (isQr) {
     const claims = readTicketQr(value, packs[0]!.key);
-    if (!claims) return { tone: 'danger', title: 'Pas un billet UGB Campus', text: 'Signature invalide : ce QR code ne vient pas de l’app. Refuse l’accès.' };
+    if (!claims) return { tone: 'danger', title: 'Pas un billet UGB Connect', text: 'Signature invalide : ce QR code ne vient pas de l’app. Refuse l’accès.' };
     pack = packs.find((p) => p.manifest.departure.id === claims.eventId);
     if (!pack) return { tone: 'danger', title: 'Autre départ', text: 'Ce billet n’est pas pour ce départ. Refuse l’accès.' };
     if (pack.versions[claims.ticketId] === undefined) return { tone: 'danger', title: 'Billet non valable', text: 'Billet annulé ou absent de la liste.' };

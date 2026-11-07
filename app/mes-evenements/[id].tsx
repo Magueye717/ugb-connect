@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -8,15 +9,19 @@ import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { eventWhen } from '@/components/home';
+import { LivePulse, NudgeRight } from '@/components/motion';
 import { PaymentLogo } from '@/components/PaymentLogo';
-import { BackButton, Chip, Field, LabeledField, PrimaryButton, StatusChip, TextButton } from '@/components/ui';
+import { BackButton, Chip, Field, LabeledField, PrimaryButton, StatusChip, STICKY_FOOTER_SPACE, StickyFooter, TextButton } from '@/components/ui';
 import { formatFcfa, paymentMethods } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { bannerLastDay, bannersApi, holdsSlot, type BannerDto } from '@/features/banners/api';
 import { CATEGORIES, EVENT_STATUS, eventsApi, EVERYONE, type EventAudience, type EventCategory, type EventInput, type OrgEventDto } from '@/features/events/api';
 import { payInBrowser, ticketMethodLabel, type PaymentMethod, type TicketMethod } from '@/features/payments/checkout';
 import { CAMPUSES, REGIONS, UFRS, VILLAGES, type CampusKey } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
+import { haptics } from '@/lib/haptics';
+import { notice } from '@/lib/notice';
 import { uploadImage } from '@/lib/upload';
 import { useNow } from '@/lib/useNow';
 
@@ -106,8 +111,14 @@ export default function MonEvenement() {
             // The first event creates the student's own organization: the organizer space appears.
             if (isNew) reloadAccount().catch(() => undefined);
             if (submitted) {
-              Alert.alert('Envoyé pour validation', 'L’équipe UGB Campus vérifie ton événement. Une fois validé, tu choisis qui le voit et tu le publies. Tu reçois une notification dans tous les cas.');
               router.replace('/mes-evenements');
+              notice({
+                tone: 'success',
+                title: 'Envoyé pour validation',
+                message: `« ${saved.title} » est entre les mains de l’équipe UGB Connect.`,
+                steps: ['L’équipe vérifie ton événement', 'Validé : tu choisis qui le voit et le nombre de places', 'Tu paies la publication : la billetterie ouvre'],
+                footnote: 'Tu reçois une notification dans tous les cas.',
+              });
             } else if (isNew) router.replace(`/mes-evenements/${saved.id}`);
             else setEvent(saved);
           }}
@@ -131,9 +142,13 @@ function EventState({ event: e, onChanged }: { event: OrgEventDto; onChanged: (e
         onPress: () => eventsApi.cancelMine(e.id, 'Annulé par l’organisateur').then(() => eventsApi.mineOne(e.id).then(onChanged), fail('Annulation impossible')),
       },
     ]);
+  const photos = usePhotoEdits(e, onChanged);
+  const banner = useEventBanner(e.id, e.status === 'published');
   return (
+    <>
     <ScrollView contentContainerStyle={styles.body}>
-      <Image source={{ uri: e.images[0] }} style={styles.cover} contentFit="cover" />
+      {/* The cover being chosen shows here at once (saved or not). */}
+      <Image source={{ uri: photos.editable ? photos.images[0]?.url : e.images[0] }} style={styles.cover} contentFit="cover" transition={200} />
       <StatusChip label={s.label} tone={s.tone} />
       <Text style={styles.title}>{e.title}</Text>
       <Text style={styles.muted}>{eventWhen(e.startsAt)} · {e.venue.name}</Text>
@@ -143,7 +158,7 @@ function EventState({ event: e, onChanged }: { event: OrgEventDto; onChanged: (e
           <Text style={styles.reviewText}>{e.review.message}</Text>
         </View>
       )}
-      {e.status === 'pending_review' && <Text style={styles.muted}>L’équipe UGB Campus vérifie ton événement. Tu seras notifié de sa décision.</Text>}
+      {e.status === 'pending_review' && <Text style={styles.muted}>L’équipe UGB Connect vérifie ton événement. Tu seras notifié de sa décision.</Text>}
       {(e.status === 'published' || e.status === 'completed') && (
         <View style={[styles.card, shadow.card, { gap: 8 }]}>
           {e.ticketTypes.map((t) => (
@@ -160,7 +175,14 @@ function EventState({ event: e, onChanged }: { event: OrgEventDto; onChanged: (e
       )}
       {e.status === 'published' && (
         <>
-          <PrimaryButton label="Mettre en bannière sur l’accueil" onPress={() => router.push({ pathname: '/publicite', params: { eventId: e.id } })} />
+          {photos.editable ? (
+            <Photos images={photos.images} setImages={photos.setImages} uploading={false} setUploading={() => undefined} fixedCover={photos.fixedCover} setFixedCover={photos.setFixedCover} canAdd={false} />
+          ) : (
+            <Text style={styles.muted}>Une seule photo : c’est la couverture de ton événement et de sa bannière.</Text>
+          )}
+          {banner === undefined && <ActivityIndicator color={colors.primary} />}
+          {banner && <BannerCard banner={banner} />}
+          {banner === null && <PromoteCard onPress={() => router.push({ pathname: '/publicite', params: { eventId: e.id } })} />}
           <TextButton label="Annuler l’événement" onPress={cancel} style={{ alignSelf: 'center' }} tone="danger" />
         </>
       )}
@@ -176,6 +198,138 @@ function EventState({ event: e, onChanged }: { event: OrgEventDto; onChanged: (e
         </View>
       )}
     </ScrollView>
+    {/* Pinned, as on every form: usable once a photo changed. */}
+    {photos.editable && (
+      <StickyFooter>
+        <PrimaryButton label="Enregistrer les photos" disabled={!photos.dirty} loading={photos.saving} onPress={photos.save} />
+      </StickyFooter>
+    )}
+    </>
+  );
+}
+
+/**
+ * Published: the pictures the team validated, as a cover (shown first, and on the event's banners), an order, or one
+ * taken off. Nothing changes until « Enregistrer ».
+ */
+function usePhotoEdits(e: OrgEventDto, onChanged: (e: OrgEventDto) => void) {
+  const [images, setImages] = useState<Photo[]>(photosOf(e));
+  const [fixedCover, setFixedCover] = useState(e.fixedCover);
+  const [saving, setSaving] = useState(false);
+  const reset = () => {
+    setImages(photosOf(e));
+    setFixedCover(e.fixedCover);
+  };
+  // Saved, or reloaded when the screen shows again: start over from what the server has.
+  const saved = `${e.imageIds.join()}|${e.fixedCover}`;
+  const [base, setBase] = useState(saved);
+  if (base !== saved) {
+    setBase(saved);
+    reset();
+  }
+
+  const cover = fixedCover && images.length > 1;
+  const dirty = images.map((i) => i.id).join() !== e.imageIds.join() || cover !== e.fixedCover;
+  const removed = e.imageIds.length - images.length;
+  const run = () => {
+    setSaving(true);
+    eventsApi
+      .updatePhotos(e.id, { imageIds: images.map((i) => i.id), fixedCover: cover })
+      .then(onChanged, fail('Photos non enregistrées'))
+      .finally(() => setSaving(false));
+  };
+  const save = () =>
+    removed > 0
+      ? Alert.alert(`Retirer ${removed} photo${removed > 1 ? 's' : ''} ?`, 'Elle' + (removed > 1 ? 's sont supprimées' : ' est supprimée') + ' de l’événement pour de bon.', [
+          { text: 'Garder', style: 'cancel' },
+          { text: 'Retirer', style: 'destructive', onPress: run },
+        ])
+      : run();
+
+  // A single picture is the cover: nothing to choose.
+  return { editable: e.status === 'published' && e.imageIds.length > 1, images, setImages, fixedCover, setFixedCover, dirty, saving, save, reset };
+}
+
+const dayLabel = (iso: string) => new Date(iso).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+
+/**
+ * Published: the event's banner on the home screen when it has one (running, to come, being paid), otherwise the
+ * button to get one. A new banner is possible once the current one has ended.
+ */
+function useEventBanner(eventId: string, published: boolean) {
+  // undefined: loading; null: none (or « Mes publicités » couldn't be read: the banner screen checks again).
+  const [banner, setBanner] = useState<BannerDto | null | undefined>(undefined);
+  useFocusEffect(
+    useCallback(() => {
+      if (!published) return;
+      bannersApi.mine().then(
+        (r) => setBanner(r.items.find((b) => b.eventId === eventId && holdsSlot(b)) ?? null),
+        () => setBanner(null),
+      );
+    }, [eventId, published]),
+  );
+  return banner;
+}
+
+/**
+ * The invitation to put the event on the home carousel: a warm card that reads as an action (megaphone breathing,
+ * arrow nudging, both still when the system reduces motion), apart from the pinned « Enregistrer les photos ».
+ */
+function PromoteCard({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={() => {
+        haptics.select();
+        onPress();
+      }}
+      accessibilityRole="button"
+      accessibilityLabel="Mettre en bannière sur l’accueil"
+      accessibilityHint="Choisis la durée et paie la bannière de ton événement"
+      style={({ pressed }) => [styles.promoWrap, shadow.card, pressed && { transform: [{ scale: 0.98 }], opacity: 0.95 }]}>
+      <LinearGradient colors={[colors.accent, colors.orange]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.promo}>
+        <View style={styles.promoIcon}>
+          <LivePulse color="rgba(255,255,255,0.55)" size={44} />
+          <Ionicons name="megaphone" size={22} color={colors.accent} />
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={styles.promoTitle}>Mettre en bannière sur l’accueil</Text>
+          <Text style={styles.promoText}>Ton événement en grand, en haut de l’accueil des étudiants.</Text>
+        </View>
+        <NudgeRight>
+          <View style={styles.promoGo}>
+            <Ionicons name="arrow-forward" size={18} color={colors.accent} />
+          </View>
+        </NudgeRight>
+      </LinearGradient>
+    </Pressable>
+  );
+}
+
+/** Its banner, running, to come or being paid, with the way to « Mes publicités ». */
+function BannerCard({ banner }: { banner: BannerDto }) {
+  const now = useNow();
+  const live = banner.status === 'approved' && Date.parse(banner.startsAt) <= now;
+  const state =
+    banner.status === 'pending_payment'
+      ? { tone: 'warning' as const, icon: 'time-outline' as const, title: 'Bannière : paiement en attente', text: 'Termine le paiement pour garder ta place sur l’accueil.', action: 'Terminer le paiement' }
+      : banner.status === 'pending_review'
+        ? { tone: 'warning' as const, icon: 'hourglass-outline' as const, title: 'Bannière en cours de validation', text: `Prévue jusqu’au ${bannerLastDay(banner)}.`, action: 'Voir mes publicités' }
+        : live
+          ? { tone: 'success' as const, icon: 'megaphone' as const, title: 'En bannière sur l’accueil', text: `Jusqu’au ${bannerLastDay(banner)}. Une nouvelle bannière sera possible ensuite.`, action: 'Voir mes publicités' }
+          : { tone: 'success' as const, icon: 'calendar-outline' as const, title: 'Bannière prévue', text: `Sur l’accueil du ${dayLabel(banner.startsAt)} au ${bannerLastDay(banner)}.`, action: 'Voir mes publicités' };
+  const t = state.tone === 'success' ? { bg: colors.successBg, fg: colors.successText } : { bg: colors.warningBg, fg: colors.warningText };
+
+  return (
+    <View style={[styles.bannerBox, { backgroundColor: t.bg }]} accessible accessibilityLabel={`${state.title}. ${state.text}`}>
+      <Ionicons name={state.icon} size={20} color={t.fg} />
+      <View style={{ flex: 1, gap: 8 }}>
+        <View style={{ gap: 2 }}>
+          <Text style={[styles.okText, { color: t.fg, fontWeight: '700' }]}>{state.title}</Text>
+          <Text style={[styles.okText, { color: t.fg }]}>{state.text}</Text>
+        </View>
+        <TextButton label={state.action} icon="chevron-forward" onPress={() => router.push('/mes-publicites')} style={{ alignSelf: 'flex-start' }} />
+      </View>
+    </View>
   );
 }
 
@@ -186,13 +340,15 @@ type PhotosProps = {
   setUploading: (v: boolean) => void;
   fixedCover: boolean;
   setFixedCover: (v: boolean) => void;
+  /** Published: only the pictures the team saw (cover, order, take some off), none added. */
+  canAdd?: boolean;
 };
 
 /**
  * Up to 8 pictures, all shown on the event page (they slide). The banner shows one at random, unless the organizer
  * taps the star of one: it becomes the cover (moved first).
  */
-function Photos({ images, setImages, uploading, setUploading, fixedCover, setFixedCover }: PhotosProps) {
+function Photos({ images, setImages, uploading, setUploading, fixedCover, setFixedCover, canAdd = true }: PhotosProps) {
   const makeCover = (img: Photo) => {
     setImages((list) => [img, ...list.filter((x) => x.id !== img.id)]);
     setFixedCover(true);
@@ -214,11 +370,33 @@ function Photos({ images, setImages, uploading, setUploading, fixedCover, setFix
   };
   return (
     <>
-      <Text style={styles.section}>Photos ({images.length}/{MAX_IMAGES})</Text>
+      <View style={styles.row}>
+        <Text style={[styles.section, { flex: 1 }]}>{canAdd ? `Photos (${images.length}/${MAX_IMAGES})` : 'Photos'}</Text>
+        {images.length > 1 && (
+          <View style={styles.editTag}>
+            <Ionicons name="hand-left-outline" size={12} color={colors.primary} />
+            <Text style={styles.editTagText}>Touche pour choisir</Text>
+          </View>
+        )}
+      </View>
+      {images.length > 1 && (
+        <Text style={styles.muted}>
+          {fixedCover
+            ? 'La photo encadrée est la couverture : en premier sur la page et sur la bannière. Touche une autre photo pour la changer, ou son étoile pour une photo au hasard sur la bannière.'
+            : 'Touche une photo pour en faire la couverture : elle passe en premier sur la page et sur la bannière. Sinon, la bannière en tire une au hasard.'}
+        </Text>
+      )}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photos}>
         {images.map((img, i) => (
           <View key={img.id}>
-            <Image source={{ uri: img.url }} style={styles.photo} contentFit="cover" />
+            <Pressable
+              onPress={() => images.length > 1 && !(i === 0 && fixedCover) && makeCover(img)}
+              disabled={images.length < 2}
+              accessibilityRole="button"
+              accessibilityState={{ selected: i === 0 && fixedCover }}
+              accessibilityLabel={i === 0 && fixedCover ? 'Photo de couverture' : 'Choisir comme couverture'}>
+              <Image source={{ uri: img.url }} style={[styles.photo, i === 0 && fixedCover && styles.photoOn]} contentFit="cover" />
+            </Pressable>
             {i === 0 && fixedCover && (
               <View style={styles.coverTag}>
                 <Text style={styles.coverTagText}>Couverture</Text>
@@ -234,24 +412,19 @@ function Photos({ images, setImages, uploading, setUploading, fixedCover, setFix
                 <Ionicons name={i === 0 && fixedCover ? 'star' : 'star-outline'} size={14} color={i === 0 && fixedCover ? '#FFD34E' : '#fff'} />
               </Pressable>
             )}
-            <Pressable style={styles.remove} onPress={() => setImages((list) => list.filter((x) => x.id !== img.id))} hitSlop={6} accessibilityLabel="Retirer la photo">
-              <Ionicons name="close" size={14} color="#fff" />
-            </Pressable>
+            {(canAdd || images.length > 1) && (
+              <Pressable style={styles.remove} onPress={() => setImages((list) => list.filter((x) => x.id !== img.id))} hitSlop={6} accessibilityLabel="Retirer la photo">
+                <Ionicons name="close" size={14} color="#fff" />
+              </Pressable>
+            )}
           </View>
         ))}
-        {images.length < MAX_IMAGES && (
+        {canAdd && images.length < MAX_IMAGES && (
           <Pressable style={[styles.photo, styles.addPhoto]} onPress={pick} accessibilityRole="button" accessibilityLabel="Ajouter des photos">
             {uploading ? <ActivityIndicator color={colors.primary} /> : <Ionicons name="add" size={26} color={colors.primary} />}
           </Pressable>
         )}
       </ScrollView>
-      {images.length > 1 && (
-        <Text style={styles.muted}>
-          {fixedCover
-            ? 'La photo étoilée est la couverture de ta bannière. Touche son étoile pour varier au hasard.'
-            : 'Toutes les photos défilent sur la page de l’événement. Sur la bannière, une photo est tirée au hasard : touche l’étoile d’une photo pour en faire la couverture.'}
-        </Text>
-      )}
     </>
   );
 }
@@ -308,12 +481,21 @@ function PublishForm({ event: e, onChanged }: { event: OrgEventDto; onChanged: (
       });
       const paid = await payInBrowser(payment);
       onChanged(await eventsApi.mineOne(e.id));
-      Alert.alert(
-        paid.status === 'succeeded' ? 'Événement publié' : 'Paiement en attente',
-        paid.status === 'succeeded'
-          ? `La billetterie est ouverte. Ton événement est sur l’accueil de : ${audienceLabel(chosen)}.`
-          : 'Ton événement sera publié dès que le paiement est confirmé. Tu peux aussi relancer le paiement ici.',
-      );
+      if (paid.status === 'succeeded') {
+        notice({
+          tone: 'success',
+          title: 'Événement publié',
+          message: `La billetterie est ouverte. « ${e.title} » est sur l’accueil de : ${audienceLabel(chosen)}.`,
+          primary: { label: 'Super' },
+          secondary: { label: 'Le mettre en bannière', onPress: () => router.push({ pathname: '/publicite', params: { eventId: e.id } }) },
+        });
+      } else {
+        notice({
+          tone: 'pending',
+          title: 'Paiement en attente',
+          message: 'Ton événement est publié dès que le paiement est confirmé. Tu peux aussi relancer le paiement depuis cet écran.',
+        });
+      }
     } catch (err) {
       fail('Publication impossible')(err);
     } finally {
@@ -322,11 +504,12 @@ function PublishForm({ event: e, onChanged }: { event: OrgEventDto; onChanged: (
   };
 
   return (
-    <KeyboardAwareScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" bottomOffset={24}>
+    <>
+    <KeyboardAwareScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" bottomOffset={STICKY_FOOTER_SPACE.one}>
       <View style={styles.okBox}>
         <Ionicons name="checkmark-circle" size={20} color={colors.successText} />
         <View style={{ flex: 1 }}>
-          <Text style={[styles.okText, { fontWeight: '700' }]}>Validé par l’équipe UGB Campus</Text>
+          <Text style={[styles.okText, { fontWeight: '700' }]}>Validé par l’équipe UGB Connect</Text>
           <Text style={styles.okText}>Choisis qui voit ton événement, le nombre de places à vendre, puis publie-le.</Text>
         </View>
       </View>
@@ -428,8 +611,11 @@ function PublishForm({ event: e, onChanged }: { event: OrgEventDto; onChanged: (
           </Pressable>
         );
       })}
-      <PrimaryButton label={`Payer ${formatFcfa(fee)} et publier`} disabled={!ready} loading={paying} onPress={publish} />
     </KeyboardAwareScrollView>
+    <StickyFooter>
+      <PrimaryButton label={`Payer ${formatFcfa(fee)} et publier`} disabled={!ready} loading={paying} onPress={publish} />
+    </StickyFooter>
+    </>
   );
 }
 
@@ -504,12 +690,13 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
   };
 
   return (
-    <KeyboardAwareScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" bottomOffset={24}>
+    <>
+    <KeyboardAwareScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" bottomOffset={STICKY_FOOTER_SPACE.two}>
       {event?.status === 'changes_requested' && event.review && (
         <View style={styles.reviewBox}>
           <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.dangerText} />
           <View style={{ flex: 1 }}>
-            <Text style={[styles.reviewText, { fontWeight: '700' }]}>Corrections demandées par l’équipe UGB Campus</Text>
+            <Text style={[styles.reviewText, { fontWeight: '700' }]}>Corrections demandées par l’équipe UGB Connect</Text>
             <Text style={styles.reviewText}>{event.review.message}</Text>
           </View>
         </View>
@@ -639,10 +826,13 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
         </View>
       )}
 
-      <Text style={styles.muted}>1. L’équipe UGB Campus vérifie ton événement. 2. Une fois validé, tu choisis qui le voit (campus, village, UFR, région) et tu paies la publication, selon le nombre de places. 3. La billetterie ouvre. L’argent des billets t’est versé après l’événement, sur ton numéro.</Text>
+      <Text style={styles.muted}>1. L’équipe UGB Connect vérifie ton événement. 2. Une fois validé, tu choisis qui le voit (campus, village, UFR, région) et tu paies la publication, selon le nombre de places. 3. La billetterie ouvre. L’argent des billets t’est versé après l’événement, sur ton numéro.</Text>
+    </KeyboardAwareScrollView>
+    <StickyFooter>
       <PrimaryButton label="Envoyer pour validation" disabled={!ready} loading={saving === 'submit'} onPress={() => save(true)} />
       <TextButton label={saving === 'draft' ? 'Enregistrement…' : 'Enregistrer le brouillon'} icon="save-outline" disabled={!ready} style={{ alignSelf: 'center' }} onPress={() => save(false)} />
-    </KeyboardAwareScrollView>
+    </StickyFooter>
+    </>
   );
 }
 
@@ -664,16 +854,25 @@ const styles = StyleSheet.create({
   feeCard: { gap: 6, borderWidth: 1.5, borderColor: colors.primarySoft },
   feeAmount: { ...typo.title, color: colors.primary },
   okBox: { flexDirection: 'row', gap: 10, padding: 12, borderRadius: radii.md, backgroundColor: colors.successBg },
+  bannerBox: { flexDirection: 'row', gap: 10, padding: 12, borderRadius: radii.md },
+  promoWrap: { borderRadius: radii.lg },
+  promo: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: radii.lg },
+  promoIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  promoTitle: { ...typo.bodyStrong, color: '#fff' },
+  promoText: { ...typo.caption, color: 'rgba(255,255,255,0.92)', lineHeight: 17 },
+  promoGo: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
   okText: { ...typo.small, color: colors.successText, lineHeight: 19 },
   audienceBox: { gap: 8, padding: 12, borderRadius: radii.md, backgroundColor: colors.primarySofter },
   option: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: radii.md, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.card },
   optionOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
-  reviewBox: { flexDirection: 'row', gap: 10, padding: 12, borderRadius: radii.md, backgroundColor: colors.dangerBg },
-  reviewText: { ...typo.small, color: colors.dangerText, lineHeight: 19 },
+  reviewBox: { flexDirection: 'row', gap: 10, padding: 12, borderRadius: radii.md, backgroundColor: colors.dangerBg },  reviewText: { ...typo.small, color: colors.dangerText, lineHeight: 19 },
   photos: { flexDirection: 'row', gap: 10 },
   photo: { width: 110, height: 80, borderRadius: radii.md, backgroundColor: colors.border },
   addPhoto: { alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.primary, backgroundColor: colors.primarySoft },
   star: { position: 'absolute', top: 4, left: 4, width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(10,16,40,0.7)', alignItems: 'center', justifyContent: 'center' },
+  photoOn: { borderWidth: 3, borderColor: colors.primary },
+  editTag: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.pill, backgroundColor: colors.primarySoft },
+  editTagText: { ...typo.label, color: colors.primary },
   coverTag: { position: 'absolute', left: 6, bottom: 6, backgroundColor: 'rgba(10,16,40,0.7)', borderRadius: radii.pill, paddingHorizontal: 6, paddingVertical: 2 },
   coverTagText: { ...typo.label, color: '#fff' },
   remove: { position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(10,16,40,0.7)', alignItems: 'center', justifyContent: 'center' },

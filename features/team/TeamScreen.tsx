@@ -13,6 +13,7 @@ import { passwordRules, validatePassword } from '@/features/register/validation'
 import { teamApi, type Assignment, type OrgSpace, type TeamMember, type TeamSpace } from '@/features/team/api';
 import { MemberCard, SpaceTile } from '@/features/team/MemberCard';
 import { ApiError } from '@/lib/api';
+import { notice } from '@/lib/notice';
 import { toast } from '@/lib/toast';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
@@ -65,7 +66,7 @@ export function TeamScreen({ orgId, name, intro, addHint }: { orgId: string; nam
     setPassword('');
   };
 
-  // Step 1: is this number already on UGB Campus? Already in the team: their roles, ticked.
+  // Step 1: is this number already on UGB Connect? Already in the team: their roles, ticked.
   const check = async () => {
     setChecking(true);
     try {
@@ -107,7 +108,7 @@ export function TeamScreen({ orgId, name, intro, addHint }: { orgId: string; nam
         ...(target.kind === 'new' ? { firstName: firstName.trim(), lastName: lastName.trim(), password: password.trim() } : {}),
       });
       // A new account: a step to do (give the password), so a dialog. Otherwise a short confirmation.
-      if (target.kind === 'new') Alert.alert('Ajouté à l’équipe', 'Le compte est créé : donne-lui son mot de passe pour qu’il se connecte.');
+      if (target.kind === 'new') notice({ tone: 'success', title: 'Ajouté à l’équipe', message: 'Le compte est créé : donne-lui son mot de passe pour qu’il se connecte.' });
       else toast(target.kind === 'member' ? 'Rôles enregistrés : la personne est prévenue.' : 'Ajouté à l’équipe : la personne est prévenue.');
       restart();
       load();
@@ -182,7 +183,7 @@ export function TeamScreen({ orgId, name, intro, addHint }: { orgId: string; nam
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.name}>{target.kind === 'existing' ? target.name : 'Nouveau compte'}</Text>
-                    <Text style={styles.muted}>{target.kind === 'existing' ? `${phone} a déjà un compte UGB Campus.` : `${phone} n’a pas encore de compte : crée-le.`}</Text>
+                    <Text style={styles.muted}>{target.kind === 'existing' ? `${phone} a déjà un compte UGB Connect.` : `${phone} n’a pas encore de compte : crée-le.`}</Text>
                   </View>
                   <TextButton label="Changer" onPress={restart} />
                 </View>

@@ -34,6 +34,8 @@ export type EventDto = {
   review: { message: string; at: string } | null;
   myTickets: string[];
   myTicketsLeft: number;
+  /** I'm on its organizing team (owner, manager, door staff): I run it, I can't book it (422 OWN_EVENT). */
+  organizedByMe: boolean;
   myBooking: { id: string; total: number; holdExpiresAt: string; payment: { reference: string; checkoutUrl: string | null } | null } | null;
 };
 
@@ -67,8 +69,7 @@ export const EVERYONE: EventAudience = { campuses: [], ufrs: [], regions: [], vi
 export type OrgEventDto = Omit<EventDto, 'myTickets' | 'myTicketsLeft' | 'myBooking' | 'ticketTypes'> & {
   ticketTypes: (Omit<TicketTypeDto, 'remaining'> & { capacity: number; sold: number; remaining: number })[];
   counts: { booked: number; buyers: number; admitted: number };
-  reviewLog: { at: string; action: 'submitted' | 'approved' | 'changes_requested' | 'rejected'; message: string | null }[];
-  /** Same order as `images`: sent back when editing. */
+  reviewLog: { at: string; action: 'submitted' | 'approved' | 'changes_requested' | 'rejected'; message: string | null }[];  /** Same order as `images`: sent back when editing. */
   imageIds: string[];
   /** The organizer chose the cover (the first picture); otherwise the banner shows one at random. */
   fixedCover: boolean;
@@ -129,8 +130,11 @@ export const eventsApi = {
   /** Published events for this student (their UFR, campus, village, region), soonest first. */
   list: () => api<{ items: EventDto[] }>('GET', '/events', auth),
   get: (id: string) => api<EventDto>('GET', `/events/${id}`, auth),
-  /** `cash` (or a free event): the tickets are issued at once, `payment` is null. */
-  book: (id: string, body: { items: { typeId: string; qty: number }[]; method: TicketMethod }) =>
+  /**
+   * `cash` (or a free event): the tickets are issued at once, `payment` is null. `forFriends`: its organizing team's
+   * only way to order (every ticket is one to give).
+   */
+  book: (id: string, body: { items: { typeId: string; qty: number }[]; method: TicketMethod; forFriends?: boolean }) =>
     api<{ booking: EventBookingDto; payment: PaymentDto | null }>('POST', `/events/${id}/bookings`, { ...auth, body: { ...body, returnUrl: paymentReturnUrl() } }),
   booking: (id: string) => api<EventBookingDto>('GET', `/events/bookings/${id}`, auth),
   release: (id: string) => api<void>('DELETE', `/events/bookings/${id}`, auth),
@@ -141,6 +145,8 @@ export const eventsApi = {
   mineOne: (id: string) => api<OrgEventDto>('GET', `/me/events/${id}`, auth),
   create: (body: EventInput) => api<OrgEventDto>('POST', '/me/events', { ...auth, body }),
   update: (id: string, body: EventInput) => api<OrgEventDto>('PUT', `/me/events/${id}`, { ...auth, body }),
+  /** A published event: its pictures reordered, the cover chosen, some taken off (none added). */
+  updatePhotos: (id: string, body: { imageIds: string[]; fixedCover: boolean }) => api<OrgEventDto>('PUT', `/me/events/${id}/photos`, { ...auth, body }),
   submit: (id: string) => api<OrgEventDto>('POST', `/me/events/${id}/submit`, auth),
   publishMine: (id: string, body: PublicationInput) =>
     api<{ event: OrgEventDto; payment: PaymentDto }>('POST', `/me/events/${id}/publish`, { ...auth, body: { ...body, returnUrl: paymentReturnUrl() } }),

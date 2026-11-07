@@ -9,7 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MultiSelect } from '@/components/Select';
 import { EmptyState, ErrorState } from '@/components/states';
-import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, Segmented, SheetHeader, TextButton, Toggle } from '@/components/ui';
+import { Chip, Field, LabeledField, PrimaryButton, Segmented, SheetFooter, SheetHeader, TextButton, Toggle, useDirty } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { commerceApi, type BusinessDto, type BusinessKind, type OrderMethod, type OwnedEntity } from '@/features/commerce/api';
@@ -269,7 +269,9 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
   const sorted = [...services].sort((a, b) => a.start.localeCompare(b.start));
   const hoursOk = services.length > 0 && services.every((x) => HHMM.test(x.start) && HHMM.test(x.end) && x.start < x.end) && sorted.every((x, i) => i === 0 || x.start >= sorted[i - 1]!.end);
   const ownerOk = !!current || !!orgId || (digits.length >= 9 && firstName.trim().length >= 2 && lastName.trim().length >= 2);
-  const ready = name.trim().length >= 2 && specialties.length > 0 && hoursOk && ownerOk && !busy;
+  // A business loaded in the form (the number's own): usable once something changed. Its loading starts this over.
+  const dirty = useDirty({ name, specialties, address, campus, photo: photo?.url ?? null, location, services, methods }, current?.id ?? null);
+  const ready = name.trim().length >= 2 && specialties.length > 0 && hoursOk && ownerOk && (!current || dirty) && !busy;
 
   const create = async () => {
     setBusy('save');
@@ -305,7 +307,8 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
-        <ScrollView style={styles.sheet} contentContainerStyle={{ gap: 12, paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
+        <View style={styles.sheet}>
+        <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 12, paddingBottom: 16 }} keyboardShouldPersistTaps="handled">
           <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>{current ? `Modifier ${current.name}` : kind === 'restaurant' ? 'Nouveau restaurant' : 'Nouvelle boutique'}</SheetHeader>
 
           <Pressable style={styles.cover} onPress={pick} accessibilityRole="button" accessibilityLabel="Ajouter une photo">
@@ -422,9 +425,11 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
               <Text style={styles.muted}>Les paiements des commandes vont sur ce numéro (Wave / Orange Money).</Text>
             </>
           )}
-          <PrimaryButton label={current ? 'Enregistrer les modifications' : kind === 'restaurant' ? 'Ajouter le restaurant' : 'Ajouter la boutique'} disabled={!ready} loading={busy === 'save'} onPress={create} />
-          <SafeBottom />
         </ScrollView>
+        <SheetFooter>
+          <PrimaryButton label={current ? 'Enregistrer les modifications' : kind === 'restaurant' ? 'Ajouter le restaurant' : 'Ajouter la boutique'} disabled={!ready} loading={busy === 'save'} onPress={create} />
+        </SheetFooter>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );

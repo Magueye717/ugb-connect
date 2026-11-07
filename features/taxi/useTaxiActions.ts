@@ -4,6 +4,7 @@ import { formatFcfa, TAXI_STRIKES_LIMIT } from '@/constants/data';
 import { useTaxi, type JoinOutcome, type TaxiTrip } from '@/context/TaxiContext';
 import { methodLabel, type PaymentMethod } from '@/features/taxi/api';
 import { ApiError } from '@/lib/api';
+import { notice } from '@/lib/notice';
 import { toast } from '@/lib/toast';
 
 const hhmm = (at: number) => {
@@ -34,9 +35,9 @@ export function useTaxiActions() {
   const tellOutcome = (t: TaxiTrip, outcome: JoinOutcome | undefined) => {
     const price = formatFcfa(t.seatPrice);
     if (outcome === 'joined') toast(`Place réservée : ${price} payés. Remboursé si tu quittes avant ${hhmm(t.lockAt)}.`);
-    else if (outcome === 'refunded') Alert.alert('Plus de place', `Le paiement est arrivé trop tard : ${price} te sont remboursés.`);
-    else if (outcome === 'failed') Alert.alert('Paiement non effectué', 'Ta place a été libérée. Tu peux réessayer.');
-    else if (outcome === 'pending') Alert.alert('Paiement en attente', 'Ta place est gardée 10 min. Appuie sur « Payer » pour terminer.');
+    else if (outcome === 'refunded') notice({ tone: 'warning', title: 'Plus de place', message: `Le paiement est arrivé trop tard : ${price} te sont remboursés.` });
+    else if (outcome === 'failed') notice({ tone: 'warning', title: 'Paiement non effectué', message: 'Ta place a été libérée. Tu peux réessayer.' });
+    else if (outcome === 'pending') notice({ tone: 'pending', title: 'Paiement en attente', message: 'Ta place est gardée 10 min. Appuie sur « Payer » pour terminer.' });
   };
 
   const join = (t: TaxiTrip) => {

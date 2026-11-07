@@ -67,6 +67,16 @@ export const bannersApi = {
   withdraw: (id: string, reason: string) => api<BannerDto>('POST', `/admin/banners/${id}/withdraw`, { ...auth, body: { reason } }),
 };
 
+/**
+ * The banner holds its place on the carousel: running or to come, being checked, or waiting for a payment already
+ * started. Once it has ended (or was refused, cancelled), the event may get a new one.
+ */
+export const holdsSlot = (b: BannerDto, now = Date.now()) =>
+  (b.status === 'approved' || b.status === 'pending_review' || (b.status === 'pending_payment' && !!b.payment)) && Date.parse(b.endsAt) > now;
+
+/** The last day a banner shows (its end is the midnight after). */
+export const bannerLastDay = (b: Pick<BannerDto, 'endsAt'>) => new Date(Date.parse(b.endsAt) - 1).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+
 export const BANNER_STATUS: Record<BannerStatus, { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' }> = {
   pending_payment: { label: 'Paiement en attente', tone: 'warning' },
   pending_review: { label: 'En cours de validation', tone: 'warning' },

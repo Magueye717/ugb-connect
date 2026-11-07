@@ -8,7 +8,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EmptyState, ErrorState } from '@/components/states';
-import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, SheetHeader, Toggle } from '@/components/ui';
+import { Chip, Field, LabeledField, PrimaryButton, SheetFooter, SheetHeader, Toggle, useDirty } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { PLACE_CATEGORIES, placeIcon, placesApi, placeTone, type PlaceCategory, type PlaceDto } from '@/features/places/api';
 import { CAMPUSES } from '@/features/register/validation';
@@ -182,7 +182,9 @@ function PlaceEditor({ place, onClose, onSaved }: { place: PlaceDto | null; onCl
 
   const location = { lat: Number(lat), lng: Number(lng) };
   const locationOk = !!lat && !!lng && Number.isFinite(location.lat) && Number.isFinite(location.lng) && Math.abs(location.lat) <= 90 && Math.abs(location.lng) <= 180;
-  const ready = name.trim().length >= 2 && locationOk && !uploading && !saving;
+  // Editing: usable once something changed.
+  const dirty = useDirty({ name, category, description, area, campus, hours, lat, lng, photos: photos.map((p) => p.ref) });
+  const ready = name.trim().length >= 2 && locationOk && (!place || dirty) && !uploading && !saving;
 
   const save = async () => {
     setSaving(true);
@@ -208,7 +210,8 @@ function PlaceEditor({ place, onClose, onSaved }: { place: PlaceDto | null; onCl
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
-        <ScrollView style={styles.sheet} contentContainerStyle={{ gap: 12, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+        <View style={styles.sheet}>
+        <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 12, paddingBottom: 16 }} keyboardShouldPersistTaps="handled">
           <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>{place ? 'Modifier le lieu' : 'Nouveau lieu'}</SheetHeader>
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photos}>
@@ -273,14 +276,16 @@ function PlaceEditor({ place, onClose, onSaved }: { place: PlaceDto | null; onCl
             <Text style={styles.locText}>Ma position actuelle (sur place)</Text>
           </Pressable>
 
-          <PrimaryButton label="Enregistrer" disabled={!ready} loading={saving} onPress={save} />
           {place && (
             <Pressable onPress={remove} style={{ alignSelf: 'center' }} hitSlop={8}>
               <Text style={{ color: colors.dangerText, fontWeight: '700' }}>Supprimer le lieu</Text>
             </Pressable>
           )}
-          <SafeBottom />
         </ScrollView>
+        <SheetFooter>
+          <PrimaryButton label={place ? 'Enregistrer' : 'Ajouter le lieu'} disabled={!ready} loading={saving} onPress={save} />
+        </SheetFooter>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );
