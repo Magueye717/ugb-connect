@@ -19,6 +19,9 @@ import { TaxiProvider } from '@/context/TaxiContext';
 import { ChatsProvider } from '@/features/chat/ChatContext';
 import { setupNotifications, useNotificationRouting } from '@/lib/notifications';
 
+// A screen that throws shows what broke (and « Réessayer ») instead of closing the app.
+export { CrashScreen as ErrorBoundary } from '@/components/CrashScreen';
+
 // The native splash (the brand's blue and the logo, app.json) stays up while the saved session is checked, then fades
 // out: no blank screen between the splash and the first page.
 SplashScreen.preventAutoHideAsync().catch(() => {});
