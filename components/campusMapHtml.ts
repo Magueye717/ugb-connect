@@ -62,10 +62,17 @@ export const campusMapHtml = (colors: { ink: string; sand: string }) => `<!docty
     };
   }
 
+  // The plan's own drawing (roads, paths, buildings, areas): hidden over the satellite pictures, where its dark lines
+  // would cross them. Its names stay, as on Google's hybrid view.
+  var planLayers = [];
   map.on('load', function () {
-    var firstSymbol = (map.getStyle().layers.find(function (l) { return l.type === 'symbol'; }) || {}).id;
-    map.addSource('sat', { type: 'raster', tiles: ['${SATELLITE_TILES}'], tileSize: 256, maxzoom: 19 });
-    // Under the place names: satellite pictures with the plan's labels on top (as Google's hybrid view).
+    var layers = map.getStyle().layers;
+    // Only those drawn to begin with: back on « Plan », the ones the style hides stay hidden.
+    planLayers = layers.filter(function (l) { return l.type !== 'symbol' && l.type !== 'background' && !(l.layout && l.layout.visibility === 'none'); }).map(function (l) { return l.id; });
+    var firstSymbol = (layers.find(function (l) { return l.type === 'symbol'; }) || {}).id;
+    // Esri has no pictures past level 17 over Saint-Louis ("Map data not yet available"): beyond it, the level-17
+    // picture is enlarged instead.
+    map.addSource('sat', { type: 'raster', tiles: ['${SATELLITE_TILES}'], tileSize: 256, maxzoom: 17 });
     map.addLayer({ id: 'sat', type: 'raster', source: 'sat', layout: { visibility: 'none' } }, firstSymbol);
     map.addSource('mask', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addSource('outline', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -140,6 +147,7 @@ export const campusMapHtml = (colors: { ink: string; sand: string }) => `<!docty
     satellite: function (on) {
       state.satellite = on;
       map.setLayoutProperty('sat', 'visibility', on ? 'visible' : 'none');
+      planLayers.forEach(function (id) { map.setLayoutProperty(id, 'visibility', on ? 'none' : 'visible'); });
       map.setPaintProperty('mask', 'fill-opacity', on ? 0.55 : 0.78);
     },
     padding: function (top) { map.setPadding({ top: top, right: 0, bottom: 0, left: 0 }); },
