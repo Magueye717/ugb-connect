@@ -7,11 +7,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { OrganizerLine } from '@/components/caravan';
 import { EmptyState, ErrorState } from '@/components/states';
-import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, SheetHeader, Toggle } from '@/components/ui';
+import { Chip, Field, LabeledField, PrimaryButton, SheetFooter, SheetHeader, Toggle, useDirty } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { caravanOrganizersApi, type CaravanOrganizerDto, type OrganizerCategory, type OrganizerLevel } from '@/features/caravans/api';
 import { formatPhone, phoneDigits } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
+import { notice } from '@/lib/notice';
 import { toast } from '@/lib/toast';
 
 const CATEGORIES: { value: OrganizerCategory; label: string }[] = [
@@ -109,7 +110,7 @@ export default function Caravanes() {
           onSaved={(o, created) => {
             setSheet(null);
             load();
-            if (created) Alert.alert(`${o.name} est ajouté`, 'Son responsable le retrouve dans « Mes espaces » : il y ajoute ses véhicules et ses départs.');
+            if (created) notice({ tone: 'success', title: `${o.name} est ajouté`, message: 'Son responsable le retrouve dans « Mes espaces » :', steps: ['Il ajoute ses véhicules', 'Puis ses départs : les étudiants réservent'] });
             else toast(`${o.name} est à jour.`);
           }}
         />
@@ -153,7 +154,9 @@ function OrganizerSheet({ organizer: o, onClose, onSaved }: SheetProps) {
   const taken = !!found?.organizer;
   const ownerOk = !!o || (phone.length === 9 && !!found && !taken && (!!found.account || (firstName.trim().length >= 2 && lastName.trim().length >= 2)));
   const payoutOk = payout.length === 0 || payout.length === 9;
-  const ready = name.trim().length >= 2 && ownerOk && payoutOk && !saving;
+  // Editing: usable once something changed.
+  const dirty = useDirty({ name, category, level, payout });
+  const ready = name.trim().length >= 2 && ownerOk && payoutOk && (!o || dirty) && !saving;
 
   const save = async () => {
     setSaving(true);
@@ -183,7 +186,8 @@ function OrganizerSheet({ organizer: o, onClose, onSaved }: SheetProps) {
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
-        <ScrollView style={styles.sheet} contentContainerStyle={{ gap: 12, paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
+        <View style={styles.sheet}>
+        <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 12, paddingBottom: 16 }} keyboardShouldPersistTaps="handled">
           <SheetHeader onClose={onClose} subtitle={o ? undefined : 'Son responsable reçoit l’espace organisateur.'}>
             {o ? `Modifier ${o.name}` : 'Nouvel organisateur'}
           </SheetHeader>
@@ -265,9 +269,11 @@ function OrganizerSheet({ organizer: o, onClose, onSaved }: SheetProps) {
               Responsable : {o.owner.firstName} {o.owner.lastName} · {local(o.owner.phone)}
             </Text>
           )}
-          <PrimaryButton label={o ? 'Enregistrer' : 'Ajouter l’organisateur'} disabled={!ready} loading={saving} onPress={save} />
-          <SafeBottom />
         </ScrollView>
+        <SheetFooter>
+          <PrimaryButton label={o ? 'Enregistrer' : 'Ajouter l’organisateur'} disabled={!ready} loading={saving} onPress={save} />
+        </SheetFooter>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );

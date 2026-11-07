@@ -16,6 +16,7 @@ import { caravansApi, isCaravanTicket, toCaravan, type PassengerDto, type SeatMa
 import { CompanionSheet } from '@/features/caravans/CompanionSheet';
 import type { TicketMethod } from '@/features/payments/checkout';
 import { ApiError } from '@/lib/api';
+import { notice } from '@/lib/notice';
 import { haptics } from '@/lib/haptics';
 import { scheduleCaravanReminder } from '@/lib/notifications';
 
@@ -181,11 +182,11 @@ export default function CaravaneReservation() {
       if (stop) scheduleCaravanReminder(c, stop);
       router.replace({ pathname: '/billet/[id]', params: { id: outcome.ticketId, nouveau: '1' } });
     } else if (outcome.status === 'refunded') {
-      Alert.alert('Place perdue', `Le paiement est arrivé après la fin de la réservation et la place a été reprise. ${formatFcfa(amount)} te sont remboursés.`);
+      notice({ tone: 'warning', title: 'Place perdue', message: `Le paiement est arrivé après la fin de la réservation et la place a été reprise. ${formatFcfa(amount)} te sont remboursés.` });
     } else if (outcome.status === 'pending') {
-      Alert.alert('Paiement en attente', 'Tes places sont gardées 10 minutes. Termine le paiement depuis cet écran.');
+      notice({ tone: 'pending', title: 'Paiement en attente', message: 'Tes places sont gardées 10 minutes. Termine le paiement depuis cet écran.' });
     } else {
-      Alert.alert('Paiement non effectué', 'Les places ont été libérées. Tu peux réessayer.');
+      notice({ tone: 'warning', title: 'Paiement non effectué', message: 'Les places ont été libérées. Tu peux réessayer.' });
     }
     loadSeats();
   };

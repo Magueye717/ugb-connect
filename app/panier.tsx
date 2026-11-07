@@ -18,6 +18,7 @@ import { type BusinessDetail, commerceApi, type DeliveryZone, type OrderMethod, 
 import { useCommerceReference } from '@/features/commerce/useCommerceReference';
 import { payInBrowser } from '@/features/payments/checkout';
 import { ApiError } from '@/lib/api';
+import { notice } from '@/lib/notice';
 import { toast } from '@/lib/toast';
 
 // The providers' logos (constants/data) for the online methods a business accepts.
@@ -133,7 +134,7 @@ export default function Panier() {
       const paid = await payInBrowser(pay);
       upsert(await commerceApi.myOrder(placed.id));
       router.replace(`/commande/${placed.id}`);
-      if (paid.status !== 'succeeded') Alert.alert('Paiement en attente', 'Ta commande part au commerce dès que le paiement est confirmé. Tu peux le reprendre depuis le suivi.');
+      if (paid.status !== 'succeeded') notice({ tone: 'pending', title: 'Paiement en attente', message: 'Ta commande part au commerce dès que le paiement est confirmé. Tu peux le reprendre depuis le suivi.' });
     } catch (err) {
       Alert.alert('Commande impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
     } finally {

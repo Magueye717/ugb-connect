@@ -13,6 +13,7 @@ import { LostProvider } from '@/context/LostContext';
 import { NotificationsProvider } from '@/context/NotificationsContext';
 import { OrdersProvider } from '@/context/OrdersContext';
 import { OfflineBanner } from '@/components/states';
+import { NoticeHost } from '@/components/NoticeHost';
 import { Toaster } from '@/components/Toaster';
 import { TaxiProvider } from '@/context/TaxiContext';
 import { ChatsProvider } from '@/features/chat/ChatContext';
@@ -149,6 +150,8 @@ export default function RootLayout() {
                       <OfflineBanner />
                       {/* Short confirmations (toast()). */}
                       <Toaster />
+                      {/* Messages worth a pause, with what comes next (notice()). */}
+                      <NoticeHost />
                     </LostProvider>
                   </TaxiProvider>
                 </ChatsProvider>

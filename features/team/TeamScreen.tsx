@@ -13,6 +13,7 @@ import { passwordRules, validatePassword } from '@/features/register/validation'
 import { teamApi, type Assignment, type OrgSpace, type TeamMember, type TeamSpace } from '@/features/team/api';
 import { MemberCard, SpaceTile } from '@/features/team/MemberCard';
 import { ApiError } from '@/lib/api';
+import { notice } from '@/lib/notice';
 import { toast } from '@/lib/toast';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
@@ -107,7 +108,7 @@ export function TeamScreen({ orgId, name, intro, addHint }: { orgId: string; nam
         ...(target.kind === 'new' ? { firstName: firstName.trim(), lastName: lastName.trim(), password: password.trim() } : {}),
       });
       // A new account: a step to do (give the password), so a dialog. Otherwise a short confirmation.
-      if (target.kind === 'new') Alert.alert('Ajouté à l’équipe', 'Le compte est créé : donne-lui son mot de passe pour qu’il se connecte.');
+      if (target.kind === 'new') notice({ tone: 'success', title: 'Ajouté à l’équipe', message: 'Le compte est créé : donne-lui son mot de passe pour qu’il se connecte.' });
       else toast(target.kind === 'member' ? 'Rôles enregistrés : la personne est prévenue.' : 'Ajouté à l’équipe : la personne est prévenue.');
       restart();
       load();

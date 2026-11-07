@@ -8,17 +8,18 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ErrorState } from '@/components/states';
 import { eventWhen, openCta } from '@/components/home';
 import { PaymentLogo } from '@/components/PaymentLogo';
-import { BackButton, Chip, Field, LabeledField, PrimaryButton, Segmented, TextButton } from '@/components/ui';
+import { ErrorState } from '@/components/states';
+import { BackButton, Chip, Field, LabeledField, PrimaryButton, Segmented, STICKY_FOOTER_SPACE, StickyFooter, TextButton } from '@/components/ui';
 import { formatFcfa, paymentMethods } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-import { bannersApi, type BannerPackageDto, type CtaTarget } from '@/features/banners/api';
+import { bannerLastDay, bannersApi, holdsSlot, type BannerPackageDto, type CtaTarget } from '@/features/banners/api';
 import { eventsApi, type OrgEventDto } from '@/features/events/api';
 import { payInBrowser, type PaymentMethod } from '@/features/payments/checkout';
 import { ApiError } from '@/lib/api';
+import { notice } from '@/lib/notice';
 import { uploadImage } from '@/lib/upload';
 
 const METHOD: Record<string, PaymentMethod> = { wave: 'wave', om: 'orange_money' };
@@ -85,21 +86,14 @@ export default function NouvellePublicite() {
     if (isManager && organizer) eventsApi.ofOrg(organizer.orgId).then((r) => add(r.items), () => setEventsFailed(true));
     if (fromEvent) eventsApi.mineOne(fromEvent).then((e) => add([e]), () => setEventsFailed(true));
     bannersApi.mine().then(
-      (r) =>
-        setPromoted(
-          Object.fromEntries(
-            r.items
-              .filter((b) => b.eventId && (b.status === 'approved' || b.status === 'pending_review' || (b.status === 'pending_payment' && !!b.payment)) && Date.parse(b.endsAt) > Date.now())
-              .map((b) => [b.eventId!, b.endsAt]),
-          ),
-        ),
+      (r) => setPromoted(Object.fromEntries(r.items.filter((b) => b.eventId && holdsSlot(b)).map((b) => [b.eventId!, b.endsAt]))),
       () => undefined,
     );
   }, [isManager, organizer, fromEvent, attempt]);
 
   const back = () => (router.canGoBack() ? router.back() : router.replace('/mes-publicites'));
   const event = events.find((e) => e.id === eventId && !promoted[e.id]) ?? null;
-  const until = (iso: string) => new Date(Date.parse(iso) - 1).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+  const until = (iso: string) => bannerLastDay({ endsAt: iso });
   // An event's banner can't run more than a day past the event: longer packages are greyed out.
   const fits = (days: number) => kind !== 'event' || !event || dayStart(startsOn) + days * DAY_MS <= Date.parse(event.endsAt) + DAY_MS;
   const best = packages?.filter((p) => fits(p.days)).sort((a, b) => b.days - a.days)[0] ?? null;
@@ -144,15 +138,20 @@ export default function NouvellePublicite() {
       });
       const paid = await payInBrowser(payment);
       router.replace('/mes-publicites');
-      const done = paid.status === 'succeeded';
-      Alert.alert(
-        done ? (kind === 'event' ? 'Bannière en ligne' : 'Bannière envoyée') : 'Paiement en attente',
-        done
-          ? kind === 'event'
-            ? 'Ton événement s’affiche sur l’accueil à partir du premier jour choisi.'
-            : 'L’équipe UGB Connect la vérifie. Tu reçois une notification dès qu’elle est validée.'
-          : 'Termine le paiement depuis « Mes publicités » : la place est gardée 15 minutes.',
-      );
+      const firstDay = new Date(`${startsOn}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+      if (paid.status !== 'succeeded') {
+        notice({ tone: 'pending', title: 'Paiement en attente', message: 'Ta place sur l’accueil est gardée 15 minutes. Termine le paiement depuis « Mes publicités ».' });
+      } else if (kind === 'event') {
+        notice({ tone: 'success', title: 'Bannière en ligne', message: `Ton événement s’affiche sur l’accueil à partir du ${firstDay}.` });
+      } else {
+        notice({
+          tone: 'success',
+          title: 'Bannière envoyée',
+          message: 'Elle est payée et attend sa validation.',
+          steps: ['L’équipe UGB Connect vérifie ta bannière', `Validée : elle s’affiche sur l’accueil dès le ${firstDay}`, 'Refusée : tu es remboursé'],
+          footnote: 'Tu reçois une notification dès qu’elle est validée.',
+        });
+      }
     } catch (err) {
       Alert.alert('Impossible de créer la bannière', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
     } finally {
@@ -173,7 +172,7 @@ export default function NouvellePublicite() {
         <Text style={styles.h1}>Nouvelle bannière</Text>
         <View style={{ width: 44 }} />
       </View>
-      <KeyboardAwareScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" bottomOffset={24}>
+      <KeyboardAwareScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" bottomOffset={STICKY_FOOTER_SPACE.one}>
         {canPromote && (
           <Segmented
             options={[
@@ -363,9 +362,10 @@ export default function NouvellePublicite() {
             </Pressable>
           );
         })}
-
-        <PrimaryButton label={chosen ? `Payer ${formatFcfa(chosen.price)}` : picked ? 'Choisis une formule plus courte' : 'Choisis une formule'} disabled={!ready} loading={paying} onPress={submit} />
       </KeyboardAwareScrollView>
+      <StickyFooter>
+        <PrimaryButton label={chosen ? `Payer ${formatFcfa(chosen.price)}` : picked ? 'Choisis une formule plus courte' : 'Choisis une formule'} disabled={!ready} loading={paying} onPress={submit} />
+      </StickyFooter>
     </SafeAreaView>
   );
 }

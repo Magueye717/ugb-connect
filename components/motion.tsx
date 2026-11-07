@@ -8,7 +8,9 @@ import Animated, {
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
+  withDelay,
   withRepeat,
+  withSequence,
   withTiming,
   ZoomIn,
 } from 'react-native-reanimated';
@@ -33,6 +35,22 @@ export function PopOnChange({ id, children }: { id: string | number; children: R
       </Animated.View>
     </LayoutAnimationConfig>
   );
+}
+
+/**
+ * An arrow that nudges forward every few seconds: "tap here, it goes somewhere" (an invitation card). Still when the
+ * system asks to reduce motion.
+ */
+export function NudgeRight({ children, distance = 4, everyMs = 2400 }: { children: ReactNode; distance?: number; everyMs?: number }) {
+  const reduced = useReducedMotion();
+  const x = useSharedValue(0);
+  useEffect(() => {
+    if (reduced) return;
+    const step = { duration: 220, easing: Easing.out(Easing.quad) };
+    x.set(withRepeat(withSequence(withDelay(everyMs, withTiming(distance, step)), withTiming(0, step), withTiming(distance, step), withTiming(0, step)), -1, false));
+  }, [x, reduced, distance, everyMs]);
+  const style = useAnimatedStyle(() => ({ transform: [{ translateX: x.get() }] }));
+  return <Animated.View style={style}>{children}</Animated.View>;
 }
 
 /**
