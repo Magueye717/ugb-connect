@@ -6,7 +6,7 @@ import { colors, radii } from '@/constants/theme';
 export type MapPin = { id: string; kind: 'place' | 'restaurant' | 'shop'; name: string; subtitle: string; lat: number; lng: number; color: string; icon: keyof typeof Ionicons.glyphMap; look?: 'pin' | 'zone' | 'dot' };
 type Campus = { outline: { lat: number; lng: number }[]; bounds: { south: number; west: number; north: number; east: number }; start: { lat: number; lng: number; delta: number }; attribution: string };
 
-/** react-native-maps has no web support: a plain placeholder keeps the web build working. */
+/** The native map runs MapLibre in a WebView, which the web build has no use for: a plain placeholder there. */
 export function CampusMap({ pins, style, insetTop = 0 }: { pins: MapPin[]; campus?: Campus | null; onOpen: (pin: MapPin) => void; style?: object; insetTop?: number }) {
   return (
     <View style={[styles.box, style, { paddingTop: insetTop }]}>
