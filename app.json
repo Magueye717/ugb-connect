@@ -80,7 +80,8 @@
           "enableBackgroundPlayback": false,
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true
