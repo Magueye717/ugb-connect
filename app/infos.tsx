@@ -14,6 +14,7 @@ import { profileApi } from '@/features/profile/api';
 import { sendOtp, verifyOtp, type OtpChallenge } from '@/features/register/auth';
 import { CAMPUSES, STUDENT_ID_MAX, typeStudentId, validateStudentId, VILLAGES } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
+import { notice } from '@/lib/notice';
 import { toast } from '@/lib/toast';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
@@ -194,7 +195,7 @@ function Phone({ current, onSaved }: { current: string; onSaved: () => Promise<v
       await profileApi.setPhone(r.verificationToken);
       await onSaved();
       reset();
-      Alert.alert('Numéro changé', 'Connecte-toi désormais avec ce numéro.');
+      notice({ tone: 'success', title: 'Numéro changé', message: 'Connecte-toi désormais avec ce numéro.' });
     } catch (err) {
       fail('Changement impossible')(err);
     } finally {
