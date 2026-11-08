@@ -14,6 +14,7 @@ import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { commerceApi, type BusinessDto, type BusinessKind, type OrderMethod, type OwnedEntity } from '@/features/commerce/api';
 import { useCommerceReference } from '@/features/commerce/useCommerceReference';
+import { PayoutNumbers, payoutDigitsOf, payoutNumbersBody, payoutNumbersOk, type PayoutDigits } from '@/features/commerce/PayoutNumbers';
 import { CAMPUSES } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
 import { pickPhoto } from '@/lib/pickPhoto';
@@ -149,6 +150,8 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
   // How students may pay; the editor can add cash.
   const [methods, setMethods] = useState<OrderMethod[]>(['wave', 'orange_money']);
   const toggleMethod = (m: OrderMethod) => setMethods((list) => (list.includes(m) ? (list.length > 1 ? list.filter((x) => x !== m) : list) : [...list, m]));
+  // Where Wave / Orange Money pay out: the owner's number unless changed here (a loaded business: its own numbers).
+  const [payout, setPayout] = useState<PayoutDigits>({});
   const [phone, setPhone] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -177,6 +180,7 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
       setPhoto(b.photo ? { id: '', url: b.photo } : null);
       setServices(b.services.length ? b.services.map((x) => ({ ...x })) : defaultSlots(kind));
       setMethods(b.paymentMethods.map((m) => m.value));
+      setPayout(payoutDigitsOf(b.payoutNumbers));
     },
     [kind],
   );
@@ -197,6 +201,7 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
     setPhoto(null);
     setServices(defaultSlots(kind));
     setMethods(['wave', 'orange_money']);
+    setPayout({});
   };
 
   useEffect(() => {
@@ -270,15 +275,16 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
   const hoursOk = services.length > 0 && services.every((x) => HHMM.test(x.start) && HHMM.test(x.end) && x.start < x.end) && sorted.every((x, i) => i === 0 || x.start >= sorted[i - 1]!.end);
   const ownerOk = !!current || !!orgId || (digits.length >= 9 && firstName.trim().length >= 2 && lastName.trim().length >= 2);
   // A business loaded in the form (the number's own): usable once something changed. Its loading starts this over.
-  const dirty = useDirty({ name, specialties, address, campus, photo: photo?.url ?? null, location, services, methods }, current?.id ?? null);
-  const ready = name.trim().length >= 2 && specialties.length > 0 && hoursOk && ownerOk && (!current || dirty) && !busy;
+  const payoutShown: PayoutDigits = { wave: payout.wave ?? digits, orange_money: payout.orange_money ?? digits };
+  const dirty = useDirty({ name, specialties, address, campus, photo: photo?.url ?? null, location, services, methods, payout: payoutNumbersBody(methods, payoutShown) }, current?.id ?? null);
+  const ready = name.trim().length >= 2 && specialties.length > 0 && hoursOk && ownerOk && payoutNumbersOk(methods, payoutShown) && (!current || dirty) && !busy;
 
   const create = async () => {
     setBusy('save');
     try {
       if (current) {
         const b = await commerceApi.updateMine({ editorOf: current.id }, {
-          name: name.trim(), specialties, address: address.trim(), campus, location, services: sorted, paymentMethods: methods,
+          name: name.trim(), specialties, address: address.trim(), campus, location, services: sorted, paymentMethods: methods, payoutNumbers: payoutNumbersBody(methods, payoutShown),
           ...(photo?.id ? { photoId: photo.id } : {}),
         });
         onCreated(b, true);
@@ -286,7 +292,7 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
       }
       onCreated(
         await commerceApi.create({
-          kind, name: name.trim(), specialties, address: address.trim(), campus, location, services: sorted, paymentMethods: methods,
+          kind, name: name.trim(), specialties, address: address.trim(), campus, location, services: sorted, paymentMethods: methods, payoutNumbers: payoutNumbersBody(methods, payoutShown),
           ...(photo ? { photoId: photo.id } : {}),
           ...(orgId ? { orgId } : { owner: { phone: digits, firstName: firstName.trim(), lastName: lastName.trim(), ...(password.trim() ? { password: password.trim() } : {}) } }),
         }),
@@ -393,6 +399,7 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
             ))}
           </View>
           <Text style={styles.muted}>Espèces : payé au livreur ou au retrait (rien ne passe par l’app).</Text>
+          <PayoutNumbers methods={methods} value={payoutShown} onChange={setPayout} />
 
           <Text style={styles.section}>Propriétaire</Text>
           {current ? (

@@ -185,7 +185,8 @@ export function ItemEditor({ business, kind, item, aisles, onClose, onSaved }: {
           <PhotoStrip
             photos={photos}
             onChange={setPhotos}
-            max={reference?.maxItemPhotos ?? Math.max(1, photos.length)}
+            // Référencement documents a full catalogue: its own (higher) limit.
+            max={('editorOf' in business ? reference?.editorMaxItemPhotos : undefined) ?? reference?.maxItemPhotos ?? Math.max(1, photos.length)}
             purpose="business"
             title={kind === 'restaurant' ? 'Photos du plat' : 'Photos de l’article'}
             onUploading={setUploading}

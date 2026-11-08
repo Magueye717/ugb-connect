@@ -11,6 +11,7 @@ import { colors, shadow, radii, typo } from '@/constants/theme';
 import { useNotifications } from '@/context/NotificationsContext';
 import { profileApi, type NotificationPrefs } from '@/features/profile/api';
 import { api, ApiError } from '@/lib/api';
+import { openNotificationUrl } from '@/lib/notifications';
 
 type Filter = (typeof notificationFilters)[number];
 const CATEGORY: Record<Exclude<Filter, 'Tout'>, string> = { Social: 'social', Cours: 'cours', Paiements: 'paiements' };
@@ -118,7 +119,7 @@ export default function NotificationsScreen() {
                   <Pressable
                     key={n.id}
                     disabled={!n.url}
-                    onPress={() => n.url && router.push(n.url as never)}
+                    onPress={() => n.url && openNotificationUrl(n.url)}
                     style={[styles.card, shadow.card, !n.read && styles.cardNew]}
                     accessibilityRole={n.url ? 'button' : undefined}
                     accessibilityLabel={!n.read ? `Nouveau : ${n.title}` : n.title}>

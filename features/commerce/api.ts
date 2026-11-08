@@ -39,7 +39,7 @@ export type DeliveryZone = 'campus1' | 'campus2' | 'outside';
 /** FCFA per zone, 0: free; null: no delivery there. All null: pickup only. */
 export type DeliveryFees = Record<DeliveryZone, number | null>;
 /** The pickers' lists, from the backend (GET /reference/commerce). */
-export type CommerceReference = { specialties: Record<BusinessKind, string[]>; /** How many a business may pick. */ maxSpecialties: number; /** Photos per article, the cover included. */ maxItemPhotos: number; paymentMethods: { value: OrderMethod; label: string }[]; zones: { value: DeliveryZone; label: string }[] };
+export type CommerceReference = { specialties: Record<BusinessKind, string[]>; /** How many a business may pick. */ maxSpecialties: number; /** Photos per article, the cover included. */ maxItemPhotos: number; /** The same for Référencement (its own routes). */ editorMaxItemPhotos?: number; paymentMethods: { value: OrderMethod; label: string }[]; zones: { value: DeliveryZone; label: string }[] };
 export type ItemSection = 'menu' | 'drink' | 'article';
 
 export type ItemDto = {
@@ -73,6 +73,8 @@ export type ItemDto = {
 };
 
 export type BusinessDto = {
+  /** The owner's and Référencement's views only: where each provider pays out. */
+  payoutNumbers?: { wave: string | null; orange_money: string | null };
   id: string;
   orgId: string;
   kind: BusinessKind;
@@ -166,6 +168,8 @@ export type BusinessPatch = Partial<{
   deliveryFees: DeliveryFees;
   acceptingOrders: boolean;
   paymentMethods: OrderMethod[];
+  /** 9 digits per provider accepted (Wave, Orange Money); null: back to the organization's number. */
+  payoutNumbers: Partial<Record<'wave' | 'orange_money', string | null>>;
 }>;
 export type ItemInput = { section: ItemSection; category?: string | null; name: string; detail?: string; price: number; photoIds?: string[]; stock?: number | null; available?: boolean; orderable?: boolean };
 

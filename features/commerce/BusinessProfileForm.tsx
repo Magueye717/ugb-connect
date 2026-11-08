@@ -11,6 +11,7 @@ import { Chip, Field, LabeledField, PrimaryButton, TextButton, Toggle } from '@/
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { commerceApi, type BusinessDto, type BusinessTarget, type CommerceReference, type DeliveryZone, type OrderMethod } from '@/features/commerce/api';
 import { PaymentMethodsPicker } from './PaymentMethodsPicker';
+import { PayoutNumbers, payoutDigitsOf, payoutNumbersBody, payoutNumbersOk, type PayoutDigits } from './PayoutNumbers';
 import { CAMPUSES } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
 import { openDirections } from '@/lib/maps';
@@ -64,6 +65,8 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
   });
   // How students may pay (cash, Wave, Orange Money): at least one.
   const [methods, setMethods] = useState<OrderMethod[]>(b.paymentMethods.map((m) => m.value));
+  // Where each provider ticked pays out: required for Wave and Orange Money.
+  const [payout, setPayout] = useState<PayoutDigits>(payoutDigitsOf(b.payoutNumbers));
   const [saving, setSaving] = useState(false);
 
   const pick = async () => {
@@ -105,10 +108,10 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
   const location = lat && lng ? { lat: Number(lat), lng: Number(lng) } : null;
   const locationOk = (!lat && !lng) || (!!location && Math.abs(location.lat) <= 90 && Math.abs(location.lng) <= 180);
   const servicesOk = services.length > 0 && services.every((s) => HHMM.test(s.start) && HHMM.test(s.end) && s.start < s.end);
-  const ready = locationOk && servicesOk && specialties.length > 0 && name.trim().length >= 2 && !uploading && !saving;
+  const ready = locationOk && servicesOk && specialties.length > 0 && name.trim().length >= 2 && payoutNumbersOk(methods, payout) && !uploading && !saving;
 
   // Something left to save: the form compared with what was last saved (or loaded).
-  const snapshot = JSON.stringify({ name: name.trim(), specialties, description, address, campus, phone, lat, lng, services, fees, methods });
+  const snapshot = JSON.stringify({ name: name.trim(), specialties, description, address, campus, phone, lat, lng, services, fees, methods, payout: payoutNumbersBody(methods, payout) });
   const [base, setBase] = useState(snapshot);
   const dirty = snapshot !== base || !!photo.id;
   // « Annuler »: everything back as it was saved.
@@ -129,6 +132,7 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
       outside: b.deliveryFees.outside === null ? '' : String(b.deliveryFees.outside),
     });
     setMethods(b.paymentMethods.map((m) => m.value));
+    setPayout(payoutDigitsOf(b.payoutNumbers));
   };
 
   const save = async () => {
@@ -139,6 +143,7 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
         ...(photo.id ? { photoId: photo.id } : {}),
         specialties, description: description.trim(), address: address.trim(), campus, phone: phone.trim(), location, services,
         paymentMethods: methods,
+        payoutNumbers: payoutNumbersBody(methods, payout),
         deliveryFees: { campus1: fees.campus1 === '' ? null : Number(fees.campus1), campus2: fees.campus2 === '' ? null : Number(fees.campus2), outside: fees.outside === '' ? null : Number(fees.outside) },
       });
       onSaved(saved);
@@ -263,6 +268,7 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
       <Text style={styles.section}>Paiements acceptés</Text>
       <Text style={styles.muted}>Ce que les étudiants peuvent choisir. Espèces : payé au livreur ou au retrait (rien ne passe par l’app).</Text>
       <PaymentMethodsPicker options={reference.paymentMethods} value={methods} onChange={setMethods} online={b.onlinePayments} />
+      <PayoutNumbers methods={methods} value={payout} onChange={setPayout} />
 
       {!sticky && <PrimaryButton label="Enregistrer" disabled={!ready} loading={saving} onPress={save} />}
     </View>

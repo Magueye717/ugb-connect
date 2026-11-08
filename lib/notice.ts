@@ -4,6 +4,8 @@
 
 export type NoticeTone = 'success' | 'pending' | 'info' | 'warning';
 export type NoticeAction = { label: string; onPress?: () => void };
+/** A choice in a question: `danger` (red, what removes or cancels), `primary` (navy), `quiet` (backing out). */
+export type NoticeChoice = NoticeAction & { tone: 'danger' | 'primary' | 'quiet' };
 export type Notice = {
   id: number;
   tone: NoticeTone;
@@ -17,6 +19,10 @@ export type Notice = {
   primary?: NoticeAction;
   /** A second, quieter choice ("Voir mes publicités"). */
   secondary?: NoticeAction;
+  /** What it means, as short points ("Les passagers sont remboursés à 100 %"). */
+  bullets?: string[];
+  /** A question: these buttons instead of primary / secondary, in this order. Tapping outside is backing out. */
+  choices?: NoticeChoice[];
 };
 
 let next = 1;
@@ -36,6 +42,36 @@ export function subscribeNotice(l: (n: Notice | null) => void) {
 export function notice(n: Omit<Notice, 'id'>) {
   current = { ...n, id: next++ };
   emit();
+}
+
+/**
+ * Asks before something that can't be undone (cancel a trip, remove a photo, sign out): the consequences in points,
+ * a red button to go ahead, a calm one to back out (also: tapping outside). Instead of Alert for these choices.
+ */
+export function confirmAction(q: {
+  title: string;
+  message?: string;
+  bullets?: string[];
+  /** The red button ("Annuler le trajet"). */
+  confirm: string;
+  onConfirm: () => void;
+  /** Backing out ("Garder le trajet"); « Annuler » by default. */
+  keep?: string;
+  /** A third way out, positive (« Passer le relais à Awa »), shown between the two. */
+  alternative?: NoticeAction;
+  tone?: 'warning' | 'info';
+}) {
+  notice({
+    tone: q.tone ?? 'warning',
+    title: q.title,
+    message: q.message,
+    bullets: q.bullets,
+    choices: [
+      { label: q.confirm, onPress: q.onConfirm, tone: 'danger' },
+      ...(q.alternative ? [{ ...q.alternative, tone: 'primary' as const }] : []),
+      { label: q.keep ?? 'Annuler', tone: 'quiet' },
+    ],
+  });
 }
 
 export function dismissNotice(id: number) {

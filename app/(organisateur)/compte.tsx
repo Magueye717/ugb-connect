@@ -3,13 +3,14 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LogoutButton } from '@/components/LogoutButton';
 import { ProfileHero } from '@/components/ProfileHero';
 import { SpacesList } from '@/components/SpacesList';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { isOwner, useAuth } from '@/context/AuthContext';
 
 export default function Compte() {
-  const { organizer, logout } = useAuth();
+  const { organizer } = useAuth();
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -26,10 +27,7 @@ export default function Compte() {
           {isOwner(organizer?.roles) && <Row icon="people-outline" label="Mon équipe" onPress={() => router.push('/mon-equipe')} last />}
         </View>
 
-        <Pressable onPress={logout} style={styles.logout} accessibilityRole="button">
-          <Ionicons name="log-out-outline" size={18} color={colors.dangerText} />
-          <Text style={styles.logoutText}>Se déconnecter</Text>
-        </Pressable>
+        <LogoutButton note="Tu ne recevras plus les réservations ni les alertes de l’espace organisateur sur ce téléphone." />
       </ScrollView>
     </SafeAreaView>
   );
@@ -58,6 +56,4 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52 },
   rowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   rowTitle: { ...typo.bodyStrong, color: colors.navy },
-  logout: { flexDirection: 'row', gap: 8, alignSelf: 'center', alignItems: 'center', padding: 16 },
-  logoutText: { ...typo.title, color: colors.dangerText },
 });

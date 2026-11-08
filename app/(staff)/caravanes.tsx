@@ -99,6 +99,7 @@ export default function Caravanes() {
                 {active && !o.payoutPhone && <Text style={styles.suspended}>Aucun numéro de versement</Text>}
               </View>
               <Toggle value={active} onValueChange={(v) => setActive(o, v)} accessibilityLabel={`${o.name} actif`} />
+              <Ionicons name="chevron-forward" size={18} color={colors.muted} />
             </Pressable>
           );
         })}

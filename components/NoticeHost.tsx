@@ -74,6 +74,16 @@ function NoticeCard({ notice: n }: { notice: Notice }) {
                 ))}
               </View>
             )}
+            {!!n.bullets?.length && (
+              <View style={styles.bullets}>
+                {n.bullets.map((b, i) => (
+                  <View key={i} style={styles.bullet}>
+                    <View style={[styles.bulletDot, { backgroundColor: t.fg }]} />
+                    <Text style={styles.bulletText}>{b}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
             {!!n.footnote && (
               <View style={styles.footnote}>
                 <Ionicons name="notifications-outline" size={14} color={colors.muted2} />
@@ -83,8 +93,26 @@ function NoticeCard({ notice: n }: { notice: Notice }) {
           </ScrollView>
 
           <View style={styles.actions}>
-            <PrimaryButton label={n.primary?.label ?? 'Compris'} onPress={() => close(n.primary?.onPress)} />
-            {n.secondary && <TextButton label={n.secondary.label} onPress={() => close(n.secondary?.onPress)} style={{ alignSelf: 'center' }} />}
+            {n.choices ? (
+              n.choices.map((c) =>
+                c.tone === 'quiet' ? (
+                  <TextButton key={c.label} label={c.label} onPress={() => close(c.onPress)} style={{ alignSelf: 'center' }} />
+                ) : (
+                  <Pressable
+                    key={c.label}
+                    onPress={() => close(c.onPress)}
+                    style={({ pressed }) => [styles.choice, c.tone === 'danger' ? styles.choiceDanger : styles.choicePrimary, pressed && { opacity: 0.85 }]}
+                    accessibilityRole="button">
+                    <Text style={styles.choiceText}>{c.label}</Text>
+                  </Pressable>
+                ),
+              )
+            ) : (
+              <>
+                <PrimaryButton label={n.primary?.label ?? 'Compris'} onPress={() => close(n.primary?.onPress)} />
+                {n.secondary && <TextButton label={n.secondary.label} onPress={() => close(n.secondary?.onPress)} style={{ alignSelf: 'center' }} />}
+              </>
+            )}
           </View>
         </Animated.View>
       </Animated.View>
@@ -106,5 +134,13 @@ const styles = StyleSheet.create({
   stepText: { ...typo.small, color: colors.muted2, flex: 1, lineHeight: 19 },
   footnote: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   footnoteText: { ...typo.caption, color: colors.muted2, flexShrink: 1, textAlign: 'center' },
-  actions: { gap: 6, paddingHorizontal: 22, paddingTop: 12, paddingBottom: 18 },
+  actions: { gap: 8, paddingHorizontal: 22, paddingTop: 12, paddingBottom: 18 },
+  bullets: { alignSelf: 'stretch', gap: 8, marginTop: 4, padding: 14, borderRadius: radii.lg, backgroundColor: colors.bg },
+  bullet: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  bulletDot: { width: 7, height: 7, borderRadius: 4, marginTop: 6 },
+  bulletText: { ...typo.small, color: colors.text, flex: 1, lineHeight: 19 },
+  choice: { minHeight: 50, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+  choiceDanger: { backgroundColor: colors.dangerText },
+  choicePrimary: { backgroundColor: colors.primary },
+  choiceText: { ...typo.title, color: '#fff', textAlign: 'center' },
 });

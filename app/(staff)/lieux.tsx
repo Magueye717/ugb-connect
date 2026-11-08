@@ -19,7 +19,8 @@ import { uploadImage } from '@/lib/upload';
 import { askToRelocate } from '@/lib/relocate';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
-const MAX_PHOTOS = 6;
+// Places are documented by Référencement only: as many as it takes (the API's ceiling, against slips).
+const MAX_PHOTOS = 30;
 
 /**
  * The communication team: the campus places students see in the Lieux tab and on the map. Add, edit (photos, GPS
@@ -96,7 +97,12 @@ export default function LieuxAdmin() {
         {shown.map((p) => {
           const tone = placeTone(p.category);
           return (
-            <Pressable key={p.id} style={[styles.card, shadow.card, !p.active && { opacity: 0.55 }]} onPress={() => setEditing(p)} accessibilityRole="button">
+            <Pressable
+              key={p.id}
+              style={({ pressed }) => [styles.card, shadow.card, !p.active && { opacity: 0.55 }, pressed && { opacity: 0.85 }]}
+              onPress={() => setEditing(p)}
+              accessibilityRole="button"
+              accessibilityLabel={`${p.name}, modifier le lieu`}>
               <View style={[styles.thumb, { backgroundColor: tone.bg }]}>
                 {p.photos[0] ? <Image source={{ uri: p.photos[0] }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name={placeIcon(p.icon)} size={20} color={tone.tint} />}
               </View>
@@ -109,6 +115,7 @@ export default function LieuxAdmin() {
                 </Text>
               </View>
               <Toggle value={p.active} onValueChange={(v) => toggle(p, v)} accessibilityLabel={`${p.name} visible`} />
+              <Ionicons name="chevron-forward" size={18} color={colors.muted} />
             </Pressable>
           );
         })}

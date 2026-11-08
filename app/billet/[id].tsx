@@ -19,6 +19,7 @@ import { caravansApi, dayLabel, hourLabel, isCaravanTicket, isEventTicket, toOrg
 import { ticketMethodLabel } from '@/features/payments/checkout';
 import { RatingCard } from '@/features/ratings/RatingCard';
 import { ApiError } from '@/lib/api';
+import { confirmAction } from '@/lib/notice';
 import { useNow } from '@/lib/useNow';
 import { toast } from '@/lib/toast';
 
@@ -144,29 +145,30 @@ export default function Billet() {
       const both = async () => {
         for (const t of [ticket, ...others]) await cancel(t.id);
       };
-      return Alert.alert(
-        'Annuler ton billet ?',
-        (cash ? 'Ta place est libérée : rien à rembourser.\n\n' : `${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}${quote.fee ? ` (${formatFcfa(quote.fee)} de frais)` : ''}.\n\n`) +
-          `Le billet de ${names} reste valable si tu le gardes. Tu peux aussi l’annuler : ${formatFcfa(quote.refund + others.reduce((n, t) => n + refund(t), 0))} remboursés en tout.`,
-        [
-          { text: 'Garder', style: 'cancel' },
-          { text: 'Seulement le mien', onPress: () => cancel(ticket.id).then(load, fail('Annulation impossible')) },
-          { text: `Annuler les ${others.length + 1}`, style: 'destructive', onPress: () => both().then(load, fail('Annulation impossible')) },
+      return confirmAction({
+        title: 'Annuler ton billet ?',
+        bullets: [
+          cash ? 'Ta place est libérée : rien à rembourser' : `${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}${quote.fee ? ` (${formatFcfa(quote.fee)} de frais)` : ''}`,
+          `Le billet de ${names} reste valable si tu le gardes`,
+          `Tout annuler : ${formatFcfa(quote.refund + others.reduce((n, t) => n + refund(t), 0))} remboursés en tout`,
         ],
-      );
+        confirm: `Annuler les ${others.length + 1}`,
+        onConfirm: () => both().then(load, fail('Annulation impossible')),
+        alternative: { label: 'Seulement le mien', onPress: () => cancel(ticket.id).then(load, fail('Annulation impossible')) },
+        keep: 'Garder',
+      });
     }
-    Alert.alert(
-      'Annuler ce billet ?',
-      cash
-        ? 'Ta place est libérée. Rien n’a été payé, rien à rembourser.'
+    confirmAction({
+      title: 'Annuler ce billet ?',
+      bullets: cash
+        ? ['Ta place est libérée', 'Rien n’a été payé, rien à rembourser']
         : quote.fee === 0
-          ? `Annulation gratuite : ${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}.`
-          : `Moins de 24 h avant le départ : ${formatFcfa(quote.fee)} de frais. ${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}.`,
-      [
-        { text: 'Garder mon billet', style: 'cancel' },
-        { text: 'Annuler le billet', style: 'destructive', onPress: () => cancel(ticket.id).then(load, fail('Annulation impossible')) },
-      ],
-    );
+          ? ['Annulation gratuite', `${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}`]
+          : [`Moins de 24 h avant le départ : ${formatFcfa(quote.fee)} de frais`, `${formatFcfa(quote.refund)} remboursés sur ton numéro ${method}`],
+      confirm: 'Annuler le billet',
+      keep: 'Garder mon billet',
+      onConfirm: () => cancel(ticket.id).then(load, fail('Annulation impossible')),
+    });
   };
 
   const banner =

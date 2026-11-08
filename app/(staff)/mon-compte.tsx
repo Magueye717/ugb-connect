@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LogoutButton } from '@/components/LogoutButton';
 import { ProfileHero } from '@/components/ProfileHero';
 import { formatPhone, phoneDigits } from '@/features/register/validation';
 import { SpacesList, spaceInfo } from '@/components/SpacesList';
@@ -10,7 +11,7 @@ import { useAuth } from '@/context/AuthContext';
 
 /** Account screen of a work space (restaurants, alerts): what's done here, the account's other spaces, sign out. */
 export default function StaffCompte() {
-  const { user, current, logout } = useAuth();
+  const { user, current } = useAuth();
   const here = current ? spaceInfo(current) : null;
 
   return (
@@ -34,10 +35,7 @@ export default function StaffCompte() {
 
         <SpacesList />
 
-        <Pressable onPress={logout} style={styles.logout} accessibilityRole="button">
-          <Ionicons name="log-out-outline" size={18} color={colors.dangerText} />
-          <Text style={styles.logoutText}>Se déconnecter</Text>
-        </Pressable>
+        <LogoutButton />
       </ScrollView>
     </SafeAreaView>
   );
@@ -54,6 +52,4 @@ const styles = StyleSheet.create({
   rowTitle: { ...typo.bodyStrong, color: colors.navy },
   job: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   jobText: { ...typo.small, flex: 1, color: colors.text, lineHeight: 18 },
-  logout: { flexDirection: 'row', gap: 8, alignSelf: 'center', alignItems: 'center', padding: 16 },
-  logoutText: { ...typo.title, color: colors.dangerText },
 });

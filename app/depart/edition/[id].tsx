@@ -5,6 +5,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { DateField } from '@/components/DatePicker';
 import { EmptyState } from '@/components/states';
 import { BackButton, Chip, Field, LabeledField, PrimaryButton, Segmented, TextButton } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
@@ -49,7 +50,8 @@ const midnight = (at: number) => {
   return d;
 };
 const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
-const nextDays = (now: number) => Array.from({ length: 60 }, (_, i) => new Date(midnight(now).getTime() + i * DAY + 3_600_000)).map((d) => midnight(d.getTime()));
+/** A departure is planned up to two months ahead. */
+const DAYS_AHEAD = 60;
 
 /**
  * The stops, in route order, as dates: the first on the chosen day, each next one later; a time earlier than the
@@ -345,12 +347,8 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
         </View>
       </View>
 
-      <Text style={styles.label}>Jour du départ</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
-        {nextDays(now).map((d) => (
-          <Chip key={d.toISOString()} label={dayLabel(d.getTime())} selected={!!day && sameDay(d, day)} onPress={() => setDay(d)} />
-        ))}
-      </ScrollView>
+      <DateField label="Jour du départ" value={day} onChange={setDay} min={midnight(now)} max={new Date(midnight(now).getTime() + (DAYS_AHEAD - 1) * DAY)} />
+
 
       <Stops
         title="Montées"

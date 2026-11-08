@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AvatarPicker } from '@/components/AvatarPicker';
+import { LogoutButton } from '@/components/LogoutButton';
 import { SpacesList } from '@/components/SpacesList';
 import { UnreadBadge } from '@/components/UnreadBadge';
 import { colors, radii, shadow, typo } from '@/constants/theme';
@@ -23,7 +24,7 @@ const TONES: Record<'account' | 'activity' | 'prefs' | 'help', Tone> = {
 type Row = { icon: keyof typeof Ionicons.glyphMap; label: string; href?: Href; badge?: number; todo?: boolean; done?: boolean; onPress?: () => void };
 
 export default function ProfilScreen() {
-  const { user, logout, spaces } = useAuth();
+  const { user, spaces } = useAuth();
   // The shop they own: "Ma boutique" once there is one.
   const myShop = ownShop(spaces);
   const cardDone = !!user?.identity?.fromCard;
@@ -150,15 +151,8 @@ export default function ProfilScreen() {
           </View>
         ))}
 
-        {/* In its own group, like the other rows: clear, and not floating where a thumb lands. */}
-        <View style={[styles.group, shadow.card]}>
-          <Pressable onPress={logout} style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.dangerBg }]} accessibilityRole="button">
-            <View style={[styles.rowIcon, { backgroundColor: colors.dangerBg }]}>
-              <Ionicons name="log-out-outline" size={18} color={colors.dangerText} />
-            </View>
-            <Text style={[styles.rowLabel, { color: colors.dangerText }]}>Se déconnecter</Text>
-          </Pressable>
-        </View>
+        {/* In its own group, like the other rows: clear, and not floating where a thumb lands (same in every space). */}
+        <LogoutButton />
       </ScrollView>
     </SafeAreaView>
   );

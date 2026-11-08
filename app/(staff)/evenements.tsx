@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
@@ -8,21 +8,26 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { eventWhen } from '@/components/home';
 import { EmptyState, ErrorState } from '@/components/states';
-import { Field, LabeledField, PrimaryButton, SafeBottom, Segmented, SheetHeader } from '@/components/ui';
+import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, Segmented, SheetHeader } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { eventsApi, type OrgEventDto } from '@/features/events/api';
 import { ApiError } from '@/lib/api';
 
-type Queue = 'pending_review' | 'changes_requested' | 'rejected';
+type Queue = 'pending_review' | 'changes_requested' | 'rejected' | 'live';
+/** Three places: what waits for the admins, what runs, and the rest (sent back to the student, refused). */
+type Section = 'todo' | 'live' | 'follow';
 
 /**
  * The admins check the events students create before their ticket sales open: approve (the student then chooses who
  * sees it and pays its publication), ask for corrections (the student gets the message as a notification and on
- * their event), or refuse.
+ * their event), or refuse. « En cours »: every event validated or on sale, the soonest first, with its sales.
  */
 export default function EvenementsAValider() {
-  const [queue, setQueue] = useState<Queue>('pending_review');
+  const [section, setSection] = useState<Section>('todo');
+  // « Suivi »: the student's corrections to come, or the refused ones.
+  const [follow, setFollow] = useState<'changes_requested' | 'rejected'>('changes_requested');
+  const queue: Queue = section === 'todo' ? 'pending_review' : section === 'live' ? 'live' : follow;
   const [items, setItems] = useState<OrgEventDto[] | null>(null);
   // The first load failed (no network…): « Impossible de charger », with « Réessayer » (not an empty list).
   const [loadFailed, setLoadFailed] = useState(false);
@@ -40,20 +45,34 @@ export default function EvenementsAValider() {
         <Text style={styles.h1}>Événements</Text>
         <Segmented
           options={[
-            { value: 'pending_review', label: 'À valider' },
-            { value: 'changes_requested', label: 'À corriger' },
-            { value: 'rejected', label: 'Refusés' },
+            { value: 'todo', label: 'À valider' },
+            { value: 'live', label: 'En cours' },
+            { value: 'follow', label: 'Suivi' },
           ]}
-          value={queue}
-          onChange={(q) => {
+          value={section}
+          onChange={(s) => {
             setItems(null);
-            setQueue(q);
+            setSection(s);
           }}
         />
+        {section === 'follow' && (
+          <View style={styles.chips}>
+            <Chip label="À corriger" icon="create-outline" selected={follow === 'changes_requested'} onPress={() => (setItems(null), setFollow('changes_requested'))} />
+            <Chip label="Refusés" icon="close-circle-outline" selected={follow === 'rejected'} onPress={() => (setItems(null), setFollow('rejected'))} />
+          </View>
+        )}
+        {section === 'live' && !!items?.length && <Text style={styles.meta}>Validés ou en vente, les plus proches d’abord.</Text>}
         {!items && !loadFailed && <ActivityIndicator color={colors.primary} />}
         {!items && loadFailed && <ErrorState onRetry={load} />}
-        {items?.length === 0 && <EmptyState icon="sparkles-outline" title="Rien ici" text={queue === 'pending_review' ? 'Les événements créés par les étudiants arrivent ici avant leur publication.' : undefined} />}
-        {items?.map((e) => (
+        {items?.length === 0 && (
+          <EmptyState
+            icon={section === 'live' ? 'calendar-outline' : 'sparkles-outline'}
+            title={section === 'live' ? 'Aucun événement en cours' : 'Rien ici'}
+            text={queue === 'pending_review' ? 'Les événements créés par les étudiants arrivent ici avant leur publication.' : section === 'live' ? 'Les événements validés ou en vente apparaissent ici jusqu’à leur fin.' : undefined}
+          />
+        )}
+        {section === 'live' && items?.map((e) => <LiveCard key={e.id} event={e} />)}
+        {section !== 'live' && items?.map((e) => (
           <View key={e.id} style={[styles.card, shadow.card]}>
             <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
               {e.images.map((uri) => (
@@ -122,6 +141,41 @@ export default function EvenementsAValider() {
   );
 }
 
+/** An event that runs: where it stands (on sale, or validated and waiting for its publication), its sales, its page. */
+function LiveCard({ event: e }: { event: OrgEventDto }) {
+  const sold = e.ticketTypes.reduce((n, t) => n + t.sold, 0);
+  const capacity = e.ticketTypes.reduce((n, t) => n + t.capacity, 0);
+  const share = capacity ? Math.min(1, sold / capacity) : 0;
+  const onSale = e.status === 'published';
+  return (
+    <Pressable
+      onPress={() => router.push({ pathname: '/evenement/[id]', params: { id: e.id } })}
+      style={({ pressed }) => [styles.card, shadow.card, styles.live, pressed && { opacity: 0.9 }]}
+      accessibilityRole="button"
+      accessibilityLabel={`${e.title}, ${onSale ? 'en vente' : 'validé'}, ${sold} billets sur ${capacity}`}>
+      <Image source={{ uri: e.images[0] }} style={styles.liveImage} contentFit="cover" />
+      <View style={{ flex: 1, gap: 4 }}>
+        <View style={[styles.badge, { backgroundColor: onSale ? colors.successBg : colors.warningBg }]}>
+          <Text style={[styles.badgeText, { color: onSale ? colors.successText : colors.warningText }]}>{onSale ? 'En vente' : 'Validé · publication à payer'}</Text>
+        </View>
+        <Text style={styles.title} numberOfLines={1}>
+          {e.title}
+        </Text>
+        <Text style={styles.meta} numberOfLines={1}>
+          {eventWhen(e.startsAt)} · {e.organizer.name || 'Étudiant'}
+        </Text>
+        <View style={styles.bar}>
+          <View style={[styles.barFill, { width: `${share * 100}%` }]} />
+        </View>
+        <Text style={styles.meta}>
+          {sold}/{capacity} billet{capacity > 1 ? 's' : ''} · {e.counts.admitted} entré{e.counts.admitted > 1 ? 's' : ''}
+        </Text>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+    </Pressable>
+  );
+}
+
 function MessageSheet(p: { title: string; note: string; placeholder: string; confirm: string; onClose: () => void; onConfirm: (message: string) => Promise<void> }) {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
@@ -171,4 +225,11 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(15,27,76,0.35)' },
   sheet: { backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20, paddingBottom: 36, gap: 12 },
   sheetTitle: { ...typo.h3, color: colors.navy },
+  chips: { flexDirection: 'row', gap: 8 },
+  live: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10 },
+  liveImage: { width: 72, height: 72, borderRadius: radii.md, backgroundColor: colors.border },
+  badge: { alignSelf: 'flex-start', borderRadius: radii.pill, paddingHorizontal: 8, paddingVertical: 2 },
+  badgeText: { ...typo.label },
+  bar: { height: 6, borderRadius: 3, backgroundColor: colors.border, overflow: 'hidden', marginTop: 2 },
+  barFill: { height: 6, borderRadius: 3, backgroundColor: colors.primary },
 });

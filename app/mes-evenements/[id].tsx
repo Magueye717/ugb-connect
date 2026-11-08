@@ -8,6 +8,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { DateField, TimeField } from '@/components/DatePicker';
 import { eventWhen } from '@/components/home';
 import { LivePulse, NudgeRight } from '@/components/motion';
 import { PaymentLogo } from '@/components/PaymentLogo';
@@ -21,13 +22,11 @@ import { payInBrowser, ticketMethodLabel, type PaymentMethod, type TicketMethod 
 import { CAMPUSES, REGIONS, UFRS, VILLAGES, type CampusKey } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
 import { haptics } from '@/lib/haptics';
-import { notice } from '@/lib/notice';
+import { confirmAction, notice } from '@/lib/notice';
 import { uploadImage } from '@/lib/upload';
 import { useNow } from '@/lib/useNow';
 
 const MAX_IMAGES = 8;
-const DAYS = ['Dim.', 'Lun.', 'Mar.', 'Mer.', 'Jeu.', 'Ven.', 'Sam.'];
-const MONTHS = ['janv', 'févr', 'mars', 'avr', 'mai', 'juin', 'juil', 'août', 'sept', 'oct', 'nov', 'déc'];
 /** Start times offered: every 30 minutes from 8h to 23h30. */
 const TIMES = Array.from({ length: 32 }, (_, i) => `${String(8 + Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`);
 const DURATIONS = [1, 2, 3, 4, 5, 6, 8, 10, 12];
@@ -39,7 +38,6 @@ const ACTION: Record<OrgEventDto['reviewLog'][number]['action'], string> = {
 };
 
 type TicketRow = { name: string; price: string; capacity: string };
-const dayKey = (d: Date) => d.toDateString();
 const days = (now: number) =>
   Array.from({ length: 60 }, (_, i) => {
     const d = new Date(now);
@@ -134,14 +132,18 @@ export default function MonEvenement() {
 function EventState({ event: e, onChanged }: { event: OrgEventDto; onChanged: (e: OrgEventDto) => void }) {
   const s = EVENT_STATUS[e.status];
   const cancel = () =>
-    Alert.alert('Annuler l’événement ?', e.counts.booked ? `Les ${e.counts.booked} billets vendus sont remboursés à 100 %.` : 'La billetterie est fermée.', [
-      { text: 'Garder', style: 'cancel' },
-      {
-        text: 'Annuler l’événement',
-        style: 'destructive',
-        onPress: () => eventsApi.cancelMine(e.id, 'Annulé par l’organisateur').then(() => eventsApi.mineOne(e.id).then(onChanged), fail('Annulation impossible')),
-      },
-    ]);
+    confirmAction({
+      title: 'Annuler l’événement ?',
+      message: `« ${e.title} »`,
+      bullets: [
+        e.counts.booked ? `Les ${e.counts.booked} billets vendus sont remboursés à 100 %` : 'Aucun billet vendu : rien à rembourser',
+        'La billetterie ferme, et l’événement disparaît de l’accueil',
+        'Les inscrits sont prévenus',
+      ],
+      confirm: 'Annuler l’événement',
+      keep: 'Garder l’événement',
+      onConfirm: () => eventsApi.cancelMine(e.id, 'Annulé par l’organisateur').then(() => eventsApi.mineOne(e.id).then(onChanged), fail('Annulation impossible')),
+    });
   const photos = usePhotoEdits(e, onChanged);
   const banner = useEventBanner(e.id, e.status === 'published');
   return (
@@ -240,10 +242,13 @@ function usePhotoEdits(e: OrgEventDto, onChanged: (e: OrgEventDto) => void) {
   };
   const save = () =>
     removed > 0
-      ? Alert.alert(`Retirer ${removed} photo${removed > 1 ? 's' : ''} ?`, 'Elle' + (removed > 1 ? 's sont supprimées' : ' est supprimée') + ' de l’événement pour de bon.', [
-          { text: 'Garder', style: 'cancel' },
-          { text: 'Retirer', style: 'destructive', onPress: run },
-        ])
+      ? confirmAction({
+          title: `Retirer ${removed} photo${removed > 1 ? 's' : ''} ?`,
+          bullets: [removed > 1 ? 'Elles sont supprimées de l’événement pour de bon' : 'Elle est supprimée de l’événement pour de bon', 'Les autres photos restent'],
+          confirm: removed > 1 ? 'Retirer les photos' : 'Retirer la photo',
+          keep: 'Garder',
+          onConfirm: run,
+        })
       : run();
 
   // A single picture is the cover: nothing to choose.
@@ -726,21 +731,14 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
         <Field placeholder="Campus 1, à côté du terrain" value={address} onChangeText={setAddress} maxLength={160} />
       </LabeledField>
 
-      <Text style={styles.label}>Jour</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
-        {days(now).map((d) => {
-          const on = !!day && dayKey(d) === dayKey(day);
-          return (
-            <Chip key={d.toISOString()} label={`${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`} selected={on} onPress={() => setDay(d)} />
-          );
-        })}
-      </ScrollView>
-      <Text style={styles.label}>Heure de début</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
-        {times.map((t) => (
-          <Chip key={t} label={t.replace(':', 'h')} selected={time === t} onPress={() => setTime(t)} />
-        ))}
-      </ScrollView>
+      <View style={styles.row}>
+        <View style={{ flex: 1.4 }}>
+          <DateField label="Jour" value={day} onChange={setDay} min={days(now)[0]!} max={days(now)[days(now).length - 1]!} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <TimeField label="Heure de début" value={time} onChange={setTime} times={times} />
+        </View>
+      </View>
       {inPast && <Text style={styles.warn}>{times.length ? 'Cette heure est passée : choisis une heure à venir.' : 'Plus d’horaire possible aujourd’hui : choisis un autre jour.'}</Text>}
       <Text style={styles.label}>Durée</Text>
       <View style={styles.wrap}>

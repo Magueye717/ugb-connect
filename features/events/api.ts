@@ -152,7 +152,8 @@ export const eventsApi = {
     api<{ event: OrgEventDto; payment: PaymentDto }>('POST', `/me/events/${id}/publish`, { ...auth, body: { ...body, returnUrl: paymentReturnUrl() } }),
   cancelMine: (id: string, reason: string) => api<{ refunded: number }>('POST', `/me/events/${id}/cancel`, { ...auth, body: { reason } }),
   // Admins
-  reviewQueue: (status: 'pending_review' | 'changes_requested' | 'rejected' = 'pending_review') => api<{ items: OrgEventDto[] }>('GET', `/admin/events?status=${status}`, auth),
+  /** `live`: validated or on sale and not over yet, the soonest first (the admins' « En cours »). */
+  reviewQueue: (status: 'pending_review' | 'changes_requested' | 'rejected' | 'live' = 'pending_review') => api<{ items: OrgEventDto[] }>('GET', `/admin/events?status=${status}`, auth),
   approve: (id: string) => api<OrgEventDto>('POST', `/admin/events/${id}/approve`, auth),
   requestChanges: (id: string, message: string) => api<OrgEventDto>('POST', `/admin/events/${id}/request-changes`, { ...auth, body: { message } }),
   reject: (id: string, message: string) => api<OrgEventDto>('POST', `/admin/events/${id}/reject`, { ...auth, body: { message } }),

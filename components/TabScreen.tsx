@@ -31,7 +31,8 @@ type View_<K extends string> = { key: K; label: string; icon: keyof typeof Ionic
  * `?vue=<key>` opens a given section, so other screens can link straight to it.
  */
 export function TabScreen<K extends string>({ title, views }: { title: string; views: View_<K>[] }) {
-  const { vue } = useLocalSearchParams<{ vue?: string }>();
+  // `n`: set by each notification opened (openNotificationUrl), so the same ?vue= asked again still switches.
+  const { vue, n } = useLocalSearchParams<{ vue?: string; n?: string }>();
   const fromParam = views.find((v) => v.key === vue)?.key;
   const [current, setCurrent] = useState<K>(fromParam ?? views[0].key);
   const [opened, setOpened] = useState<K[]>([current]);
@@ -39,10 +40,12 @@ export function TabScreen<K extends string>({ title, views }: { title: string; v
     setCurrent(k);
     if (!opened.includes(k)) setOpened([...opened, k]);
   };
-  // A new link to this tab with another ?vue= switches section (state adjusted during render, no effect).
-  const [seenParam, setSeenParam] = useState(fromParam);
-  if (fromParam !== seenParam) {
-    setSeenParam(fromParam);
+  // A new link to this tab (another ?vue=, or the same one from a new notification) switches section (state
+  // adjusted during render, no effect).
+  const link = `${fromParam ?? ''}|${n ?? ''}`;
+  const [seenLink, setSeenLink] = useState(link);
+  if (link !== seenLink) {
+    setSeenLink(link);
     if (fromParam) open(fromParam);
   }
   const view = views.find((v) => v.key === current) ?? views[0];

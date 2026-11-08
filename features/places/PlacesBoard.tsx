@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CampusMap, type MapPin } from '@/components/CampusMap';
+import { LivePulse } from '@/components/motion';
 import { EmptyState, ErrorState, SkeletonCard } from '@/components/states';
 import { useImmersive } from '@/components/TabScreen';
 import { Field, FilterChips, TextButton } from '@/components/ui';
@@ -93,14 +94,18 @@ export function PlacesBoard() {
           }
         />
       </View>
-      {/* List or map: one button, it shows where it takes you. */}
+      {/* List or map: one button, it shows where it takes you. Solid and breathing: the campus map is the tab's best
+          part, it must not pass for a decoration (still when the system reduces motion). */}
       <Pressable
-        style={[styles.viewBtn, view === 'map' && styles.viewBtnOn]}
+        style={({ pressed }) => [styles.viewBtn, view === 'map' ? styles.viewBtnOn : styles.viewBtnMap, shadow.card, pressed && { transform: [{ scale: 0.97 }] }]}
         onPress={() => switchView(view === 'map' ? 'list' : 'map')}
         accessibilityRole="button"
         accessibilityLabel={view === 'map' ? 'Voir la liste' : 'Voir la carte du campus'}>
-        <Ionicons name={view === 'map' ? 'list' : 'map'} size={18} color={view === 'map' ? '#fff' : colors.primary} />
-        <Text style={[styles.viewBtnText, view === 'map' && { color: '#fff' }]}>{view === 'map' ? 'Liste' : 'Carte'}</Text>
+        <View style={styles.viewBtnIcon}>
+          <LivePulse color="rgba(255,255,255,0.6)" size={28} />
+          <Ionicons name={view === 'map' ? 'list' : 'map'} size={16} color={view === 'map' ? colors.primary : colors.accent} />
+        </View>
+        <Text style={styles.viewBtnText}>{view === 'map' ? 'Liste' : 'Carte'}</Text>
       </Pressable>
     </View>
   );
@@ -227,9 +232,11 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
   search: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, marginTop: 14, gap: 10 },
-  viewBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 56, paddingHorizontal: 14, borderRadius: radii.md, backgroundColor: colors.primarySoft },
+  viewBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 56, paddingHorizontal: 12, borderRadius: radii.md },
+  viewBtnMap: { backgroundColor: colors.accent },
   viewBtnOn: { backgroundColor: colors.primary },
-  viewBtnText: { ...typo.smallStrong, color: colors.primary },
+  viewBtnIcon: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  viewBtnText: { ...typo.smallStrong, color: '#fff' },
   layers: { flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 10 },
   layer: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 34, paddingHorizontal: 12, borderRadius: radii.pill, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.card },
   layerText: { ...typo.smallStrong, color: colors.navy },

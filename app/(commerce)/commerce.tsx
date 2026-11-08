@@ -6,6 +6,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'rea
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LogoutButton } from '@/components/LogoutButton';
 import { ProfileHero } from '@/components/ProfileHero';
 import { SpacesList } from '@/components/SpacesList';
 import { ErrorState } from '@/components/states';
@@ -72,6 +73,7 @@ export default function Commerce() {
           {/* The same card as on the student profile: only the chips say which business and role. */}
           <ProfileHero chips={[business.name, business.roles.includes('owner') ? 'Propriétaire' : business.roles.includes('manager') ? 'Gérant' : 'Employé']} />
           <SpacesList />
+          <LogoutButton note="Tu ne recevras plus les nouvelles commandes sur ce téléphone." />
         </KeyboardAwareScrollView>
     </SafeAreaView>
   );

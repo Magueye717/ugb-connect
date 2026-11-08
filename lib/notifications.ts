@@ -219,6 +219,14 @@ export async function unregisterPushToken() {
 }
 
 /**
+ * Opens a notification's screen. Each opening is marked (`n=`): a tab already showing another section switches to the
+ * one asked (`?vue=publics` again after the student went to « Restos privés »), see TabScreen.
+ */
+export function openNotificationUrl(url: string) {
+  router.push(`${url}${url.includes('?') ? '&' : '?'}n=${Date.now()}` as never);
+}
+
+/**
  * Opens the screen in `data.url` when a notification is tapped, whether the app was running or
  * was launched by the tap. Only navigates once the student is signed in.
  */
@@ -230,7 +238,7 @@ export function useNotificationRouting(signedIn: boolean) {
     const open = (response: Notifications.NotificationResponse | null) => {
       const url = (response?.notification.request.content.data as NotificationData | undefined)?.url;
       if (typeof url === 'string') {
-        router.push(url as never);
+        openNotificationUrl(url);
         Notifications.clearLastNotificationResponseAsync();
       }
     };
