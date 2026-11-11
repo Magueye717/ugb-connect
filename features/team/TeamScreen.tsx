@@ -5,14 +5,17 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
+import { PhoneField, phoneOk } from '@/components/PhoneField';
 import { ErrorState } from '@/components/states';
-import { Field, LabeledField, PrimaryButton, TextButton } from '@/components/ui';
+import { Field, LabeledField, PrimaryButton, StickyFooter, TextButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { passwordRules, validatePassword } from '@/features/register/validation';
 import { teamApi, type Assignment, type OrgSpace, type TeamMember, type TeamSpace } from '@/features/team/api';
 import { MemberCard, SpaceTile } from '@/features/team/MemberCard';
 import { ApiError } from '@/lib/api';
+import { useLeaveGuard } from '@/lib/leaveGuard';
 import { notice } from '@/lib/notice';
 import { toast } from '@/lib/toast';
 
@@ -56,6 +59,9 @@ export function TeamScreen({ orgId, name, intro, addHint }: { orgId: string; nam
     );
   }, [orgId]);
   useFocusEffect(load);
+  // Someone being added or their roles changed, not saved: leaving asks first.
+  useLeaveGuard(!!target && !saving);
+  const pull = usePullRefresh(load);
 
   const restart = () => {
     setTarget(null);
@@ -143,7 +149,7 @@ export function TeamScreen({ orgId, name, intro, addHint }: { orgId: string; nam
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView refreshControl={pull} style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <Text style={styles.h1}>Mon équipe</Text>
           <Text style={styles.sub}>{intro}</Text>
           {spaces.length > 1 && <Text style={styles.muted}>{`${name} : ${spaces.map((s) => s.label).join(', ')}. Une même personne peut avoir un rôle dans chaque espace.`}</Text>}
@@ -169,10 +175,8 @@ export function TeamScreen({ orgId, name, intro, addHint }: { orgId: string; nam
           </View>
           {!target ? (
             <>
-              <LabeledField label="1. Son numéro de téléphone">
-                <Field icon="call-outline" keyboardType="phone-pad" placeholder="77 123 45 67" value={phone} onChangeText={setPhone} maxLength={16} returnKeyType="search" onSubmitEditing={() => digits(phone).length >= 9 && check()} />
-              </LabeledField>
-              <PrimaryButton label="Vérifier le numéro" disabled={digits(phone).length < 9 || checking} loading={checking} onPress={check} />
+              <PhoneField label="1. Son numéro de téléphone" value={phone} onChange={setPhone} returnKeyType="search" onSubmitEditing={() => phoneOk(phone) && check()} />
+              <PrimaryButton label="Vérifier le numéro" disabled={!phoneOk(phone) || checking} loading={checking} onPress={check} />
             </>
           ) : (
             <>
@@ -230,11 +234,16 @@ export function TeamScreen({ orgId, name, intro, addHint }: { orgId: string; nam
                   </View>
                 </View>
               ))}
-              <PrimaryButton label={target.kind === 'member' ? 'Enregistrer ses rôles' : target.kind === 'existing' ? 'Enregistrer' : 'Créer le compte et l’ajouter'} disabled={!ready} loading={saving} onPress={save} />
-              <TextButton label="Annuler" style={{ alignSelf: 'center' }} onPress={restart} />
             </>
           )}
         </KeyboardAwareScrollView>
+      {/* Someone's roles being set: pinned, as on every form. */}
+      {target && (
+        <StickyFooter>
+          <PrimaryButton label={target.kind === 'member' ? 'Enregistrer ses rôles' : target.kind === 'existing' ? 'Enregistrer' : 'Créer le compte et l’ajouter'} disabled={!ready} loading={saving} onPress={save} />
+          <TextButton label="Annuler" style={{ alignSelf: 'center' }} onPress={restart} />
+        </StickyFooter>
+      )}
     </SafeAreaView>
   );
 }

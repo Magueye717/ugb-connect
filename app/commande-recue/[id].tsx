@@ -5,16 +5,18 @@ import { ActivityIndicator, Alert, Linking, Modal, Pressable, ScrollView, StyleS
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
 import { BackButton, Chip, Field, PrimaryButton, SafeBottom, SheetHeader, StatusChip } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { commerceApi, nextStep, ORDER_STATUS_LABEL, type OrderDto } from '@/features/commerce/api';
+import { confirmAction } from '@/lib/notice';
 import { ApiError } from '@/lib/api';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
 const REFUSALS = ['Plus de stock', 'Fermé pour le moment', 'Trop de commandes', 'Adresse hors zone de livraison'];
-const STEP_LABEL: Record<string, string> = { placed: 'Payée et reçue', accepted: 'Acceptée', ready: 'Prête / en route', completed: 'Terminée', refused: 'Refusée', cancelled: 'Annulée par le client' };
+const STEP_LABEL: Record<string, string> = { placed: 'Reçue (paiement en espèces)', accepted: 'Acceptée', ready: 'Prête / en route', completed: 'Terminée', refused: 'Refusée', cancelled: 'Annulée par le client' };
 
 /** One order received: what, for whom, where; the next step, or a refusal with its reason (the student is refunded). */
 export default function CommandeRecue() {
@@ -25,11 +27,9 @@ export default function CommandeRecue() {
   const [refusing, setRefusing] = useState(false);
   const [reason, setReason] = useState('');
 
-  useFocusEffect(
-    useCallback(() => {
-      if (business && id) commerceApi.businessOrder(business, id).then(setO, fail('Commande introuvable'));
-    }, [business, id]),
-  );
+  const load = useCallback(() => (business && id ? commerceApi.businessOrder(business, id).then(setO, fail('Commande introuvable')) : undefined), [business, id]);
+  useFocusEffect(useCallback(() => void load(), [load]));
+  const pull = usePullRefresh(load);
 
   const back = () => (router.canGoBack() ? router.back() : router.replace('/commandes'));
   if (!o || !business) {
@@ -63,7 +63,7 @@ export default function CommandeRecue() {
         <Text style={styles.h1}>Commande {o.code}</Text>
         <View style={{ width: 44 }} />
       </View>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} refreshControl={pull}>
         <View style={styles.row}>
           <StatusChip label={s.label} tone={s.tone} />
           <Text style={styles.muted}>{new Date(o.createdAt).toLocaleString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</Text>
@@ -115,6 +115,24 @@ export default function CommandeRecue() {
         </View>
 
         {next && <PrimaryButton label={next.label} loading={busy} disabled={busy} onPress={() => run(() => commerceApi.step(business, o.id, next.step))} />}
+        {/* Accepted or ready, and the student never came: cancelled, a warning for them. */}
+        {(o.status === 'accepted' || o.status === 'ready') && (
+          <Pressable
+            onPress={() =>
+              confirmAction({
+                title: 'Client absent ?',
+                message: 'La commande est annulée et le client reçoit un avertissement. À 3 absences en 30 jours, il ne peut plus commander pendant 7 jours.',
+                confirm: 'Client absent',
+                keep: 'Retour',
+                onConfirm: () => run(() => commerceApi.noShow(business, o.id)),
+              })
+            }
+            style={styles.refuse}
+            accessibilityRole="button">
+            <Ionicons name="person-remove-outline" size={18} color={colors.dangerText} />
+            <Text style={styles.refuseText}>Client absent</Text>
+          </Pressable>
+        )}
         {o.status === 'placed' && (
           <Pressable onPress={() => setRefusing(true)} style={styles.refuse} accessibilityRole="button">
             <Ionicons name="close-circle-outline" size={18} color={colors.dangerText} />

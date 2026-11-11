@@ -17,7 +17,7 @@ import { NoticeHost } from '@/components/NoticeHost';
 import { Toaster } from '@/components/Toaster';
 import { TaxiProvider } from '@/context/TaxiContext';
 import { ChatsProvider } from '@/features/chat/ChatContext';
-import { setupNotifications, useNotificationRouting } from '@/lib/notifications';
+import { setupNotifications, useKeepPushToken, useNotificationRouting } from '@/lib/notifications';
 
 // A screen that throws shows what broke (and « Réessayer ») instead of closing the app.
 export { CrashScreen as ErrorBoundary } from '@/components/CrashScreen';
@@ -45,6 +45,7 @@ function SplashGate() {
 function NotificationRouter() {
   const { user, space } = useAuth();
   useNotificationRouting(!!user);
+  useKeepPushToken(!!user);
   // Every signed-in account gets push on this phone (students, shops, organizers, staff); meal reminders are for students.
   useEffect(() => {
     if (user && space) setupNotifications({ meals: space === 'student' });
@@ -85,8 +86,6 @@ function Screens() {
         <Stack.Screen name="ma-boutique" />
         <Stack.Screen name="evenement/[id]" />
         <Stack.Screen name="evenements" />
-        <Stack.Screen name="mes-evenements/index" />
-        <Stack.Screen name="mes-evenements/[id]" />
         <Stack.Screen name="services/[slug]" />
         <Stack.Screen name="services/cours" />
         <Stack.Screen name="services/objets" />
@@ -105,6 +104,15 @@ function Screens() {
         <Stack.Screen name="objet/declarer" />
         <Stack.Screen name="objet/scanner" />
         <Stack.Screen name="objet/discussion/[id]" />
+      </Stack.Protected>
+      {/* Events: a student's own, or an organization's (opened from its organizer space with `org`). */}
+      <Stack.Protected guard={space === 'student' || space === 'organizer'} redirectTo={home}>
+        <Stack.Screen name="mes-evenements/index" />
+        <Stack.Screen name="mes-evenements/[id]" />
+        {/* A ticket or seat request paid in cash: scanned or typed, then validated. */}
+        <Stack.Screen name="valider-paiement" />
+        {/* A student's own event: its tickets scanned at the entrance (organizations use the Scanner tab). */}
+        <Stack.Screen name="scanner-billets" />
       </Stack.Protected>
       <Stack.Protected guard={space === 'organizer'} redirectTo={home}>
         <Stack.Screen name="(organisateur)" />

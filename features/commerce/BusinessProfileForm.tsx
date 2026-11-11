@@ -6,14 +6,16 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View, type Style
 import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PhoneField } from '@/components/PhoneField';
 import { MultiSelect } from '@/components/Select';
 import { Chip, Field, LabeledField, PrimaryButton, TextButton, Toggle } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { commerceApi, type BusinessDto, type BusinessTarget, type CommerceReference, type DeliveryZone, type OrderMethod } from '@/features/commerce/api';
-import { PaymentMethodsPicker } from './PaymentMethodsPicker';
-import { PayoutNumbers, payoutDigitsOf, payoutNumbersBody, payoutNumbersOk, type PayoutDigits } from './PayoutNumbers';
+import { payoutDigitsOf, payoutNumbersBody, payoutNumbersOk, type PayoutDigits } from './PayoutNumbers';
 import { CAMPUSES } from '@/features/register/validation';
+import { ALL_DAY, isAllDay } from '@/features/commerce/allDay';
 import { ApiError } from '@/lib/api';
+import { useLeaveGuard } from '@/lib/leaveGuard';
 import { openDirections } from '@/lib/maps';
 import { pickPhoto } from '@/lib/pickPhoto';
 import { uploadImage } from '@/lib/upload';
@@ -64,7 +66,8 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
     outside: b.deliveryFees.outside === null ? '' : String(b.deliveryFees.outside),
   });
   // How students may pay (cash, Wave, Orange Money): at least one.
-  const [methods, setMethods] = useState<OrderMethod[]>(b.paymentMethods.map((m) => m.value));
+  // Orders are paid in cash only (Wave / Orange Money are for UGB Connect's own fees).
+  const methods: OrderMethod[] = ['cash'];
   // Where each provider ticked pays out: required for Wave and Orange Money.
   const [payout, setPayout] = useState<PayoutDigits>(payoutDigitsOf(b.payoutNumbers));
   const [saving, setSaving] = useState(false);
@@ -107,6 +110,7 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
 
   const location = lat && lng ? { lat: Number(lat), lng: Number(lng) } : null;
   const locationOk = (!lat && !lng) || (!!location && Math.abs(location.lat) <= 90 && Math.abs(location.lng) <= 180);
+  const allDay = isAllDay(services);
   const servicesOk = services.length > 0 && services.every((s) => HHMM.test(s.start) && HHMM.test(s.end) && s.start < s.end);
   const ready = locationOk && servicesOk && specialties.length > 0 && name.trim().length >= 2 && payoutNumbersOk(methods, payout) && !uploading && !saving;
 
@@ -114,6 +118,8 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
   const snapshot = JSON.stringify({ name: name.trim(), specialties, description, address, campus, phone, lat, lng, services, fees, methods, payout: payoutNumbersBody(methods, payout) });
   const [base, setBase] = useState(snapshot);
   const dirty = snapshot !== base || !!photo.id;
+  // Leaving with changes not saved asks first.
+  useLeaveGuard(dirty && !saving);
   // « Annuler »: everything back as it was saved.
   const revert = () => {
     setName(b.name);
@@ -131,7 +137,6 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
       campus2: b.deliveryFees.campus2 === null ? '' : String(b.deliveryFees.campus2),
       outside: b.deliveryFees.outside === null ? '' : String(b.deliveryFees.outside),
     });
-    setMethods(b.paymentMethods.map((m) => m.value));
     setPayout(payoutDigitsOf(b.payoutNumbers));
   };
 
@@ -185,9 +190,7 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
       <LabeledField label="Présentation">
         <Field placeholder="Ce qui vous rend uniques…" value={description} onChangeText={setDescription} maxLength={500} multiline />
       </LabeledField>
-      <LabeledField label="Téléphone">
-        <Field icon="call-outline" keyboardType="phone-pad" value={phone} onChangeText={setPhone} maxLength={20} />
-      </LabeledField>
+      <PhoneField label="Téléphone" value={phone} onChange={setPhone} />
 
       <Text style={styles.section}>Où vous trouver</Text>
       <LabeledField label="Adresse (comme les étudiants la disent)">
@@ -224,7 +227,16 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
       </View>
 
       <Text style={styles.section}>Horaires (tous les jours)</Text>
-      {services.map((s, i) => (
+      {b.kind === 'shop' && (
+        <View style={styles.allDay}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.allDayTitle}>Ouvert 24h/24</Text>
+            <Text style={styles.muted}>Les clients commandent à toute heure, tous les jours.</Text>
+          </View>
+          <Toggle value={allDay} onValueChange={(v) => setServices(v ? ALL_DAY.map((x) => ({ ...x })) : [{ start: '08:00', end: '21:00' }])} accessibilityLabel="Ouvert 24h/24" />
+        </View>
+      )}
+      {!allDay && services.map((s, i) => (
         <View key={i} style={styles.row}>
           <View style={{ flex: 1 }}>
             <Field placeholder="12:00" keyboardType="number-pad" value={s.start} onChangeText={(v) => setService(i, 'start', v)} maxLength={5} />
@@ -240,7 +252,7 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
           )}
         </View>
       ))}
-      {services.length < 3 && (
+      {!allDay && services.length < 3 && (
         <TextButton label="Ajouter un service" icon="add-circle-outline" onPress={() => setServices((list) => [...list, { start: '19:00', end: '22:00' }])} />
       )}
       {!servicesOk && <Text style={styles.warn}>Horaires au format 12:00, la fin après le début.</Text>}
@@ -265,10 +277,8 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
         })}
       </View>
 
-      <Text style={styles.section}>Paiements acceptés</Text>
-      <Text style={styles.muted}>Ce que les étudiants peuvent choisir. Espèces : payé au livreur ou au retrait (rien ne passe par l’app).</Text>
-      <PaymentMethodsPicker options={reference.paymentMethods} value={methods} onChange={setMethods} online={b.onlinePayments} />
-      <PayoutNumbers methods={methods} value={payout} onChange={setPayout} />
+      <Text style={styles.section}>Paiement</Text>
+      <Text style={styles.muted}>Les commandes se paient en espèces, au livreur ou au retrait : rien ne passe par l’app.</Text>
 
       {!sticky && <PrimaryButton label="Enregistrer" disabled={!ready} loading={saving} onPress={save} />}
     </View>
@@ -321,4 +331,6 @@ const styles = StyleSheet.create({
   locText: { ...typo.smallStrong, color: colors.primary },
   zone: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 64 },
   zoneLine: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  allDay: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: radii.md, backgroundColor: colors.primarySofter },
+  allDayTitle: { ...typo.bodyStrong, color: colors.navy },
 });

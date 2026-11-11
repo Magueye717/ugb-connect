@@ -7,12 +7,14 @@ import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Tex
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
 import { EmptyState, ErrorState } from '@/components/states';
 import { Chip, Field, LabeledField, PrimaryButton, SheetFooter, SheetHeader, Toggle, useDirty } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { PLACE_CATEGORIES, placeIcon, placesApi, placeTone, type PlaceCategory, type PlaceDto } from '@/features/places/api';
 import { CAMPUSES } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
+import { closeGuarded } from '@/lib/leaveGuard';
 import { pickPhoto } from '@/lib/pickPhoto';
 import { matches } from '@/lib/search';
 import { uploadImage } from '@/lib/upload';
@@ -40,6 +42,7 @@ export default function LieuxAdmin() {
     placesApi.all().then((r) => setItems(r.items), () => setLoadFailed(true));
   }, []);
   useFocusEffect(load);
+  const pull = usePullRefresh(load);
 
   const toggle = (p: PlaceDto, active: boolean) => {
     setItems((list) => list?.map((x) => (x.id === p.id ? { ...x, active } : x)) ?? null);
@@ -51,7 +54,7 @@ export default function LieuxAdmin() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+      <ScrollView refreshControl={pull} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         <View style={styles.row}>
           <Text style={[styles.h1, { flex: 1 }]}>Lieux du campus</Text>
           <Pressable style={styles.add} onPress={() => setEditing('new')} accessibilityRole="button">
@@ -143,6 +146,8 @@ function PlaceEditor({ place, onClose, onSaved }: { place: PlaceDto | null; onCl
   const [hours, setHours] = useState(place?.hours ?? '');
   const [lat, setLat] = useState(place ? String(place.location.lat) : '');
   const [lng, setLng] = useState(place ? String(place.location.lng) : '');
+  // Taken on site with « Ma position actuelle » (required for a new place; an existing one keeps its own).
+  const [located, setLocated] = useState(!!place);
   // Each picture: what the API wants back (an upload id, or a seeded url) and what to show.
   const [photos, setPhotos] = useState<{ ref: string; url: string }[]>(place ? place.photos.map((url, i) => ({ ref: place.photoRefs[i]!, url })) : []);
   const [uploading, setUploading] = useState(false);
@@ -170,12 +175,13 @@ function PlaceEditor({ place, onClose, onSaved }: { place: PlaceDto | null; onCl
     setLocating(true);
     try {
       const { granted } = await Location.requestForegroundPermissionsAsync();
-      if (!granted) return Alert.alert('Position refusée', 'Autorise la localisation, ou saisis la latitude et la longitude.');
+      if (!granted) return Alert.alert('Position refusée', 'Autorise la localisation : la position se prend sur place.');
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       setLat(pos.coords.latitude.toFixed(6));
       setLng(pos.coords.longitude.toFixed(6));
+      setLocated(true);
     } catch {
-      Alert.alert('Position introuvable', 'Réessaie dehors, ou saisis-la à la main.');
+      Alert.alert('Position introuvable', 'Réessaie dehors.');
     } finally {
       setLocating(false);
     }
@@ -191,7 +197,9 @@ function PlaceEditor({ place, onClose, onSaved }: { place: PlaceDto | null; onCl
   const locationOk = !!lat && !!lng && Number.isFinite(location.lat) && Number.isFinite(location.lng) && Math.abs(location.lat) <= 90 && Math.abs(location.lng) <= 180;
   // Editing: usable once something changed.
   const dirty = useDirty({ name, category, description, area, campus, hours, lat, lng, photos: photos.map((p) => p.ref) });
-  const ready = name.trim().length >= 2 && locationOk && (!place || dirty) && !uploading && !saving;
+  // Closing with changes not saved asks first.
+  const close = () => closeGuarded(dirty && !saving, onClose);
+  const ready = name.trim().length >= 2 && locationOk && located && (!place || dirty) && !uploading && !saving;
 
   const save = async () => {
     setSaving(true);
@@ -214,12 +222,12 @@ function PlaceEditor({ place, onClose, onSaved }: { place: PlaceDto | null; onCl
     ]);
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} />
+    <Modal visible transparent animationType="slide" onRequestClose={close}>
+      <Pressable style={styles.backdrop} onPress={close} />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <View style={styles.sheet}>
         <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 12, paddingBottom: 16 }} keyboardShouldPersistTaps="handled">
-          <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>{place ? 'Modifier le lieu' : 'Nouveau lieu'}</SheetHeader>
+          <SheetHeader onClose={close} titleStyle={styles.sheetTitle}>{place ? 'Modifier le lieu' : 'Nouveau lieu'}</SheetHeader>
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photos}>
             {photos.map((p, i) => (
@@ -269,19 +277,20 @@ function PlaceEditor({ place, onClose, onSaved }: { place: PlaceDto | null; onCl
           <View style={styles.row}>
             <View style={{ flex: 1 }}>
               <LabeledField label="Latitude">
-                <Field keyboardType="numbers-and-punctuation" placeholder="16.0629" value={lat} onChangeText={setLat} maxLength={12} />
+                <Field placeholder="—" value={lat} editable={false} />
               </LabeledField>
             </View>
             <View style={{ flex: 1 }}>
               <LabeledField label="Longitude">
-                <Field keyboardType="numbers-and-punctuation" placeholder="-16.4232" value={lng} onChangeText={setLng} maxLength={12} />
+                <Field placeholder="—" value={lng} editable={false} />
               </LabeledField>
             </View>
           </View>
           <Pressable style={styles.locBtn} onPress={here} disabled={locating} accessibilityRole="button">
             {locating ? <ActivityIndicator color={colors.primary} size="small" /> : <Ionicons name="locate" size={16} color={colors.primary} />}
-            <Text style={styles.locText}>Ma position actuelle (sur place)</Text>
+            <Text style={styles.locText}>{located ? 'Reprendre ma position (sur place)' : 'Ma position actuelle (sur place) *'}</Text>
           </Pressable>
+          {!located && <Text style={styles.locHint}>Obligatoire : la position se prend sur place, avec ce bouton.</Text>}
 
           {place && (
             <Pressable onPress={remove} style={{ alignSelf: 'center' }} hitSlop={8}>
@@ -324,4 +333,5 @@ const styles = StyleSheet.create({
   chipText: { ...typo.smallStrong, color: colors.navy },
   locBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingHorizontal: 12, minHeight: 38, borderRadius: radii.pill, backgroundColor: colors.primarySoft },
   locText: { ...typo.smallStrong, color: colors.primary },
+  locHint: { ...typo.caption, color: colors.orangeText, textAlign: 'center', marginTop: -4 },
 });

@@ -5,13 +5,13 @@ import { ActivityIndicator, Alert, Linking, Modal, Pressable, RefreshControl, Sc
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState } from '@/components/states';
+import { RequestsCard } from '@/components/RequestsCard';
 import { BackButton, Segmented, TextButton } from '@/components/ui';
 import type { CaravanStop } from '@/constants/data';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { caravansApi, hourLabel } from '@/features/caravans/api';
-import { methodLabel, type PaymentMethod } from '@/features/payments/checkout';
 import { useManifest, type OrgCaravan, type Passenger } from '@/features/organizer/boarding';
 import { TicketScanner } from '@/features/organizer/TicketScanner';
 import { useTicketCheck } from '@/features/organizer/useTicketCheck';
@@ -33,7 +33,6 @@ export default function Manifest() {
   // Only the organization's own departures: the server answers 404 for others (the list holds names and phones).
   const m = useManifest(id);
   const { organizer } = useAuth();
-  const isOwner = !!organizer?.roles.includes('owner');
   const isManager = !!organizer?.roles.some((r) => r === 'owner' || r === 'manager');
   const check = useTicketCheck(id);
   const [view, setView] = useState<Tab>('pickups');
@@ -102,21 +101,6 @@ export default function Manifest() {
 
   const share = () => Share.share({ message: manifestText(c, passengers) });
 
-  // "Récupérer l’argent": the paid seats (and late-cancellation fees) go to the organization's number.
-  const claim = () => {
-    if (!c.claim) return;
-    const send = (method: PaymentMethod) =>
-      m.claim(method).then(
-        (p) => p && toast(`Versement demandé : ${formatFcfa(p.amount)} sur le ${methodLabel[method]} de l’organisation (${p.phoneMasked}).`),
-        fail('Versement impossible'),
-      );
-    Alert.alert(`Récupérer ${formatFcfa(c.claim.amount)}`, 'Les places payées de ce départ, sur le numéro de l’organisation. Une seule fois par départ.', [
-      { text: 'Annuler', style: 'cancel' },
-      { text: methodLabel.wave, onPress: () => send('wave') },
-      { text: methodLabel.orange_money, onPress: () => send('orange_money') },
-    ]);
-  };
-  // Before the bus leaves: every ticket is refunded (cash ones had nothing to pay), students are notified.
   const cancellable = isManager && ['draft', 'published', 'confirmed'].includes(c.status);
   // Stops and seats can still be changed (added, or removed when nobody booked them) until the bus leaves.
   const editable = cancellable && c.departureAt > now;
@@ -133,13 +117,12 @@ export default function Manifest() {
           style: 'destructive',
           onPress: () =>
             caravansApi.cancelDeparture(organizer!.orgId, c.id, 'Annulé par l’organisateur').then(() => {
-              toast('Départ annulé : les passagers sont remboursés.');
+              toast('Départ annulé : les passagers sont prévenus. Rembourse en espèces ceux qui t’ont payé.');
               back();
             }, fail('Annulation impossible')),
         },
       ],
     );
-  const payoutStatus: Record<string, string> = { requested: 'demandé', processing: 'en cours', succeeded: 'versé', failed: 'nouvel essai en cours', manual_required: 'traité par l’équipe' };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -200,29 +183,27 @@ export default function Manifest() {
           )}
         </View>
 
-        {c.claim && (
-          <View style={[styles.card, shadow.card, styles.claim]}>
-            <Ionicons name={c.claim.payout ? 'checkmark-circle' : 'wallet-outline'} size={22} color={c.claim.payout ? colors.success : colors.primary} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.claimTitle}>
-                {c.claim.payout ? `${formatFcfa(c.claim.payout.amount)} · ${payoutStatus[c.claim.payout.status] ?? c.claim.payout.status}` : `${formatFcfa(c.claim.amount)} à récupérer`}
-              </Text>
-              <Text style={styles.muted}>
-                {c.claim.payout ? 'Versement sur le numéro de l’organisation.' : isOwner ? 'Le bus est parti : récupère l’argent des places pour payer le trajet.' : 'Le responsable de l’organisation récupère l’argent.'}
-              </Text>
-            </View>
-            {!c.claim.payout && isOwner && c.claim.amount > 0 && (
-              <Pressable style={styles.claimBtn} onPress={claim} accessibilityRole="button">
-                <Text style={styles.claimBtnText}>Récupérer</Text>
-              </Pressable>
-            )}
-          </View>
+        {/* Students pay in cash, in person: the organizer validates each request once the money is in hand. */}
+        {organizer && (c.status === 'published' || c.status === 'confirmed') && (
+          <RequestsCard
+            load={async () =>
+              (await caravansApi.requests(organizer.orgId, c.id)).items.map((r) => ({
+                id: r.id, name: r.student?.name ?? 'Étudiant', phone: r.student?.phone ?? null, total: r.total, expiresAt: r.expiresAt,
+                lines: r.seats.map((x) => `Place ${x.seat}${x.passenger ? ` · ${x.passenger}` : ''} · ${x.pickup} → ${x.dropoff}`),
+                units: r.seats.flatMap((x) => (x.id ? [{ id: x.id, label: `Place ${x.seat}${x.passenger ? ` · ${x.passenger.split(' ')[0]}` : ''}`, price: x.price ?? r.total / r.seats.length }] : [])),
+              }))
+            }
+            kind="caravan"
+            validate={(orderId, ids) => caravansApi.validateRequest(organizer.orgId, orderId, ids)}
+            refuse={(orderId, reason) => caravansApi.refuseRequest(organizer.orgId, orderId, reason)}
+            onChanged={m.refresh}
+          />
         )}
 
         <Segmented
           options={[
             { value: 'pickups', label: `Montées · ${c.pickups.length}` },
-            { value: 'dropoffs', label: `Descentes · ${c.dropoffs.length}` },
+            { value: 'dropoffs', label: `Arrêts · ${c.dropoffs.length}` },
           ]}
           value={view}
           onChange={setView}
@@ -272,8 +253,8 @@ export default function Manifest() {
               const list = passengers.filter((p) => p.dropoffStopId === stop.stopId);
               return (
                 <View key={stop.stopId} style={[styles.card, shadow.card, styles.stop]}>
-                  <StopHead stop={stop} estimated count={list.length ? `${list.length} descente${list.length > 1 ? 's' : ''}` : 'Personne'} />
-                  {list.length === 0 && <Text style={styles.muted}>Aucune descente : arrêt facultatif.</Text>}
+                  <StopHead stop={stop} estimated count={list.length ? `${list.length} descend${list.length > 1 ? 'ent' : ''}` : 'Personne'} />
+                  {list.length === 0 && <Text style={styles.muted}>Personne ne descend ici : arrêt facultatif.</Text>}
                   {groupedRows(list).map(({ p }) => (
                     <PassengerRow
                       key={p.ticketId}

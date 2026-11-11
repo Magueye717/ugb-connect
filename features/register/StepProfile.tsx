@@ -15,6 +15,7 @@ import {
   validateConfirm,
   validateName,
   validatePassword,
+  NIVEAUX,
   REGIONS,
   UFRS,
   ufrLabel,
@@ -33,6 +34,8 @@ export type ProfileValues = {
   room: string;
   /** UFR code: announcements for a UFR reach the student. */
   ufr: string | null;
+  /** Year of study (with the UFR). */
+  niveau: string | null;
   /** Home region. */
   region: string | null;
   password: string;
@@ -48,7 +51,7 @@ type Props = {
   submitError: string | null;
 };
 
-type FieldKey = 'firstName' | 'lastName' | 'ufr' | 'region' | 'campus' | 'village' | 'room' | 'password' | 'confirm' | 'accepted';
+type FieldKey = 'firstName' | 'lastName' | 'ufr' | 'niveau' | 'region' | 'campus' | 'village' | 'room' | 'password' | 'confirm' | 'accepted';
 
 // Same accent as the welcome screen.
 const ACCENT = colors.orange;
@@ -61,6 +64,7 @@ export function StepProfile({ values, onChange, onSubmit, submitting, submitErro
     firstName: validateName(values.firstName, 'prénom'),
     lastName: validateName(values.lastName, 'nom'),
     ufr: values.ufr ? null : 'Choisis ton UFR',
+    niveau: values.niveau ? null : 'Choisis ton niveau',
     region: values.region ? null : 'Choisis ta région d’origine',
     campus: values.campus ? null : 'Choisis ton campus',
     village: !values.onCampus || values.village ? null : 'Choisis ton village',
@@ -121,6 +125,18 @@ export function StepProfile({ values, onChange, onSubmit, submitting, submitErro
             onChange={(label) => onChange({ ufr: UFRS.find((u) => ufrLabel(u.code) === label)?.code ?? null })}
             onClose={() => touch('ufr')}
             invalid={!!shown('ufr')}
+          />
+        </LabeledField>
+        <LabeledField label="Niveau" error={shown('niveau')}>
+          <Select
+            icon="layers-outline"
+            title="Ton niveau"
+            placeholder="Licence 1, Master 2…"
+            value={values.niveau}
+            options={[...NIVEAUX]}
+            onChange={(niveau) => onChange({ niveau })}
+            onClose={() => touch('niveau')}
+            invalid={!!shown('niveau')}
           />
         </LabeledField>
         <LabeledField label="Région d’origine" error={shown('region')}>

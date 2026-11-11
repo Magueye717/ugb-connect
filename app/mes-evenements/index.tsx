@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,38 +9,51 @@ import { eventWhen } from '@/components/home';
 import { EmptyState, ErrorState } from '@/components/states';
 import { BackButton, StatusChip } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
-import { EVENT_STATUS, eventsApi, type OrgEventDto } from '@/features/events/api';
+import { EVENT_STATUS, type OrgEventDto } from '@/features/events/api';
+import { DoorActions } from '@/features/events/DoorActions';
+import { eventsSource } from '@/features/events/source';
 
-/** "Mes événements": the events a student organizes, where each one stands (validation, corrections, on sale). */
+/**
+ * "Mes événements": the events a student organizes, or (`org`, from the organizer space) an organization's; where each
+ * one stands (validation, corrections, on sale).
+ */
 export default function MesEvenements() {
+  const { org } = useLocalSearchParams<{ org?: string }>();
   const [items, setItems] = useState<OrgEventDto[] | null>(null);
   // The first load failed (no network…): « Impossible de charger », with « Réessayer » (not an empty list).
   const [loadFailed, setLoadFailed] = useState(false);
   const load = useCallback(() => {
     setLoadFailed(false);
-    eventsApi.mine().then((r) => setItems(r.items), () => setLoadFailed(true));
-  }, []);
+    eventsSource(org ?? null)
+      .list()
+      .then((r) => setItems(r.items), () => setLoadFailed(true));
+  }, [org]);
   useFocusEffect(load);
-  const back = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profil'));
+  const back = () => (router.canGoBack() ? router.back() : router.replace(org ? '/activites' : '/(tabs)/profil'));
+  const onSale = items?.find((e) => e.status === 'published');
+  const open = (id: string) => router.push(org ? { pathname: '/mes-evenements/[id]', params: { id, org } } : `/mes-evenements/${id}`);
 
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.head}>
         <BackButton onPress={back} />
-        <Text style={styles.h1}>Mes événements</Text>
+        <Text style={styles.h1}>{org ? 'Événements' : 'Mes événements'}</Text>
         <View style={{ width: 44 }} />
       </View>
       <ScrollView contentContainerStyle={styles.body} refreshControl={<RefreshControl refreshing={false} onRefresh={load} />}>
-        <Pressable style={[styles.new, shadow.card]} onPress={() => router.push('/mes-evenements/nouveau')} accessibilityRole="button">
+        <Pressable style={[styles.new, shadow.card]} onPress={() => open('nouveau')} accessibilityRole="button">
           <View style={styles.newIcon}>
             <Ionicons name="add" size={22} color="#fff" />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>Organiser un événement</Text>
-            <Text style={styles.muted}>Soirée, conférence, sortie… avec billetterie. Validé par l’équipe UGB Connect avant la mise en vente.</Text>
+            <Text style={styles.muted}>{org ? 'Soirée, conférence, sortie… avec billetterie : les étudiants demandent leurs billets et te paient en espèces.' : 'Soirée, conférence, sortie… avec billetterie. Validé par l’équipe UGB Connect avant la mise en vente.'}</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.muted} />
         </Pressable>
+
+        {/* An event on sale: its door (scan at the entrance, cash validated) one tap away. */}
+        {!!onSale && <DoorActions org={onSale.organizer.id} />}
 
         {!items && !loadFailed && <ActivityIndicator color={colors.primary} />}
         {!items && loadFailed && <ErrorState onRetry={load} />}
@@ -48,7 +61,7 @@ export default function MesEvenements() {
         {items?.map((e) => {
           const s = EVENT_STATUS[e.status];
           return (
-            <Pressable key={e.id} style={[styles.card, shadow.card]} onPress={() => router.push(`/mes-evenements/${e.id}`)} accessibilityRole="button">
+            <Pressable key={e.id} style={[styles.card, shadow.card]} onPress={() => open(e.id)} accessibilityRole="button">
               <Image source={{ uri: e.images[0] }} style={styles.thumb} contentFit="cover" />
               <View style={{ flex: 1, gap: 4 }}>
                 <StatusChip label={s.label} tone={s.tone} />

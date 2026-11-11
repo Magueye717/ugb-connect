@@ -70,7 +70,22 @@ export type ItemDto = {
   createdAt?: string;
   /** Done on the spot (not orderable): the caller said « Intéressé ». */
   interested?: boolean;
+  /** A restaurant's weekly menu: the days it's served, 1 (lundi) to 7 (dimanche); null: every day. */
+  days?: number[] | null;
 };
+
+/** « L M M J V S D », 1 = lundi. */
+export const WEEK_DAYS = [
+  { day: 1, short: 'Lun', long: 'lundi' },
+  { day: 2, short: 'Mar', long: 'mardi' },
+  { day: 3, short: 'Mer', long: 'mercredi' },
+  { day: 4, short: 'Jeu', long: 'jeudi' },
+  { day: 5, short: 'Ven', long: 'vendredi' },
+  { day: 6, short: 'Sam', long: 'samedi' },
+  { day: 7, short: 'Dim', long: 'dimanche' },
+];
+/** « Lun, Mer » or « Tous les jours ». */
+export const daysLabel = (days: number[] | null | undefined) => (!days || days.length === 7 ? 'Tous les jours' : WEEK_DAYS.filter((d) => days.includes(d.day)).map((d) => d.short).join(', '));
 
 export type BusinessDto = {
   /** The owner's and Référencement's views only: where each provider pays out. */
@@ -144,6 +159,8 @@ export type OrderDto = {
   address: string | null;
   note: string | null;
   refusal: string | null;
+  /** Cancelled because the student never came (« Client absent »). */
+  noShow?: boolean;
   refunded: boolean;
   /** `cash`: paid by hand at delivery or at the counter (no online payment). */
   method: OrderMethod;
@@ -171,7 +188,7 @@ export type BusinessPatch = Partial<{
   /** 9 digits per provider accepted (Wave, Orange Money); null: back to the organization's number. */
   payoutNumbers: Partial<Record<'wave' | 'orange_money', string | null>>;
 }>;
-export type ItemInput = { section: ItemSection; category?: string | null; name: string; detail?: string; price: number; photoIds?: string[]; stock?: number | null; available?: boolean; orderable?: boolean };
+export type ItemInput = { section: ItemSection; category?: string | null; name: string; detail?: string; price: number; photoIds?: string[]; stock?: number | null; available?: boolean; orderable?: boolean; days?: number[] | null };
 
 /** The steps a student sees, by mode. */
 export function orderSteps(mode: OrderMode) {
@@ -250,6 +267,8 @@ export const commerceApi = {
   /** At the counter: the code the student gives, typed or scanned from their QR. */
   handover: (b: BusinessRef, code: string) => api<OrderDto>('POST', `${own(b)}/orders/handover`, { ...auth, body: { code } }),
   refuse: (b: BusinessRef, id: string, reason: string) => api<OrderDto>('POST', `${own(b)}/orders/${id}/refuse`, { ...auth, body: { reason } }),
+  /** « Client absent »: an accepted or ready order the student never came for (cancelled, counted against them). */
+  noShow: (b: BusinessRef, id: string) => api<OrderDto>('POST', `${own(b)}/orders/${id}/no-show`, auth),
   // Admins
   all: () => api<{ items: BusinessDto[] }>('GET', '/admin/businesses', auth).then((r) => ({ items: r.items.map(business) })),
   /** A new entity with its owner, or `orgId`: a restaurant's entity also opens a shop (or the reverse). */

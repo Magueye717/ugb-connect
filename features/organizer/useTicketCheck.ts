@@ -19,8 +19,9 @@ export type ScanResult = {
  * Checks a scanned QR code or a typed ticket code on the server, which boards the passenger when it's valid.
  * The QR is signed by the server: a screenshot of a transferred or cancelled ticket is refused.
  * `departureId`: the list the scanner was opened from (a ticket for another departure is refused).
+ * `org`: the organization checking (a student's own entity, from « Mes événements »); the organizer space's otherwise.
  */
-export function useTicketCheck(departureId?: string) {
+export function useTicketCheck(departureId?: string, org?: string) {
   const { organizer } = useAuth();
 
   /** Boards one ticket picked by id (a companion standing next to the scanned passenger), online or from the kept list. */
@@ -49,8 +50,8 @@ export function useTicketCheck(departureId?: string) {
 
   return async (raw: string): Promise<ScanResult> => {
     const value = raw.trim();
-    const orgId = organizer?.orgId;
-    if (!orgId) return { tone: 'danger', title: 'Pas d’organisation', text: 'Ce compte ne gère aucun départ.' };
+    const orgId = org ?? organizer?.orgId;
+    if (!orgId) return { tone: 'danger', title: 'Pas d’organisation', text: 'Ce compte ne gère aucun départ ni événement.' };
     // Signed QR payloads have three dot-separated parts; anything short is a typed code.
     const isQr = value.split('.').length === 3;
     const scanId = newScanId();

@@ -48,10 +48,14 @@ export type Profile = {
    */
   originEditableFrom: string | null;
   identityEditableFrom: string | null;
+  /** Typed by the student: correctable until then (3 days after first given); null: locked or not given. */
+  studentNumberEditableUntil: string | null;
+  identityEditableUntil: string | null;
 };
 
 /** The organization this account manages. `orgId` (= `id`) is what /org/{orgId} calls use. */
-export type AccountOrganizer = CaravanOrganizer & { orgId: string; slug: string; roles: string[] };
+/** `capabilities`: what the organization does ('caravans', 'events'): its Activités screen shows only those. */
+export type AccountOrganizer = CaravanOrganizer & { orgId: string; slug: string; roles: string[]; capabilities: string[] };
 
 /**
  * The kind of part of the app shown, decided by the backend from the account: students book, organizers check their
@@ -122,7 +126,7 @@ type MeResponse = {
   lastName: string;
   initials: string;
   phoneMasked: string;
-  student: { studentNumber: string; campus: string; onCampus: boolean; village: string | null; room: string | null; ufr: string | null; region: string | null; filiere: string | null; niveau: string | null; identity?: { birthDate: string | null; birthPlace: string | null; nationality: string | null; fromCard: boolean } | null; originEditableFrom?: string | null; identityEditableFrom?: string | null } | null;
+  student: { studentNumber: string; campus: string; onCampus: boolean; village: string | null; room: string | null; ufr: string | null; region: string | null; filiere: string | null; niveau: string | null; identity?: { birthDate: string | null; birthPlace: string | null; nationality: string | null; fromCard: boolean } | null; originEditableFrom?: string | null; identityEditableFrom?: string | null; studentNumberEditableUntil?: string | null; identityEditableUntil?: string | null } | null;
   spaces: AppSpace[];
   platformRoles: string[];
   organizations: { id: string; name: string; category: string; level: string; roles: string[]; capabilities: string[]; space: string }[];
@@ -131,7 +135,7 @@ type MeResponse = {
 };
 
 type OrgResponse = {
-  organization: { id: string; slug: string; name: string; category: string; level: string; rating: number | null; trips: number };
+  organization: { id: string; slug: string; name: string; category: string; capabilities: string[]; level: string; rating: number | null; trips: number };
   myRoles: string[];
 };
 
@@ -170,6 +174,8 @@ function toProfile(me: MeResponse): Profile {
     identity: s?.identity ?? null,
     originEditableFrom: s?.originEditableFrom ?? null,
     identityEditableFrom: s?.identityEditableFrom ?? null,
+    studentNumberEditableUntil: s?.studentNumberEditableUntil ?? null,
+    identityEditableUntil: s?.identityEditableUntil ?? null,
   };
 }
 
@@ -185,6 +191,7 @@ async function loadOrganizer(orgId: string): Promise<AccountOrganizer | null> {
     rating: o.rating,
     trips: o.trips,
     roles: myRoles,
+    capabilities: o.capabilities ?? [],
   };
 }
 

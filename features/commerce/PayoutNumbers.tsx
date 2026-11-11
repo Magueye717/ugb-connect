@@ -1,9 +1,9 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import { Field, LabeledField } from '@/components/ui';
+import { PhoneField, phoneOk } from '@/components/PhoneField';
 import { colors, radii, typo } from '@/constants/theme';
 import type { OrderMethod } from '@/features/commerce/api';
-import { formatPhone, phoneDigits } from '@/features/register/validation';
+import { phoneDigits } from '@/features/register/validation';
 
 /** The providers that pay out to a number (cash is paid by hand). */
 export type PayoutProvider = 'wave' | 'orange_money';
@@ -23,7 +23,7 @@ export const payoutDigitsOf = (n?: { wave: string | null; orange_money: string |
 const accepted = (methods: OrderMethod[]) => PROVIDERS.filter((p) => methods.includes(p.value));
 
 /** Every provider accepted has a full number. */
-export const payoutNumbersOk = (methods: OrderMethod[], numbers: PayoutDigits) => accepted(methods).every((p) => (numbers[p.value] ?? '').length === 9);
+export const payoutNumbersOk = (methods: OrderMethod[], numbers: PayoutDigits) => accepted(methods).every((p) => phoneOk(numbers[p.value] ?? ''));
 
 /** What the API takes: the numbers of the providers accepted. */
 export const payoutNumbersBody = (methods: OrderMethod[], numbers: PayoutDigits) => Object.fromEntries(accepted(methods).map((p) => [p.value, numbers[p.value]!]));
@@ -41,20 +41,11 @@ export function PayoutNumbers({ methods, value, onChange }: { methods: OrderMeth
       <Text style={styles.hint}>L’argent des commandes payées par {shown.map((p) => p.label).join(' ou ')} arrive sur ce{shown.length > 1 ? 's' : ''} numéro{shown.length > 1 ? 's' : ''}.</Text>
       {shown.map((p) => {
         const digits = value[p.value] ?? '';
-        const bad = digits.length > 0 && digits.length < 9;
         return (
-          <LabeledField key={p.value} label={`Numéro ${p.label} *`} error={bad ? '9 chiffres' : !digits ? 'Obligatoire' : null}>
-            <Field
-              icon="wallet-outline"
-              prefix="+221"
-              keyboardType="phone-pad"
-              placeholder="77 123 45 67"
-              value={formatPhone(digits)}
-              onChangeText={(t) => onChange({ ...value, [p.value]: phoneDigits(t) })}
-              invalid={bad || !digits}
-              accessibilityLabel={`Numéro ${p.label} de versement`}
-            />
-          </LabeledField>
+          <View key={p.value} style={{ gap: 6 }}>
+            <PhoneField label={`Numéro ${p.label} *`} icon="wallet-outline" value={digits} onChange={(d) => onChange({ ...value, [p.value]: d })} accessibilityLabel={`Numéro ${p.label} de versement`} />
+            {!digits && <Text style={styles.required}>Obligatoire</Text>}
+          </View>
         );
       })}
     </View>
@@ -62,6 +53,7 @@ export function PayoutNumbers({ methods, value, onChange }: { methods: OrderMeth
 }
 
 const styles = StyleSheet.create({
+  required: { ...typo.caption, color: colors.dangerText },
   box: { gap: 8, padding: 12, borderRadius: radii.md, backgroundColor: colors.primarySofter },
   title: { ...typo.smallStrong, color: colors.navy },
   hint: { ...typo.caption, color: colors.muted2, lineHeight: 17 },

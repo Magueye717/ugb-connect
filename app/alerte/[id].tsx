@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
 import { PhotoGallery } from '@/components/PhotoGallery';
 import { EmptyState } from '@/components/states';
 import { BackButton, PrimaryButton } from '@/components/ui';
@@ -22,7 +23,8 @@ import { documentMeta } from '@/lib/fileSize';
  */
 export default function AlertePage() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { alerts } = useCampus();
+  const { alerts, refresh } = useCampus();
+  const pull = usePullRefresh(refresh);
   const known = alerts.find((a) => a.id === id) ?? null;
   const [fetched, setFetched] = useState<AlertDto | null>(null);
   const [gone, setGone] = useState(false);
@@ -61,7 +63,7 @@ export default function AlertePage() {
           <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
         )
       ) : (
-        <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} refreshControl={pull}>
           {a.images.map((uri, i) => (
             <Pressable key={uri} onPress={() => setZoom(i)} accessibilityRole="button" accessibilityLabel={`Agrandir la photo ${i + 1}`}>
               <Image source={{ uri }} style={[styles.image, { height: Math.round((width - 40) * 0.62) }]} contentFit="cover" transition={200} />

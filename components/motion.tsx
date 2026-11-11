@@ -72,3 +72,45 @@ export function LivePulse({ color, size }: { color: ColorValue; size: number }) 
     />
   );
 }
+
+/** « Recherche… »: three dots lighting up one after the other, as long as it's shown (still, with reduced motion). */
+export function SearchingDots({ color, size = 5 }: { color: ColorValue; size?: number }) {
+  return (
+    <Animated.View style={{ flexDirection: 'row', gap: size * 0.7, alignItems: 'center' }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      {[0, 1, 2].map((i) => (
+        <Dot key={i} index={i} color={color} size={size} />
+      ))}
+    </Animated.View>
+  );
+}
+
+function Dot({ index, color, size }: { index: number; color: ColorValue; size: number }) {
+  const reduced = useReducedMotion();
+  const t = useSharedValue(0.3);
+  useEffect(() => {
+    if (reduced) return;
+    t.set(withDelay(index * 220, withRepeat(withSequence(withTiming(1, { duration: 420 }), withTiming(0.3, { duration: 420 })), -1, false)));
+  }, [t, index, reduced]);
+  const style = useAnimatedStyle(() => ({ opacity: t.get(), transform: [{ scale: 0.8 + t.get() * 0.3 }] }));
+  return <Animated.View style={[{ width: size, height: size, borderRadius: size / 2, backgroundColor: color }, style]} />;
+}
+
+/**
+ * A small hop every few seconds, to say « this is open, join it » (an open taxi trip). Still with reduced motion.
+ */
+export function Hop({ children, height = 5, everyMs = 2600 }: { children: ReactNode; height?: number; everyMs?: number }) {
+  const reduced = useReducedMotion();
+  const y = useSharedValue(0);
+  useEffect(() => {
+    if (reduced) return;
+    y.set(
+      withRepeat(
+        withSequence(withDelay(everyMs, withTiming(-height, { duration: 180, easing: Easing.out(Easing.quad) })), withTiming(0, { duration: 260, easing: Easing.bounce })),
+        -1,
+        false,
+      ),
+    );
+  }, [y, height, everyMs, reduced]);
+  const style = useAnimatedStyle(() => ({ transform: [{ translateY: y.get() }] }));
+  return <Animated.View style={style}>{children}</Animated.View>;
+}

@@ -55,7 +55,7 @@ function NoticeCard({ notice: n }: { notice: Notice }) {
         <Animated.View entering={ZoomIn.springify().damping(16).stiffness(220)} style={[styles.card, shadow.raised, { maxHeight: height * 0.86 }]} accessibilityViewIsModal>
           <ScrollView contentContainerStyle={styles.body} bounces={false} showsVerticalScrollIndicator={false}>
             <View style={[styles.halo, { backgroundColor: t.bg }]}>
-              <Ionicons name={t.icon} size={40} color={t.fg} />
+              <Ionicons name={t.icon} size={28} color={t.fg} />
             </View>
             <Text style={styles.title} accessibilityRole="header">
               {n.title}
@@ -121,26 +121,27 @@ function NoticeCard({ notice: n }: { notice: Notice }) {
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(15,27,76,0.45)', alignItems: 'center', justifyContent: 'center', padding: 24 },
-  card: { width: '100%', maxWidth: 420, backgroundColor: colors.card, borderRadius: radii.xl, overflow: 'hidden' },
-  body: { alignItems: 'center', gap: 10, paddingHorizontal: 22, paddingTop: 26, paddingBottom: 8 },
-  halo: { width: 76, height: 76, borderRadius: 38, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
-  title: { ...typo.h3, color: colors.navy, textAlign: 'center' },
-  message: { ...typo.body, color: colors.muted2, textAlign: 'center', lineHeight: 21 },
-  steps: { alignSelf: 'stretch', gap: 10, marginTop: 6, padding: 14, borderRadius: radii.lg, backgroundColor: colors.bg },
+  backdrop: { flex: 1, backgroundColor: 'rgba(15,27,76,0.45)', alignItems: 'center', justifyContent: 'center', padding: 32 },
+  // Compact: a short message, not a page.
+  card: { width: '100%', maxWidth: 340, backgroundColor: colors.card, borderRadius: radii.xl, overflow: 'hidden' },
+  body: { alignItems: 'center', gap: 8, paddingHorizontal: 18, paddingTop: 18, paddingBottom: 4 },
+  halo: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
+  title: { ...typo.title, color: colors.navy, textAlign: 'center' },
+  message: { ...typo.small, color: colors.muted2, textAlign: 'center', lineHeight: 19 },
+  steps: { alignSelf: 'stretch', gap: 8, marginTop: 4, padding: 12, borderRadius: radii.lg, backgroundColor: colors.bg },
   step: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   stepDot: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.border },
   stepNum: { ...typo.label, color: colors.muted2 },
   stepText: { ...typo.small, color: colors.muted2, flex: 1, lineHeight: 19 },
   footnote: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   footnoteText: { ...typo.caption, color: colors.muted2, flexShrink: 1, textAlign: 'center' },
-  actions: { gap: 8, paddingHorizontal: 22, paddingTop: 12, paddingBottom: 18 },
-  bullets: { alignSelf: 'stretch', gap: 8, marginTop: 4, padding: 14, borderRadius: radii.lg, backgroundColor: colors.bg },
+  actions: { gap: 6, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 14 },
+  bullets: { alignSelf: 'stretch', gap: 6, marginTop: 2, padding: 12, borderRadius: radii.lg, backgroundColor: colors.bg },
   bullet: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   bulletDot: { width: 7, height: 7, borderRadius: 4, marginTop: 6 },
   bulletText: { ...typo.small, color: colors.text, flex: 1, lineHeight: 19 },
-  choice: { minHeight: 50, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+  choice: { minHeight: 44, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
   choiceDanger: { backgroundColor: colors.dangerText },
   choicePrimary: { backgroundColor: colors.primary },
-  choiceText: { ...typo.title, color: '#fff', textAlign: 'center' },
+  choiceText: { ...typo.bodyStrong, color: '#fff', textAlign: 'center' },
 });

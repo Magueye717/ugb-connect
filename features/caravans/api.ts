@@ -49,8 +49,30 @@ export type HeldBooking = {
   id: string;
   seat: number;
   holdExpiresAt: string;
-  seats: { seat: number; passenger: PassengerDto | null }[];
+  /** Each seat waiting, its own code (UGBREQ:…): paid one by one, or all together with `code`. */
+  seats: { id?: string; seat: number; price?: number; code?: string | null; passenger: PassengerDto | null }[];
   payment: { reference: string; checkoutUrl: string | null } | null;
+  /** A request: to pay the organizer in cash, who validates it before `holdExpiresAt`. */
+  awaitingValidation?: boolean;
+  total?: number;
+  /** The request's code, shown as a QR code (UGBREQ:…) for the organizer to scan when paid. */
+  code?: string | null;
+  /** Who to pay and call. */
+  organizer?: { name: string; phone: string } | null;
+};
+
+/** A request waiting for the organizer: who, which seats and stops, how much, until when. */
+export type SeatRequestDto = {
+  id: string;
+  status: string;
+  total: number;
+  expiresAt: string;
+  createdAt: string;
+  student: { name: string; phone: string } | null;
+  /** The seats still waiting, each with its own code. */
+  seats: { id?: string; seat: number; price?: number; code?: string | null; passenger: string | null; pickup: string; dropoff: string }[];
+  /** Found by one seat's own code: that seat. */
+  matched?: string | null;
 };
 
 export type OrgDepartureDto = DepartureDto & {
@@ -110,7 +132,8 @@ export type BookingDto = {
 };
 
 /** One seat asked for: mine (no passenger), or a companion's. Seat omitted: picked by the server. */
-export type SeatRequest = { seat?: number; passenger?: PassengerDto };
+/** A seat: mine, or a companion's (who may board and get off at other stops than mine). */
+export type SeatRequest = { seat?: number; passenger?: PassengerDto; pickupStopId?: string; dropoffStopId?: string };
 
 export type CancellationQuote = { allowed: true; fee: number; refund: number; freeUntil: string | null } | { allowed: false; reason: string };
 
@@ -216,7 +239,7 @@ export const caravansApi = {
   departure: (id: string) => api<DepartureDto>('GET', `/caravans/departures/${id}`, auth),
   seats: (id: string) => api<SeatMap>('GET', `/caravans/departures/${id}/seats`, auth),
   /** `cash`: booked at once, `payment` is null. */
-  book: (id: string, body: { seats: SeatRequest[]; pickupStopId: string; dropoffStopId: string; method: TicketMethod }) =>
+  book: (id: string, body: { seats: SeatRequest[]; pickupStopId: string; dropoffStopId: string; method?: TicketMethod }) =>
     api<{ booking: BookingDto; payment: PaymentDto | null }>('POST', `/caravans/departures/${id}/bookings`, { ...auth, body: { ...body, returnUrl: paymentReturnUrl() } }),
   booking: (id: string) => api<BookingDto>('GET', `/caravans/bookings/${id}`, auth),
   release: (id: string) => api<void>('DELETE', `/caravans/bookings/${id}`, auth),
@@ -248,6 +271,13 @@ export const caravansApi = {
     api<OrgDepartureDto>('PATCH', `/org/${orgId}/departures/${id}`, { ...auth, body }),
   publishDeparture: (orgId: string, id: string) => api<OrgDepartureDto>('POST', `/org/${orgId}/departures/${id}/publish`, auth),
   /** Every ticket is refunded 100 %. */
+  /** The requests waiting on a departure; validated once the cash is received, or refused. */
+  requests: (orgId: string, id: string) => api<{ items: SeatRequestDto[] }>('GET', `/org/${orgId}/departures/${id}/requests`, auth),
+  requestByCode: (orgId: string, code: string) => api<{ request: (SeatRequestDto & { title: string }) | null }>('GET', `/org/${orgId}/departures/requests/by-code/${encodeURIComponent(code)}`, auth),
+  /** `bookingIds`: only those seats (paid one by one); every seat waiting otherwise. */
+  validateRequest: (orgId: string, orderId: string, bookingIds?: string[]) =>
+    api<SeatRequestDto>('POST', `/org/${orgId}/departures/requests/${orderId}/validate`, { ...auth, body: bookingIds?.length ? { bookingIds } : undefined }),
+  refuseRequest: (orgId: string, orderId: string, reason: string | null) => api<void>('POST', `/org/${orgId}/departures/requests/${orderId}/refuse`, { ...auth, body: { reason } }),
   cancelDeparture: (orgId: string, id: string, reason: string) => api<{ refunded: number }>('POST', `/org/${orgId}/departures/${id}/cancel`, { ...auth, body: { reason } }),
   manifest: (orgId: string, id: string) => api<ManifestDto>('GET', `/org/${orgId}/departures/${id}/manifest`, auth),
   scan: (orgId: string, body: { qr?: string; code?: string; ticketId?: string; eventId?: string; locationId?: string; clientScanId: string }) =>
@@ -344,7 +374,10 @@ export type CaravanOrganizerDto = {
   id: string;
   name: string;
   category: OrganizerCategory;
+  /** Shown to students: the badge given or earned by the trips (5: Vérifié, 20: Certifié), the higher. */
   level: OrganizerLevel;
+  /** What Référencement set: « nouveau » lets the trips decide. */
+  levelGiven?: OrganizerLevel;
   status: 'pending' | 'active' | 'suspended';
   rating: number | null;
   trips: number;

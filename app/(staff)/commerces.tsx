@@ -7,6 +7,8 @@ import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Tex
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
+import { PhoneField } from '@/components/PhoneField';
 import { MultiSelect } from '@/components/Select';
 import { EmptyState, ErrorState } from '@/components/states';
 import { Chip, Field, LabeledField, PrimaryButton, Segmented, SheetFooter, SheetHeader, TextButton, Toggle, useDirty } from '@/components/ui';
@@ -14,9 +16,11 @@ import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { commerceApi, type BusinessDto, type BusinessKind, type OrderMethod, type OwnedEntity } from '@/features/commerce/api';
 import { useCommerceReference } from '@/features/commerce/useCommerceReference';
-import { PayoutNumbers, payoutDigitsOf, payoutNumbersBody, payoutNumbersOk, type PayoutDigits } from '@/features/commerce/PayoutNumbers';
+import { payoutDigitsOf, payoutNumbersBody, payoutNumbersOk, type PayoutDigits } from '@/features/commerce/PayoutNumbers';
 import { CAMPUSES } from '@/features/register/validation';
+import { ALL_DAY, isAllDay } from '@/features/commerce/allDay';
 import { ApiError } from '@/lib/api';
+import { closeGuarded } from '@/lib/leaveGuard';
 import { pickPhoto } from '@/lib/pickPhoto';
 import { uploadImage } from '@/lib/upload';
 import { toast } from '@/lib/toast';
@@ -46,6 +50,7 @@ export default function Commerces() {
     commerceApi.all().then((r) => setItems(r.items), () => setLoadFailed(true));
   }, []);
   useFocusEffect(load);
+  const pull = usePullRefresh(load);
 
   const toggle = (b: BusinessDto, active: boolean) => {
     setItems((list) => list?.map((x) => (x.id === b.id ? { ...x, active } : x)) ?? null);
@@ -58,7 +63,7 @@ export default function Commerces() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView refreshControl={pull} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <View style={styles.row}>
           <Text style={[styles.h1, { flex: 1 }]}>{kinds.length > 1 ? 'Commerces' : kind === 'restaurant' ? 'Restos privés' : 'Boutiques'}</Text>
           <Pressable style={styles.add} onPress={() => setCreating(true)} accessibilityRole="button">
@@ -148,8 +153,8 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
   // Opening hours, every day: up to 3 slots (a restaurant: lunch and dinner).
   const [services, setServices] = useState<Slot[]>(defaultSlots(kind));
   // How students may pay; the editor can add cash.
-  const [methods, setMethods] = useState<OrderMethod[]>(['wave', 'orange_money']);
-  const toggleMethod = (m: OrderMethod) => setMethods((list) => (list.includes(m) ? (list.length > 1 ? list.filter((x) => x !== m) : list) : [...list, m]));
+  // Orders are paid in cash only (Wave / Orange Money are for UGB Connect's own fees).
+  const methods: OrderMethod[] = ['cash'];
   // Where Wave / Orange Money pay out: the owner's number unless changed here (a loaded business: its own numbers).
   const [payout, setPayout] = useState<PayoutDigits>({});
   const [phone, setPhone] = useState('');
@@ -179,7 +184,6 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
       setLocation(b.location);
       setPhoto(b.photo ? { id: '', url: b.photo } : null);
       setServices(b.services.length ? b.services.map((x) => ({ ...x })) : defaultSlots(kind));
-      setMethods(b.paymentMethods.map((m) => m.value));
       setPayout(payoutDigitsOf(b.payoutNumbers));
     },
     [kind],
@@ -200,7 +204,6 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
     setLocation(null);
     setPhoto(null);
     setServices(defaultSlots(kind));
-    setMethods(['wave', 'orange_money']);
     setPayout({});
   };
 
@@ -271,13 +274,17 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
   };
 
   // Each slot well formed, ending after it starts, and none overlapping the previous one.
+  const allDay = isAllDay(services);
   const sorted = [...services].sort((a, b) => a.start.localeCompare(b.start));
   const hoursOk = services.length > 0 && services.every((x) => HHMM.test(x.start) && HHMM.test(x.end) && x.start < x.end) && sorted.every((x, i) => i === 0 || x.start >= sorted[i - 1]!.end);
   const ownerOk = !!current || !!orgId || (digits.length >= 9 && firstName.trim().length >= 2 && lastName.trim().length >= 2);
   // A business loaded in the form (the number's own): usable once something changed. Its loading starts this over.
   const payoutShown: PayoutDigits = { wave: payout.wave ?? digits, orange_money: payout.orange_money ?? digits };
   const dirty = useDirty({ name, specialties, address, campus, photo: photo?.url ?? null, location, services, methods, payout: payoutNumbersBody(methods, payoutShown) }, current?.id ?? null);
-  const ready = name.trim().length >= 2 && specialties.length > 0 && hoursOk && ownerOk && payoutNumbersOk(methods, payoutShown) && (!current || dirty) && !busy;
+  // Closing with changes not saved asks first.
+  const close = () => closeGuarded(dirty && busy !== 'save', onClose);
+  // On the map: taken on site with « Ma position actuelle » (required).
+  const ready = name.trim().length >= 2 && specialties.length > 0 && !!location && hoursOk && ownerOk && payoutNumbersOk(methods, payoutShown) && (!current || dirty) && !busy;
 
   const create = async () => {
     setBusy('save');
@@ -310,12 +317,12 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
   };
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} />
+    <Modal visible transparent animationType="slide" onRequestClose={close}>
+      <Pressable style={styles.backdrop} onPress={close} />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <View style={styles.sheet}>
         <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 12, paddingBottom: 16 }} keyboardShouldPersistTaps="handled">
-          <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>{current ? `Modifier ${current.name}` : kind === 'restaurant' ? 'Nouveau restaurant' : 'Nouvelle boutique'}</SheetHeader>
+          <SheetHeader onClose={close} titleStyle={styles.sheetTitle}>{current ? `Modifier ${current.name}` : kind === 'restaurant' ? 'Nouveau restaurant' : 'Nouvelle boutique'}</SheetHeader>
 
           <Pressable style={styles.cover} onPress={pick} accessibilityRole="button" accessibilityLabel="Ajouter une photo">
             {photo ? <Image source={{ uri: photo.url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name="camera-outline" size={26} color={colors.primary} />}
@@ -324,9 +331,7 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
               <Text style={styles.coverBadgeText}>{photo ? 'Changer la photo' : 'Ajouter une photo'}</Text>
             </View>
           </Pressable>
-          <LabeledField label="Téléphone du propriétaire (son identifiant)">
-            <Field icon="call-outline" keyboardType="phone-pad" placeholder="77 123 45 67" value={phone} onChangeText={changePhone} maxLength={16} right={looking ? <ActivityIndicator size="small" color={colors.primary} /> : undefined} />
-          </LabeledField>
+          <PhoneField label="Téléphone du propriétaire (son identifiant)" value={phone} onChange={changePhone} right={looking ? <ActivityIndicator size="small" color={colors.primary} /> : undefined} />
           {found && (
             <View style={[styles.found, { backgroundColor: found.account ? colors.successBg : colors.primarySoft }]}>
               <Ionicons name={found.account ? 'person-circle-outline' : 'person-add-outline'} size={18} color={found.account ? colors.successText : colors.primary} />
@@ -367,10 +372,25 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
               <Chip key={c.key} label={c.label} selected={campus === c.key} onPress={() => pickCampus(c.key, c.label)} />
             ))}
           </View>
-          <TextButton label={busy === 'locate' ? 'Localisation…' : location ? `Position : ${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}` : 'Ma position actuelle'} icon="locate" onPress={here} disabled={busy === 'locate'} />
+          <Pressable style={[styles.locate, location ? styles.locateDone : styles.locateTodo]} onPress={here} disabled={busy === 'locate'} accessibilityRole="button">
+            {busy === 'locate' ? <ActivityIndicator color={colors.primary} size="small" /> : <Ionicons name={location ? 'checkmark-circle' : 'locate'} size={18} color={location ? colors.successText : colors.primary} />}
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.locateTitle, location && { color: colors.successText }]}>{busy === 'locate' ? 'Localisation…' : location ? 'Position enregistrée' : 'Ma position actuelle *'}</Text>
+              <Text style={styles.muted}>{location ? `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)} · appuie à nouveau pour la reprendre` : 'Obligatoire : sur place, devant le commerce.'}</Text>
+            </View>
+          </Pressable>
 
           <Text style={styles.section}>Horaires (tous les jours)</Text>
-          {services.map((x, i) => (
+          {kind === 'shop' && (
+            <View style={styles.allDay}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.allDayTitle}>Ouvert 24h/24</Text>
+                <Text style={styles.muted}>Les clients commandent à toute heure, tous les jours.</Text>
+              </View>
+              <Toggle value={allDay} onValueChange={(v) => setServices(v ? ALL_DAY.map((x) => ({ ...x })) : defaultSlots(kind))} accessibilityLabel="Ouvert 24h/24" />
+            </View>
+          )}
+          {!allDay && services.map((x, i) => (
             <View key={i} style={styles.slot}>
               {services.length > 1 && <Text style={styles.slotLabel}>Créneau {i + 1}</Text>}
               <View style={{ flex: 1 }}>
@@ -387,19 +407,13 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
               )}
             </View>
           ))}
-          {services.length < MAX_SLOTS && (
+          {!allDay && services.length < MAX_SLOTS && (
             <TextButton label="Ajouter un créneau" icon="add-circle-outline" onPress={() => setServices((list) => [...list, nextSlot(list)])} />
           )}
           {!hoursOk && <Text style={styles.warn}>Horaires au format 08:00, chaque fermeture après son ouverture, sans chevauchement.</Text>}
 
-          <Text style={styles.section}>Paiements acceptés</Text>
-          <View style={styles.row}>
-            {(ref?.paymentMethods ?? []).map((m) => (
-              <Chip key={m.value} label={m.label} selected={methods.includes(m.value)} onPress={() => toggleMethod(m.value)} role="checkbox" icon={m.value === 'cash' ? 'cash-outline' : 'phone-portrait-outline'} />
-            ))}
-          </View>
-          <Text style={styles.muted}>Espèces : payé au livreur ou au retrait (rien ne passe par l’app).</Text>
-          <PayoutNumbers methods={methods} value={payoutShown} onChange={setPayout} />
+          <Text style={styles.section}>Paiement</Text>
+          <Text style={styles.muted}>Les commandes se paient en espèces, au livreur ou au retrait : rien ne passe par l’app.</Text>
 
           <Text style={styles.section}>Propriétaire</Text>
           {current ? (
@@ -468,4 +482,10 @@ const styles = StyleSheet.create({
   cover: { height: 140, borderRadius: radii.lg, backgroundColor: colors.primarySoft, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   coverBadge: { position: 'absolute', right: 10, bottom: 10, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: radii.pill, backgroundColor: 'rgba(10,16,40,0.65)' },
   coverBadgeText: { ...typo.captionStrong, color: '#fff' },
+  allDay: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: radii.md, backgroundColor: colors.primarySofter },
+  allDayTitle: { ...typo.bodyStrong, color: colors.navy },
+  locate: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: radii.md, borderWidth: 1.5 },
+  locateTodo: { borderColor: colors.primary, borderStyle: 'dashed', backgroundColor: colors.primarySofter },
+  locateDone: { borderColor: colors.successBg, backgroundColor: colors.successBg },
+  locateTitle: { ...typo.smallStrong, color: colors.primary },
 });

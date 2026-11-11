@@ -52,6 +52,7 @@ export default function RegisterScreen() {
     village: null,
     room: '',
     ufr: null,
+    niveau: null,
     region: null,
     password: '',
     confirm: '',
@@ -123,7 +124,7 @@ export default function RegisterScreen() {
   };
 
   const submitProfile = async () => {
-    if (!profile.campus || !profile.ufr || !profile.region || (profile.onCampus && !profile.village) || !verificationToken) return;
+    if (!profile.campus || !profile.ufr || !profile.niveau || !profile.region || (profile.onCampus && !profile.village) || !verificationToken) return;
     setSubmitting(true);
     setProfileError(null);
     try {
@@ -137,6 +138,7 @@ export default function RegisterScreen() {
         village: profile.onCampus ? profile.village : null,
         room: profile.onCampus ? profile.room : null,
         ufr: profile.ufr,
+        niveau: profile.niveau,
         region: profile.region,
         password: profile.password,
       });

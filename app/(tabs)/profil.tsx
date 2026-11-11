@@ -3,6 +3,7 @@ import { router, type Href } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
 import { AvatarPicker } from '@/components/AvatarPicker';
 import { LogoutButton } from '@/components/LogoutButton';
 import { SpacesList } from '@/components/SpacesList';
@@ -24,17 +25,18 @@ const TONES: Record<'account' | 'activity' | 'prefs' | 'help', Tone> = {
 type Row = { icon: keyof typeof Ionicons.glyphMap; label: string; href?: Href; badge?: number; todo?: boolean; done?: boolean; onPress?: () => void };
 
 export default function ProfilScreen() {
-  const { user, spaces } = useAuth();
+  const { user, spaces, reloadAccount } = useAuth();
   // The shop they own: "Ma boutique" once there is one.
   const myShop = ownShop(spaces);
   const cardDone = !!user?.identity?.fromCard;
 
-  const { unreadCount } = useNotifications();
+  const { unreadCount, refresh: refreshNotifications } = useNotifications();
+  const pull = usePullRefresh(reloadAccount, refreshNotifications);
 
   // Grouped lists, like system settings: fewer boxes, clearer sections.
   // What makes the profile complete: a photo, the student number (optional at sign-up), UFR and region (announcements
   // are aimed with them), the card checked.
-  const steps = [!!user?.avatarUrl, !!user?.studentId, !!user?.ufrCode && !!user?.region, cardDone];
+  const steps = [!!user?.avatarUrl, !!user?.studentId, !!user?.ufrCode && !!user?.niveau && !!user?.region, cardDone];
   const done = steps.filter(Boolean).length;
 
   const groups: { title: string; tone: Tone; rows: Row[] }[] = [
@@ -42,9 +44,11 @@ export default function ProfilScreen() {
       title: 'Mon compte',
       tone: TONES.account,
       rows: [
-        { icon: 'person-outline', label: 'Informations personnelles', href: '/infos', todo: !user?.studentId },
-        { icon: 'school-outline', label: 'Mon UFR et ma région', href: '/mes-etudes', todo: !user?.ufrCode || !user.region },
-        { icon: 'card-outline', label: 'Ma carte étudiant', href: '/ma-carte', todo: !cardDone, done: cardDone },
+        { icon: 'person-outline', label: 'Informations personnelles', href: '/infos' },
+        { icon: 'school-outline', label: 'Mon UFR et mon niveau', href: '/mes-etudes', todo: !user?.ufrCode || !user.niveau },
+        // The student number and the card's details both live there.
+        // The student number, the région and the card's details all live there.
+        { icon: 'card-outline', label: 'Ma carte étudiant', href: '/ma-carte', todo: !cardDone || !user?.studentId || !user.region, done: cardDone && !!user?.studentId && !!user.region },
       ],
     },
     {
@@ -77,7 +81,7 @@ export default function ProfilScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} refreshControl={pull}>
         <Text style={styles.h1}>Profil</Text>
         {/* The student's own block: the one coloured card of the screen. */}
         <View style={[styles.hero, shadow.raised]}>

@@ -6,15 +6,15 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'rea
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
 import { MultiSelect } from '@/components/Select';
 import { ErrorState } from '@/components/states';
-import { BackButton, Field, LabeledField, PrimaryButton, Segmented, TextButton, Toggle } from '@/components/ui';
+import { BackButton, Field, LabeledField, PrimaryButton, Segmented, StickyFooter, TextButton, Toggle } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { ownShop, useAuth } from '@/context/AuthContext';
 import { commerceApi, type BusinessDto, type BusinessRef, type OrderMethod } from '@/features/commerce/api';
 import { BusinessProfileForm } from '@/features/commerce/BusinessProfileForm';
 import { CatalogEditor } from '@/features/commerce/CatalogEditor';
-import { PaymentMethodsPicker } from '@/features/commerce/PaymentMethodsPicker';
 import { useCommerceReference } from '@/features/commerce/useCommerceReference';
 import { api, ApiError } from '@/lib/api';
 import { pickPhoto } from '@/lib/pickPhoto';
@@ -50,6 +50,7 @@ function MyShop({ orgId, spaceKey }: { orgId: string; spaceKey: string }) {
     commerceApi.mine({ orgId, kind: 'shop' }).then(setB, () => setFailed(true));
   }, [orgId]);
   useFocusEffect(load);
+  const pull = usePullRefresh(load);
 
   // Away for a few days: the shop stays listed, orders are paused.
   const pause = async (accepting: boolean) => {
@@ -70,7 +71,7 @@ function MyShop({ orgId, spaceKey }: { orgId: string; spaceKey: string }) {
         <BackButton onPress={back} />
         <Text style={styles.h1}>Ma boutique</Text>
       </View>
-      <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView refreshControl={pull} style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           {!b ? (
             failed ? <ErrorState onRetry={load} /> : <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />
           ) : (
@@ -134,7 +135,7 @@ function OpenShop() {
   const [description, setDescription] = useState('');
   const [photo, setPhoto] = useState<{ id: string; url: string } | null>(null);
   // A new student shop: cash only until the team verifies it (the server refuses the others).
-  const [methods, setMethods] = useState<OrderMethod[]>(['cash']);
+  const methods: OrderMethod[] = ['cash'];
   const [busy, setBusy] = useState<'photo' | 'save' | null>(null);
   const back = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profil'));
 
@@ -194,11 +195,11 @@ function OpenShop() {
           <LabeledField label="Présentation (facultatif)">
             <Field placeholder="Où te trouver, tes horaires, ce qui te rend unique…" value={description} onChangeText={setDescription} maxLength={500} multiline />
           </LabeledField>
-          <LabeledField label="Tes clients paient">
-            {ref ? <PaymentMethodsPicker options={ref.paymentMethods} value={methods} onChange={setMethods} online={false} /> : <ActivityIndicator color={colors.primary} />}
-          </LabeledField>
-          <PrimaryButton label="Ouvrir ma boutique" disabled={name.trim().length < 2 || !specialties.length || !!busy} loading={busy === 'save'} onPress={open} />
+          <Text style={styles.muted}>Tes clients paient en espèces, à la remise : rien ne passe par l’app.</Text>
         </KeyboardAwareScrollView>
+      <StickyFooter>
+        <PrimaryButton label="Ouvrir ma boutique" disabled={name.trim().length < 2 || !specialties.length || !!busy} loading={busy === 'save'} onPress={open} />
+      </StickyFooter>
     </SafeAreaView>
   );
 }

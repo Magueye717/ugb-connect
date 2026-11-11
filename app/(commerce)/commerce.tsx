@@ -6,6 +6,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'rea
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
 import { LogoutButton } from '@/components/LogoutButton';
 import { ProfileHero } from '@/components/ProfileHero';
 import { SpacesList } from '@/components/SpacesList';
@@ -34,6 +35,7 @@ export default function Commerce() {
     commerceApi.mine(business).then(setB, () => setFailed(true));
   }, [business]);
   useFocusEffect(load);
+  const pull = usePullRefresh(load);
 
   if (!business) return null;
   const confirmLogout = () =>
@@ -45,7 +47,7 @@ export default function Commerce() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView refreshControl={pull} style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={styles.headRow}>
             <Text style={[styles.h1, { flex: 1 }]}>{business.kind === 'restaurant' ? 'Mon restaurant' : 'Ma boutique'}</Text>
             {/* Always in sight, not only under the form. */}

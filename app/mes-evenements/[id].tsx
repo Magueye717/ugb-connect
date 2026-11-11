@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -12,16 +12,21 @@ import { DateField, TimeField } from '@/components/DatePicker';
 import { eventWhen } from '@/components/home';
 import { LivePulse, NudgeRight } from '@/components/motion';
 import { PaymentLogo } from '@/components/PaymentLogo';
-import { BackButton, Chip, Field, LabeledField, PrimaryButton, StatusChip, STICKY_FOOTER_SPACE, StickyFooter, TextButton } from '@/components/ui';
+import { RequestsCard } from '@/components/RequestsCard';
+import { DoorActions } from '@/features/events/DoorActions';
+import { BackButton, Chip, Field, LabeledField, PrimaryButton, Segmented, StatusChip, STICKY_FOOTER_SPACE, StickyFooter, TextButton, useDirty } from '@/components/ui';
 import { formatFcfa, paymentMethods } from '@/constants/data';
+import { methodsOffLine, useMethodsOff } from '@/features/payments/methods';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { bannerLastDay, bannersApi, holdsSlot, type BannerDto } from '@/features/banners/api';
+import { eventsSource, EventsSourceProvider, useEventsSource } from '@/features/events/source';
 import { CATEGORIES, EVENT_STATUS, eventsApi, EVERYONE, type EventAudience, type EventCategory, type EventInput, type OrgEventDto } from '@/features/events/api';
-import { payInBrowser, ticketMethodLabel, type PaymentMethod, type TicketMethod } from '@/features/payments/checkout';
+import { payInBrowser, type PaymentMethod } from '@/features/payments/checkout';
 import { CAMPUSES, REGIONS, UFRS, VILLAGES, type CampusKey } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
 import { haptics } from '@/lib/haptics';
+import { useLeaveGuard } from '@/lib/leaveGuard';
 import { confirmAction, notice } from '@/lib/notice';
 import { uploadImage } from '@/lib/upload';
 import { useNow } from '@/lib/useNow';
@@ -72,8 +77,11 @@ const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanc
  * Campus team. Once published, its state (tickets sold) and the history of the review.
  */
 export default function MonEvenement() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, org } = useLocalSearchParams<{ id: string; org?: string }>();
   const isNew = id === 'nouveau';
+  // An organization's events (from its organizer space), or the student's own.
+  const src = useMemo(() => eventsSource(org ?? null), [org]);
+  const listHref = org ? { pathname: '/mes-evenements' as const, params: { org } } : '/mes-evenements';
   const { reloadAccount } = useAuth();
   const [event, setEvent] = useState<OrgEventDto | null>(null);
   const [loading, setLoading] = useState(!isNew);
@@ -83,18 +91,22 @@ export default function MonEvenement() {
   useFocusEffect(
     useCallback(() => {
       if (isNew || !id) return;
-      eventsApi.mineOne(id).then(setEvent, fail('Événement introuvable')).finally(() => setLoading(false));
-    }, [id, isNew]),
+      eventsSource(org ?? null)
+        .one(id)
+        .then(setEvent, fail('Événement introuvable'))
+        .finally(() => setLoading(false));
+    }, [id, isNew, org]),
   );
 
-  const back = () => (router.canGoBack() ? router.back() : router.replace('/mes-evenements'));
+  const back = () => (router.canGoBack() ? router.back() : router.replace(listHref));
   const editable = isNew || event?.status === 'draft' || event?.status === 'changes_requested';
 
   return (
+    <EventsSourceProvider value={src}>
     <SafeAreaView style={styles.safe}>
       <View style={styles.head}>
         <BackButton onPress={back} />
-        <Text style={styles.h1}>{isNew ? 'Nouvel événement' : 'Mon événement'}</Text>
+        <Text style={styles.h1}>{isNew ? 'Nouvel événement' : org ? 'Événement' : 'Mon événement'}</Text>
         <View style={{ width: 44 }} />
       </View>
       {loading ? (
@@ -108,7 +120,14 @@ export default function MonEvenement() {
           onSaved={(saved, submitted) => {
             // The first event creates the student's own organization: the organizer space appears.
             if (isNew) reloadAccount().catch(() => undefined);
-            if (submitted) {
+            if (submitted && org) {
+              router.replace(listHref);
+              notice(
+                saved.status === 'published'
+                  ? { tone: 'success', title: 'Événement publié', message: `« ${saved.title} » est en ligne : les étudiants peuvent demander leurs billets.` }
+                  : { tone: 'success', title: 'Envoyé pour validation', message: `« ${saved.title} » est entre les mains de l’équipe UGB Connect.` },
+              );
+            } else if (submitted) {
               router.replace('/mes-evenements');
               notice({
                 tone: 'success',
@@ -117,7 +136,7 @@ export default function MonEvenement() {
                 steps: ['L’équipe vérifie ton événement', 'Validé : tu choisis qui le voit et le nombre de places', 'Tu paies la publication : la billetterie ouvre'],
                 footnote: 'Tu reçois une notification dans tous les cas.',
               });
-            } else if (isNew) router.replace(`/mes-evenements/${saved.id}`);
+            } else if (isNew) router.replace(org ? { pathname: '/mes-evenements/[id]', params: { id: saved.id, org } } : `/mes-evenements/${saved.id}`);
             else setEvent(saved);
           }}
         />
@@ -125,88 +144,214 @@ export default function MonEvenement() {
         event && <EventState event={event} onChanged={setEvent} />
       )}
     </SafeAreaView>
+    </EventsSourceProvider>
   );
 }
 
-/** Read-only once submitted: where it stands, what the team said, tickets sold. */
+type Tab = 'billetterie' | 'demandes' | 'visibilite';
+
+/**
+ * Once submitted. Being reviewed, refused, over: where it stands and what the team said. Published, a small dashboard:
+ * the cover with its status, three numbers (sold, entered, waiting), then one tab per job — the ticket office (the
+ * door, sales per ticket, history), the requests to validate (opened first when someone is waiting), and visibility
+ * (banner, photos).
+ */
 function EventState({ event: e, onChanged }: { event: OrgEventDto; onChanged: (e: OrgEventDto) => void }) {
-  const s = EVENT_STATUS[e.status];
+  const src = useEventsSource();
+  const published = e.status === 'published';
   const cancel = () =>
     confirmAction({
       title: 'Annuler l’événement ?',
       message: `« ${e.title} »`,
       bullets: [
-        e.counts.booked ? `Les ${e.counts.booked} billets vendus sont remboursés à 100 %` : 'Aucun billet vendu : rien à rembourser',
+        e.counts.booked ? `Les ${e.counts.booked} billets vendus sont annulés : rembourse en espèces ceux qui t’ont payé` : 'Aucun billet vendu : rien à rembourser',
         'La billetterie ferme, et l’événement disparaît de l’accueil',
         'Les inscrits sont prévenus',
       ],
       confirm: 'Annuler l’événement',
       keep: 'Garder l’événement',
-      onConfirm: () => eventsApi.cancelMine(e.id, 'Annulé par l’organisateur').then(() => eventsApi.mineOne(e.id).then(onChanged), fail('Annulation impossible')),
+      onConfirm: () => src.cancel(e.id, 'Annulé par l’organisateur').then(() => src.one(e.id).then(onChanged), fail('Annulation impossible')),
     });
   const photos = usePhotoEdits(e, onChanged);
-  const banner = useEventBanner(e.id, e.status === 'published');
+  const banner = useEventBanner(e.id, published);
+  // Requests waiting: the number on the tile and the tab, and the tab opened first when there are some.
+  const [waiting, setWaiting] = useState<number | null>(null);
+  const loadWaiting = useCallback(() => {
+    if (!published) return;
+    src.requests(e.id).then((r) => setWaiting(r.items.length), () => undefined);
+  }, [published, src, e.id]);
+  useFocusEffect(loadWaiting);
+  const [picked, setTab] = useState<Tab | null>(null);
+  const tab: Tab = picked ?? (waiting ? 'demandes' : 'billetterie');
+  const refresh = () => {
+    loadWaiting();
+    src.one(e.id).then(onChanged, () => undefined);
+  };
+
+  const capacity = e.ticketTypes.reduce((n, t) => n + t.capacity, 0);
+  const sold = e.ticketTypes.reduce((n, t) => n + t.sold, 0);
+
   return (
     <>
-    <ScrollView contentContainerStyle={styles.body}>
-      {/* The cover being chosen shows here at once (saved or not). */}
-      <Image source={{ uri: photos.editable ? photos.images[0]?.url : e.images[0] }} style={styles.cover} contentFit="cover" transition={200} />
-      <StatusChip label={s.label} tone={s.tone} />
-      <Text style={styles.title}>{e.title}</Text>
-      <Text style={styles.muted}>{eventWhen(e.startsAt)} · {e.venue.name}</Text>
-      {e.review && (e.status === 'rejected' || e.status === 'changes_requested') && (
-        <View style={styles.reviewBox}>
-          <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.dangerText} />
-          <Text style={styles.reviewText}>{e.review.message}</Text>
-        </View>
+      <ScrollView contentContainerStyle={[styles.body, photos.editable && tab === 'visibilite' && { paddingBottom: STICKY_FOOTER_SPACE.one }]}>
+        <Hero image={photos.editable ? photos.images[0]?.url : e.images[0]} event={e} />
+
+        {e.review && (e.status === 'rejected' || e.status === 'changes_requested') && (
+          <View style={styles.reviewBox}>
+            <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.dangerText} />
+            <Text style={styles.reviewText}>{e.review.message}</Text>
+          </View>
+        )}
+        {e.status === 'pending_review' && (
+          <View style={styles.infoBox}>
+            <Ionicons name="hourglass-outline" size={18} color={colors.primary} />
+            <Text style={styles.infoText}>L’équipe UGB Connect vérifie ton événement. Tu seras notifié de sa décision.</Text>
+          </View>
+        )}
+
+        {(published || e.status === 'completed') && (
+          <View style={styles.stats}>
+            <Stat value={`${sold}`} of={`/${capacity}`} label="vendus" />
+            <Stat value={`${e.counts.admitted}`} label={e.counts.admitted > 1 ? 'entrés' : 'entré'} />
+            {published && <Stat value={waiting === null ? '…' : `${waiting}`} label="à valider" hot={!!waiting} onPress={() => setTab('demandes')} />}
+          </View>
+        )}
+
+        {published && (
+          <Segmented<Tab>
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: 'billetterie', label: 'Billetterie' },
+              { value: 'demandes', label: waiting ? `Demandes · ${waiting}` : 'Demandes' },
+              { value: 'visibilite', label: 'Visibilité' },
+            ]}
+          />
+        )}
+
+        {(!published || tab === 'billetterie') && (
+          <>
+            {/* The door: tickets scanned at the entrance, cash requests validated. */}
+            {published && <DoorActions org={e.organizer.id} event={e.id} title={e.title} />}
+            {(published || e.status === 'completed') && (
+              <View style={[styles.card, shadow.card, { gap: 14 }]}>
+                <Text style={styles.cardTitle}>Ventes par billet</Text>
+                {e.ticketTypes.map((t) => (
+                  <View key={t.typeId} style={{ gap: 6 }}>
+                    <View style={styles.row}>
+                      <Text style={[styles.label, { flex: 1 }]} numberOfLines={1}>
+                        {t.name} · {t.price ? formatFcfa(t.price) : 'Gratuit'}
+                      </Text>
+                      <Text style={styles.muted}>
+                        {t.sold}/{t.capacity}
+                      </Text>
+                    </View>
+                    <View style={styles.bar}>
+                      <View style={[styles.barFill, { width: `${t.capacity ? Math.min(100, (t.sold / t.capacity) * 100) : 0}%` }, t.sold >= t.capacity && { backgroundColor: colors.success }]} />
+                    </View>
+                  </View>
+                ))}
+                <View style={styles.metaLine}>
+                  <Ionicons name="eye-outline" size={14} color={colors.muted2} />
+                  <Text style={[styles.muted, { flex: 1 }]}>Visible par : {audienceLabel(e.audience)}</Text>
+                </View>
+              </View>
+            )}
+            <History log={e.reviewLog} />
+            {published && <TextButton label="Annuler l’événement" onPress={cancel} style={{ alignSelf: 'center' }} tone="danger" />}
+          </>
+        )}
+
+        {published && tab === 'demandes' && (
+          <RequestsCard
+            load={async () =>
+              (await src.requests(e.id)).items.map((r) => ({
+                id: r.id, name: r.student?.name ?? 'Étudiant', phone: r.student?.phone ?? null, total: r.total, expiresAt: r.expiresAt,
+                lines: [r.tickets.map((x) => `${x.qty} × ${x.name}`).join(' · ')],
+                units: (r.units ?? []).map((u, i) => ({ id: u.id, label: `Billet ${i + 1} · ${u.name}`, price: u.price })),
+              }))
+            }
+            validate={src.validate}
+            refuse={src.refuse}
+            onChanged={refresh}
+          />
+        )}
+
+        {published && tab === 'visibilite' && (
+          <>
+            {banner === undefined && <ActivityIndicator color={colors.primary} />}
+            {banner && <BannerCard banner={banner} />}
+            {banner === null && <PromoteCard onPress={() => router.push({ pathname: '/publicite', params: { eventId: e.id } })} />}
+            {photos.editable ? (
+              <Photos images={photos.images} setImages={photos.setImages} uploading={false} setUploading={() => undefined} fixedCover={photos.fixedCover} setFixedCover={photos.setFixedCover} canAdd={false} />
+            ) : (
+              <Text style={styles.muted}>Une seule photo : c’est la couverture de ton événement et de sa bannière.</Text>
+            )}
+          </>
+        )}
+      </ScrollView>
+      {/* Pinned, as on every form: usable once a photo changed. */}
+      {photos.editable && published && tab === 'visibilite' && (
+        <StickyFooter>
+          <PrimaryButton label="Enregistrer les photos" disabled={!photos.dirty} loading={photos.saving} onPress={photos.save} />
+        </StickyFooter>
       )}
-      {e.status === 'pending_review' && <Text style={styles.muted}>L’équipe UGB Connect vérifie ton événement. Tu seras notifié de sa décision.</Text>}
-      {(e.status === 'published' || e.status === 'completed') && (
-        <View style={[styles.card, shadow.card, { gap: 8 }]}>
-          {e.ticketTypes.map((t) => (
-            <View key={t.typeId} style={styles.row}>
-              <Text style={[styles.label, { flex: 1 }]}>{t.name} · {t.price ? formatFcfa(t.price) : 'Gratuit'}</Text>
-              <Text style={styles.muted}>
-                {t.sold}/{t.capacity} vendus
-              </Text>
-            </View>
-          ))}
-          <Text style={styles.muted}>Visible par : {audienceLabel(e.audience)}.</Text>
-          <Text style={styles.muted}>{e.counts.admitted} personne{e.counts.admitted > 1 ? 's' : ''} entrée{e.counts.admitted > 1 ? 's' : ''}. Scanne les billets depuis l’espace organisateur.</Text>
-        </View>
-      )}
-      {e.status === 'published' && (
-        <>
-          {photos.editable ? (
-            <Photos images={photos.images} setImages={photos.setImages} uploading={false} setUploading={() => undefined} fixedCover={photos.fixedCover} setFixedCover={photos.setFixedCover} canAdd={false} />
-          ) : (
-            <Text style={styles.muted}>Une seule photo : c’est la couverture de ton événement et de sa bannière.</Text>
-          )}
-          {banner === undefined && <ActivityIndicator color={colors.primary} />}
-          {banner && <BannerCard banner={banner} />}
-          {banner === null && <PromoteCard onPress={() => router.push({ pathname: '/publicite', params: { eventId: e.id } })} />}
-          <TextButton label="Annuler l’événement" onPress={cancel} style={{ alignSelf: 'center' }} tone="danger" />
-        </>
-      )}
-      {e.reviewLog.length > 0 && (
-        <View style={{ gap: 6 }}>
-          <Text style={styles.section}>Historique</Text>
-          {e.reviewLog.map((r, i) => (
-            <Text key={i} style={styles.muted}>
-              {new Date(r.at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} · {ACTION[r.action]}
-              {r.message ? ` : ${r.message}` : ''}
-            </Text>
-          ))}
-        </View>
-      )}
-    </ScrollView>
-    {/* Pinned, as on every form: usable once a photo changed. */}
-    {photos.editable && (
-      <StickyFooter>
-        <PrimaryButton label="Enregistrer les photos" disabled={!photos.dirty} loading={photos.saving} onPress={photos.save} />
-      </StickyFooter>
-    )}
     </>
+  );
+}
+
+/** The cover, with the status, the title and when / where written over it. */
+function Hero({ image, event: e }: { image: string | undefined; event: OrgEventDto }) {
+  const s = EVENT_STATUS[e.status];
+  return (
+    <View style={styles.hero}>
+      <Image source={{ uri: image }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} />
+      <LinearGradient colors={['rgba(10,16,40,0)', 'rgba(10,16,40,0.85)']} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0.25 }} end={{ x: 0, y: 1 }} />
+      <View style={styles.heroText}>
+        <StatusChip label={s.label} tone={s.tone} />
+        <Text style={styles.heroTitle} numberOfLines={2}>
+          {e.title}
+        </Text>
+        <Text style={styles.heroMeta} numberOfLines={1}>
+          {eventWhen(e.startsAt)} · {e.venue.name}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+/** One number of the dashboard; `hot`: someone is waiting (orange), and the tile opens their tab. */
+function Stat({ value, of, label, hot, onPress }: { value: string; of?: string; label: string; hot?: boolean; onPress?: () => void }) {
+  return (
+    <Pressable style={[styles.stat, shadow.card, hot && styles.statHot]} onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={`${value}${of ?? ''} ${label}`}>
+      <Text style={[styles.statValue, hot && { color: '#fff' }]}>
+        {value}
+        {!!of && <Text style={[styles.statOf, hot && { color: 'rgba(255,255,255,0.8)' }]}>{of}</Text>}
+      </Text>
+      <Text style={[styles.statLabel, hot && { color: 'rgba(255,255,255,0.9)' }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/** The review's history, folded: rarely needed once published. */
+function History({ log }: { log: OrgEventDto['reviewLog'] }) {
+  const [open, setOpen] = useState(false);
+  if (!log.length) return null;
+  return (
+    <View style={[styles.card, shadow.card, { gap: 8 }]}>
+      <Pressable style={styles.row} onPress={() => setOpen((o) => !o)} accessibilityRole="button" accessibilityState={{ expanded: open }}>
+        <Ionicons name="time-outline" size={16} color={colors.muted2} />
+        <Text style={[styles.cardTitle, { flex: 1 }]}>Historique</Text>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={colors.muted2} />
+      </Pressable>
+      {open &&
+        log.map((r, i) => (
+          <Text key={i} style={styles.muted}>
+            {new Date(r.at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} · {ACTION[r.action]}
+            {r.message ? ` : ${r.message}` : ''}
+          </Text>
+        ))}
+    </View>
   );
 }
 
@@ -215,6 +360,7 @@ function EventState({ event: e, onChanged }: { event: OrgEventDto; onChanged: (e
  * taken off. Nothing changes until « Enregistrer ».
  */
 function usePhotoEdits(e: OrgEventDto, onChanged: (e: OrgEventDto) => void) {
+  const src = useEventsSource();
   const [images, setImages] = useState<Photo[]>(photosOf(e));
   const [fixedCover, setFixedCover] = useState(e.fixedCover);
   const [saving, setSaving] = useState(false);
@@ -235,7 +381,7 @@ function usePhotoEdits(e: OrgEventDto, onChanged: (e: OrgEventDto) => void) {
   const removed = e.imageIds.length - images.length;
   const run = () => {
     setSaving(true);
-    eventsApi
+    src
       .updatePhotos(e.id, { imageIds: images.map((i) => i.id), fixedCover: cover })
       .then(onChanged, fail('Photos non enregistrées'))
       .finally(() => setSaving(false));
@@ -451,6 +597,10 @@ function PublishForm({ event: e, onChanged }: { event: OrgEventDto; onChanged: (
   const [audience, setAudience] = useState<EventAudience>(e.audience);
   const [targeted, setTargeted] = useState(audienceLabel(e.audience) !== audienceLabel(EVERYONE));
   const [method, setMethod] = useState(paymentMethods[0].id);
+  // Not a method the admins switched off; the choice falls back to the first one left.
+  const { off, isOff } = useMethodsOff();
+  const shownMethods = paymentMethods.filter((m) => !isOff(m.id));
+  const payWith = shownMethods.some((m) => m.id === method) ? method : (shownMethods[0]?.id ?? method);
   const [paying, setPaying] = useState(false);
 
   const toggle = (key: keyof EventAudience, value: string) =>
@@ -482,7 +632,7 @@ function PublishForm({ event: e, onChanged }: { event: OrgEventDto; onChanged: (
         fixedCover,
         address: address.trim() || null,
         maxPerStudent: maxPer,
-        method: METHOD[method] ?? 'wave',
+        method: METHOD[payWith] ?? 'wave',
       });
       const paid = await payInBrowser(payment);
       onChanged(await eventsApi.mineOne(e.id));
@@ -600,14 +750,14 @@ function PublishForm({ event: e, onChanged }: { event: OrgEventDto; onChanged: (
           <Text style={styles.label}>{formatFcfa(fee)}</Text>
         </View>
         {total * e.publicationFee.perPlace < e.publicationFee.minimum && <Text style={styles.muted}>Minimum {formatFcfa(e.publicationFee.minimum)}.</Text>}
-        <Text style={styles.muted}>L’argent des billets t’est versé après l’événement. La bannière sur l’accueil est une option à part.</Text>
+        <Text style={styles.muted}>Les billets se paient en espèces, directement à toi : tu valides chaque demande à réception. La bannière sur l’accueil est une option à part.</Text>
       </View>
 
       {e.publication?.payment && <Text style={styles.warn}>Un paiement de {formatFcfa(e.publication.fee)} est en attente : payer à nouveau le remplace.</Text>}
 
       <Text style={styles.label}>Moyen de paiement</Text>
-      {paymentMethods.map((m) => {
-        const on = m.id === method;
+      {shownMethods.map((m) => {
+        const on = m.id === payWith;
         return (
           <Pressable key={m.id} onPress={() => setMethod(m.id)} style={[styles.option, on && styles.optionOn]}>
             <PaymentLogo method={m} />
@@ -616,6 +766,7 @@ function PublishForm({ event: e, onChanged }: { event: OrgEventDto; onChanged: (
           </Pressable>
         );
       })}
+      {!!methodsOffLine(off) && <Text style={styles.hint}>{methodsOffLine(off)}</Text>}
     </KeyboardAwareScrollView>
     <StickyFooter>
       <PrimaryButton label={`Payer ${formatFcfa(fee)} et publier`} disabled={!ready} loading={paying} onPress={publish} />
@@ -625,6 +776,7 @@ function PublishForm({ event: e, onChanged }: { event: OrgEventDto; onChanged: (
 }
 
 function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e: OrgEventDto, submitted: boolean) => void }) {
+  const src = useEventsSource();
   const start0 = event ? new Date(event.startsAt) : null;
   const [title, setTitle] = useState(event?.title ?? '');
   const [category, setCategory] = useState<EventCategory>((event?.category as EventCategory) ?? 'soiree');
@@ -641,9 +793,10 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
   const [tickets, setTickets] = useState<TicketRow[]>(event ? event.ticketTypes.map((t) => ({ name: t.name, price: String(t.price), capacity: String(t.capacity) })) : [{ name: 'Entrée', price: '1000', capacity: '100' }]);
   const [maxPer, setMaxPer] = useState(event?.maxPerStudent ?? 4);
   // How students pay: in the app (Wave, Orange Money) and / or cash at the door. At least one.
-  const [methods, setMethods] = useState<TicketMethod[]>(event?.paymentMethods ?? ['wave', 'orange_money']);
-  const toggleMethod = (m: TicketMethod) => setMethods((list) => (list.includes(m) ? (list.length > 1 ? list.filter((x) => x !== m) : list) : [...list, m]));
   const [saving, setSaving] = useState<'draft' | 'submit' | null>(null);
+  // Leaving with changes not saved asks first; a save goes on without asking.
+  const dirty = useDirty({ title, category, description, images: images.map((i) => i.id), fixedCover, venue, address, day: day?.getTime() ?? null, time, hours, tickets, maxPer });
+  const guard = useLeaveGuard(dirty && !saving);
   const now = useNow();
   // Today only offers the start times still ahead.
   const times = day ? TIMES.filter((t) => startOf(day, t).getTime() > now) : TIMES;
@@ -655,9 +808,10 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
   const [feeFailed, setFeeFailed] = useState(false);
   const [feeAttempt, setFeeAttempt] = useState(0);
   useEffect(() => {
-    if (feeRule) return;
+    // An organization publishes without the students' publication fee.
+    if (feeRule || src.org) return;
     eventsApi.publicationFee().then(setFeeRule, () => setFeeFailed(true));
-  }, [feeRule, feeAttempt]);
+  }, [feeRule, feeAttempt, src.org]);
   const totalPlaces = tickets.reduce((n, t) => n + (Number(t.capacity) || 0), 0);
   const fee = feeRule ? Math.max(feeRule.minimum, totalPlaces * feeRule.perPlace) : null;
 
@@ -677,16 +831,16 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
       endsAt: new Date(start.getTime() + hours * 3_600_000).toISOString(),
       ticketTypes: tickets.map((t) => ({ name: t.name.trim(), description: null, price: Number(t.price), capacity: Number(t.capacity) })),
       maxPerStudent: maxPer,
-      paymentMethods: methods,
+      paymentMethods: ['cash'],
     };
   };
 
   const save = async (submit: boolean) => {
     setSaving(submit ? 'submit' : 'draft');
     try {
-      let saved = event ? await eventsApi.update(event.id, input()) : await eventsApi.create(input());
-      if (submit) saved = await eventsApi.submit(saved.id);
-      onSaved(saved, submit);
+      let saved = event ? await src.update(event.id, input()) : await src.create(input());
+      if (submit) saved = await src.submit(saved.id);
+      guard.leave(() => onSaved(saved, submit));
     } catch (err) {
       fail(submit ? 'Envoi impossible' : 'Enregistrement impossible')(err);
     } finally {
@@ -785,32 +939,17 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
         </Pressable>
       </View>
 
-      {/* A free event has nothing to pay: the choice only matters with a price. */}
       {tickets.some((t) => Number(t.price) > 0) && (
-        <View style={{ gap: 8 }}>
-          <Text style={styles.label}>Paiement des billets</Text>
-          <View style={styles.methods}>
-            {(['wave', 'orange_money', 'cash'] as const).map((m) => (
-              <Chip
-                key={m}
-                label={ticketMethodLabel[m]}
-                icon={m === 'cash' ? 'cash-outline' : 'phone-portrait-outline'}
-                selected={methods.includes(m)}
-                onPress={() => toggleMethod(m)}
-                role="checkbox"
-              />
-            ))}
-          </View>
-          <Text style={styles.hint}>
-            {methods.includes('cash')
-              ? 'Espèces : le billet est réservé tout de suite, l’étudiant paie à l’entrée quand tu scannes son billet. L’app te dit combien encaisser.'
-              : 'Payé dans l’app : l’argent t’est versé après l’événement.'}
+        <View style={styles.cashHint}>
+          <Ionicons name="cash-outline" size={18} color={colors.successText} />
+          <Text style={[styles.hint, { flex: 1, color: colors.successText }]}>
+            Les étudiants demandent leurs billets et viennent te payer en espèces : tu valides chaque demande à réception de l’argent (sous 24 h, sinon elle est annulée). Le billet devient alors valable.
           </Text>
         </View>
       )}
 
-      {!feeRule && feeFailed && <TextButton label="Prix de publication indisponible : réessayer" icon="refresh-outline" onPress={() => (setFeeFailed(false), setFeeAttempt((a) => a + 1))} />}
-      {feeRule && fee !== null && (
+      {!src.org && !feeRule && feeFailed && <TextButton label="Prix de publication indisponible : réessayer" icon="refresh-outline" onPress={() => (setFeeFailed(false), setFeeAttempt((a) => a + 1))} />}
+      {!src.org && feeRule && fee !== null && (
         <View style={[styles.card, shadow.card, styles.feeCard]}>
           <View style={styles.row}>
             <Ionicons name="pricetag-outline" size={18} color={colors.primary} />
@@ -824,10 +963,14 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
         </View>
       )}
 
-      <Text style={styles.muted}>1. L’équipe UGB Connect vérifie ton événement. 2. Une fois validé, tu choisis qui le voit (campus, village, UFR, région) et tu paies la publication, selon le nombre de places. 3. La billetterie ouvre. L’argent des billets t’est versé après l’événement, sur ton numéro.</Text>
+      <Text style={styles.muted}>
+        {src.org
+          ? 'Publié, il apparaît aux étudiants : ils demandent leurs billets et viennent te payer en espèces ; tu valides chaque demande à réception.'
+          : '1. L’équipe UGB Connect vérifie ton événement. 2. Une fois validé, tu choisis qui le voit (campus, village, UFR, région) et tu paies la publication, selon le nombre de places. 3. La billetterie ouvre : les étudiants demandent leurs billets et te paient en espèces.'}
+      </Text>
     </KeyboardAwareScrollView>
     <StickyFooter>
-      <PrimaryButton label="Envoyer pour validation" disabled={!ready} loading={saving === 'submit'} onPress={() => save(true)} />
+      <PrimaryButton label={src.org ? 'Publier' : 'Envoyer pour validation'} disabled={!ready} loading={saving === 'submit'} onPress={() => save(true)} />
       <TextButton label={saving === 'draft' ? 'Enregistrement…' : 'Enregistrer le brouillon'} icon="save-outline" disabled={!ready} style={{ alignSelf: 'center' }} onPress={() => save(false)} />
     </StickyFooter>
     </>
@@ -836,6 +979,7 @@ function EventForm({ event, onSaved }: { event: OrgEventDto | null; onSaved: (e:
 
 const styles = StyleSheet.create({
   methods: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  cashHint: { flexDirection: 'row', gap: 10, padding: 12, borderRadius: radii.md, backgroundColor: colors.successBg },
   hint: { ...typo.caption, color: colors.muted2, lineHeight: 17 },
   safe: { flex: 1, backgroundColor: colors.bg },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 8 },
@@ -847,7 +991,22 @@ const styles = StyleSheet.create({
   title: { ...typo.h2, color: colors.navy },
   muted: { ...typo.caption, color: colors.muted2, lineHeight: 17 },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14 },
-  cover: { width: '100%', height: 180, borderRadius: radii.lg, backgroundColor: colors.border },
+  hero: { height: 200, borderRadius: radii.lg, overflow: 'hidden', backgroundColor: colors.navy, justifyContent: 'flex-end' },
+  heroText: { padding: 14, gap: 6, alignItems: 'flex-start' },
+  heroTitle: { ...typo.h2, color: '#fff' },
+  heroMeta: { ...typo.small, color: 'rgba(255,255,255,0.9)' },
+  stats: { flexDirection: 'row', gap: 10 },
+  stat: { flex: 1, backgroundColor: colors.card, borderRadius: radii.lg, paddingVertical: 12, paddingHorizontal: 10, gap: 2 },
+  statHot: { backgroundColor: colors.accent },
+  statValue: { ...typo.h2, color: colors.navy, fontVariant: ['tabular-nums'] },
+  statOf: { ...typo.smallStrong, color: colors.muted2 },
+  statLabel: { ...typo.caption, color: colors.muted2 },
+  cardTitle: { ...typo.bodyStrong, color: colors.navy },
+  bar: { height: 8, borderRadius: 4, backgroundColor: colors.primarySoft, overflow: 'hidden' },
+  barFill: { height: 8, borderRadius: 4, backgroundColor: colors.primary },
+  metaLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  infoBox: { flexDirection: 'row', gap: 10, padding: 12, borderRadius: radii.md, backgroundColor: colors.primarySoft },
+  infoText: { ...typo.small, flex: 1, color: colors.primary, lineHeight: 19 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   feeCard: { gap: 6, borderWidth: 1.5, borderColor: colors.primarySoft },
   feeAmount: { ...typo.title, color: colors.primary },

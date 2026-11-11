@@ -5,15 +5,18 @@ import { Alert, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BackButton, Field, LabeledField, PrimaryButton, TextButton } from '@/components/ui';
+import { BackButton, Field, LabeledField, PrimaryButton, StickyFooter, TextButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { readMyCardPhoto, saveIdentity } from '@/features/lost/api';
 import { CardScanModal } from '@/features/lost/CardScanModal';
 import { CardVisual } from '@/features/lost/CardVisual';
+import { RegionCard } from '@/features/profile/RegionCard';
+import { StudentNumberCard } from '@/features/profile/StudentNumberCard';
 import { unreadable, type ScanAttempt } from '@/features/lost/useAutoScan';
 import { CAMPUSES } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
+import { useLeaveGuard } from '@/lib/leaveGuard';
 import { CAMERA_CLOSE_MS, scanFeel } from '@/lib/haptics';
 import { sounds } from '@/lib/sounds';
 import { toast } from '@/lib/toast';
@@ -21,6 +24,7 @@ import { rentreeLabel } from '@/lib/rentree';
 
 /** "2002-03-12" ⇄ "12/03/2002". */
 const toFr = (iso: string | null) => (iso ? iso.split('-').reverse().join('/') : '');
+const dayLabel = (iso: string) => new Date(iso).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
 const toIso = (fr: string) => {
   const m = fr.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
@@ -34,17 +38,23 @@ const maskDate = (v: string) => {
 /**
  * The student's card in the app, and what it adds to the profile: birth date, place of birth, nationality. Optional
  * but recommended. Read from the card itself (OCR on the server): its student number must be the student's own. They
- * check it, then save it once: afterwards it can't be changed.
+ * check it, then save it for the year. Or typed by hand (`manual`): correctable for 3 days, a later scan replaces it.
+ * The student number lives here too (correctable for 3 days once given).
  */
 export default function MaCarte() {
   const { user, reloadAccount } = useAuth();
   const id = user?.identity ?? null;
   const [editing, setEditing] = useState(false);
+  // Typed by hand instead of read from the card: saved as such (not « vérifiée »).
+  const [manual, setManual] = useState(false);
   // Saved from the card this year: what's filled waits for the rentrée (new card); an empty detail can be completed.
   const until = user?.identityEditableFrom ?? null;
   const missing = !id?.birthDate || !id?.birthPlace || !id?.nationality;
   const locked = !!until && !missing;
-  const keep = (v: string | null | undefined) => !!until && !!v;
+  const keep = (v: string | null | undefined) => !manual && !!until && !!v;
+  // By hand: not while the card's details are kept for the year, and a hand-typed one only within its 3 days.
+  const typedUntil = user?.identityEditableUntil ?? null;
+  const canType = !until && (!id || id.fromCard || !!typedUntil);
   const [saving, setSaving] = useState(false);
   const [birthDate, setBirthDate] = useState(toFr(id?.birthDate ?? null));
   const [birthPlace, setBirthPlace] = useState(id?.birthPlace ?? '');
@@ -52,6 +62,8 @@ export default function MaCarte() {
   // « Scanner ma carte »: the full-screen camera, closed once the card is read.
   const [scanning, setScanning] = useState(false);
 
+  // Details being filled in (read from the card or typed), not saved yet: leaving asks first.
+  useLeaveGuard(editing && !saving);
   if (!user) return null;
   const campus = CAMPUSES.find((c) => user.campus.includes(c.label))?.label ?? null;
   const back = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profil'));
@@ -76,6 +88,7 @@ export default function MaCarte() {
       if (r.birthDate && !keep(id?.birthDate)) setBirthDate(toFr(r.birthDate));
       if (r.birthPlace && !keep(id?.birthPlace)) setBirthPlace(r.birthPlace);
       if (r.nationality && !keep(id?.nationality)) setNationality(r.nationality);
+      setManual(false);
       setEditing(true);
       if (!found) Alert.alert('Rien de lisible', 'C’est bien ta carte, mais ces informations n’ont pas pu être lues. Complète-les ou scanne-la encore, avec plus de lumière.');
       return 'done';
@@ -92,10 +105,10 @@ export default function MaCarte() {
   const save = async () => {
     setSaving(true);
     try {
-      await saveIdentity({ birthDate: toIso(birthDate), birthPlace: birthPlace.trim() || null, nationality: nationality.trim() || null, fromCard: true });
+      await saveIdentity({ birthDate: toIso(birthDate), birthPlace: birthPlace.trim() || null, nationality: nationality.trim() || null, fromCard: !manual });
       await reloadAccount();
       setEditing(false);
-      toast('Profil complété : tes informations sont vérifiées avec ta carte.');
+      toast(manual ? 'Informations enregistrées : corrigeables pendant 3 jours. Scanne ta carte pour les faire vérifier.' : 'Profil complété : tes informations sont vérifiées avec ta carte.');
     } catch (err) {
       Alert.alert('Enregistrement impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
     } finally {
@@ -127,6 +140,9 @@ export default function MaCarte() {
             badge={id?.fromCard ? 'Vérifiée avec ta carte' : undefined}
           />
 
+          <StudentNumberCard current={user.studentId} editableUntil={user.studentNumberEditableUntil} onSaved={reloadAccount} />
+          <RegionCard current={user.region} lockedUntil={user.originEditableFrom} onSaved={reloadAccount} />
+
           {!editing ? (
             <>
               <View style={[styles.infoCard, shadow.card]}>
@@ -152,7 +168,29 @@ export default function MaCarte() {
                       on remplit tes informations, tu vérifies, puis tu enregistres pour l’année (modifiable à chaque rentrée).
                     </Text>
                   </View>
+                  {id && !id.fromCard && (
+                    <View style={[styles.notice, { backgroundColor: colors.warningBg }]}>
+                      <Ionicons name="create-outline" size={16} color={colors.warningText} />
+                      <Text style={[styles.noticeText, { color: colors.warningText }]}>
+                        {typedUntil ? `Rempli à la main : corrigeable jusqu’au ${dayLabel(typedUntil)}.` : 'Rempli à la main : scanne ta carte pour le mettre à jour.'}
+                      </Text>
+                    </View>
+                  )}
                   <PrimaryButton label="Scanner ma carte étudiant" onPress={() => setScanning(true)} />
+                  {canType && (
+                    <TextButton
+                      label={id && !id.fromCard ? 'Corriger à la main' : 'Pas de carte sous la main ? Remplir à la main'}
+                      icon="create-outline"
+                      style={{ alignSelf: 'center' }}
+                      onPress={() => {
+                        setBirthDate(toFr(id?.birthDate ?? null));
+                        setBirthPlace(id?.birthPlace ?? '');
+                        setNationality(id?.nationality ?? '');
+                        setManual(true);
+                        setEditing(true);
+                      }}
+                    />
+                  )}
                 </>
               )}
             </>
@@ -161,7 +199,9 @@ export default function MaCarte() {
               <View style={[styles.notice, { backgroundColor: colors.successBg }]}>
                 <Ionicons name="checkmark-circle" size={18} color={colors.successText} />
                 <Text style={[styles.noticeText, { color: colors.successText }]}>
-                  {until ? 'C’est bien ta carte. Complète ce qui manque : le reste est gardé jusqu’à la rentrée.' : 'C’est bien ta carte. Vérifie et corrige si besoin : une fois enregistré, ce ne sera plus modifiable avant la prochaine rentrée.'}
+                  {manual
+                    ? 'Rempli à la main : tu pourras corriger pendant 3 jours. Scanne ta carte plus tard pour le faire vérifier.'
+                    : until ? 'C’est bien ta carte. Complète ce qui manque : le reste est gardé jusqu’à la rentrée.' : 'C’est bien ta carte. Vérifie et corrige si besoin : une fois enregistré, ce ne sera plus modifiable avant la prochaine rentrée.'}
                 </Text>
               </View>
               <LabeledField label="Date de naissance">
@@ -174,11 +214,16 @@ export default function MaCarte() {
               <LabeledField label="Nationalité">
                 <Field icon={keep(id?.nationality) ? 'lock-closed-outline' : 'flag-outline'} editable={!keep(id?.nationality)} placeholder="Ex. Sénégalaise" autoCapitalize="words" value={nationality} onChangeText={setNationality} maxLength={40} />
               </LabeledField>
-              <PrimaryButton label="Enregistrer" loading={saving} disabled={saving || !dateOk || (!!birthDate && birthDate.length < 10)} onPress={save} />
-              <TextButton label="Annuler" style={{ alignSelf: 'center' }} onPress={() => setEditing(false)} />
             </>
           )}
         </KeyboardAwareScrollView>
+      {/* Pinned, as on every form. */}
+      {editing && (
+        <StickyFooter>
+          <PrimaryButton label="Enregistrer" loading={saving} disabled={saving || !dateOk || (!!birthDate && birthDate.length < 10)} onPress={save} />
+          <TextButton label="Annuler" style={{ alignSelf: 'center' }} onPress={() => setEditing(false)} />
+        </StickyFooter>
+      )}
       <CardScanModal
         visible={scanning}
         onClose={() => setScanning(false)}

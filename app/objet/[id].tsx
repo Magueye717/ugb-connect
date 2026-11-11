@@ -5,6 +5,7 @@ import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Tex
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
 import { Field, OutlineButton, PrimaryButton, SafeBottom, SheetHeader } from '@/components/ui';
 import { lostCategory, lostOffice, lostSafetyTip, lostTone } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
@@ -40,12 +41,9 @@ export default function ObjetScreen() {
   const [busy, setBusy] = useState(false);
 
   // Fresh each time it shows: a notification may bring it back after a new conversation.
-  useFocusEffect(
-    useCallback(() => {
-      if (!id) return;
-      lostApi.get(id).then(setItem, (err) => (err instanceof ApiError && err.status === 404 ? setMissing(true) : undefined));
-    }, [id]),
-  );
+  const load = useCallback(() => (id ? lostApi.get(id).then(setItem, (err) => (err instanceof ApiError && err.status === 404 ? setMissing(true) : undefined)) : undefined), [id]);
+  useFocusEffect(useCallback(() => void load(), [load]));
+  const pull = usePullRefresh(load);
 
   const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/(tabs)/lieux', params: { vue: 'objets' } }));
   if (!item) {
@@ -108,7 +106,7 @@ export default function ObjetScreen() {
 
   return (
     <View style={styles.root}>
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24 }} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24 }} showsVerticalScrollIndicator={false} refreshControl={pull}>
         <View style={[styles.hero, { backgroundColor: tone.bg }]}>
           {isCard ? (
             <View style={[styles.cardHero, { paddingTop: insets.top + 56 }]}>

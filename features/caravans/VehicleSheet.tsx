@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
-import { Field, LabeledField, PrimaryButton, SafeBottom, SheetHeader, TextButton, Toggle } from '@/components/ui';
+import { Field, LabeledField, PrimaryButton, SheetFooter, SheetHeader, TextButton, Toggle, useDirty } from '@/components/ui';
 import { colors, radii, typo } from '@/constants/theme';
 import { caravansApi, type VehicleDto } from '@/features/caravans/api';
 import { ApiError } from '@/lib/api';
+import { closeGuarded } from '@/lib/leaveGuard';
 
 type Props = {
   visible: boolean;
@@ -31,6 +32,9 @@ export function VehicleSheet({ visible, orgId, vehicle, onClose, onSaved, onDele
   const [airConditioned, setAirConditioned] = useState(vehicle?.airConditioned ?? false);
   const [perRow, setPerRow] = useState<4 | 5>(vehicle?.seatsPerRow === 5 ? 5 : 4);
   const [saving, setSaving] = useState(false);
+  // Closing with changes not saved asks first.
+  const dirty = useDirty({ label, capacity, airConditioned, perRow }, vehicle?.id ?? 'new');
+  const close = () => closeGuarded(dirty && !saving, onClose);
   const seats = Number(capacity);
   const valid = label.trim().length >= 2 && seats >= 4 && seats <= 90;
 
@@ -52,11 +56,12 @@ export function VehicleSheet({ visible, orgId, vehicle, onClose, onSaved, onDele
     ]);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
+      <Pressable style={styles.backdrop} onPress={close} accessibilityLabel="Fermer" />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <View style={styles.sheet}>
-          <SheetHeader onClose={onClose} subtitle={vehicle ? 'Les départs déjà publiés gardent l’ancien.' : 'Il servira pour tous tes départs.'}>
+        <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 14, paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
+          <SheetHeader onClose={close} subtitle={vehicle ? 'Les départs déjà publiés gardent l’ancien.' : 'Il servira pour tous tes départs.'}>
             {vehicle ? 'Modifier le véhicule' : 'Nouveau véhicule'}
           </SheetHeader>
           <LabeledField label="Nom affiché aux étudiants">
@@ -90,9 +95,12 @@ export function VehicleSheet({ visible, orgId, vehicle, onClose, onSaved, onDele
             </View>
             <Toggle value={airConditioned} onValueChange={setAirConditioned} accessibilityLabel="Climatisé" />
           </Pressable>
-          <PrimaryButton label={vehicle ? 'Enregistrer' : 'Ajouter le véhicule'} disabled={!valid} loading={saving} onPress={save} />
           {vehicle && <TextButton label="Supprimer le véhicule" icon="trash-outline" tone="danger" style={{ alignSelf: 'center' }} onPress={remove} />}
-          <SafeBottom />
+        </ScrollView>
+        {/* Pinned, as on every form. */}
+        <SheetFooter>
+          <PrimaryButton label={vehicle ? 'Enregistrer' : 'Ajouter le véhicule'} disabled={!valid} loading={saving} onPress={save} />
+        </SheetFooter>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -125,7 +133,7 @@ const styles = StyleSheet.create({
   miniMiddle: { width: 12, height: 12, borderRadius: 3, backgroundColor: colors.accent },
   miniAisle: { width: 14 },
   backdrop: { flex: 1, backgroundColor: 'rgba(15,27,76,0.35)' },
-  sheet: { backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20, paddingBottom: 36, gap: 14 },
+  sheet: { flexShrink: 1, maxHeight: 700, backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20 },
   option: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: radii.md, backgroundColor: colors.primarySofter },
   optionTitle: { ...typo.smallStrong, color: colors.navy },
   hint: { ...typo.caption, color: colors.muted2, lineHeight: 17 },

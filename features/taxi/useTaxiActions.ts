@@ -2,6 +2,7 @@ import { Alert } from 'react-native';
 
 import { formatFcfa, TAXI_STRIKES_LIMIT } from '@/constants/data';
 import { useTaxi, type JoinOutcome, type TaxiTrip } from '@/context/TaxiContext';
+import { methodsOffLine, useMethodsOff } from '@/features/payments/methods';
 import { methodLabel, type PaymentMethod } from '@/features/taxi/api';
 import { ApiError } from '@/lib/api';
 import { confirmAction, notice } from '@/lib/notice';
@@ -31,6 +32,8 @@ export function useTaxiActions() {
   const taxi = useTaxi();
   const { strikes, suspendedUntil } = taxi;
   const suspended = !!suspendedUntil && suspendedUntil > Date.now();
+  // A method the admins switched off isn't offered.
+  const { off, isOff } = useMethodsOff();
 
   const tellOutcome = (t: TaxiTrip, outcome: JoinOutcome | undefined) => {
     const price = formatFcfa(t.seatPrice);
@@ -62,10 +65,9 @@ export function useTaxiActions() {
     notice({
       tone: 'info',
       title: `Payer ta place · ${price}`,
-      bullets: [`Places verrouillées à ${hhmm(t.lockAt)}`, 'Après, quitter le trajet n’est plus remboursé'],
+      bullets: [`Places verrouillées à ${hhmm(t.lockAt)}`, 'Après, quitter le trajet n’est plus remboursé', ...(off.length ? [methodsOffLine(off)!] : [])],
       choices: [
-        { label: `Payer avec ${methodLabel.wave}`, onPress: () => pay('wave'), tone: 'primary' },
-        { label: `Payer avec ${methodLabel.orange_money}`, onPress: () => pay('orange_money'), tone: 'primary' },
+        ...(['wave', 'orange_money'] as const).filter((m) => !isOff(m)).map((m) => ({ label: `Payer avec ${methodLabel[m]}`, onPress: () => pay(m), tone: 'primary' as const })),
         { label: 'Pas maintenant', tone: 'quiet' },
       ],
     });

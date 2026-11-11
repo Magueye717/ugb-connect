@@ -7,13 +7,14 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BackButton, Chip, Field, PrimaryButton } from '@/components/ui';
+import { BackButton, Chip, Field, PrimaryButton, StickyFooter } from '@/components/ui';
 import { lostCategories, lostCategory, lostOffice, lostSafetyTip } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useLost } from '@/context/LostContext';
 import { lostApi, WHEN_LABEL, type CardType, type LostStatus, type LostWhen } from '@/features/lost/api';
 import { PlacePicker } from '@/features/lost/PlacePicker';
 import { ApiError } from '@/lib/api';
+import { useLeaveGuard } from '@/lib/leaveGuard';
 import { uploadImage } from '@/lib/upload';
 
 const WHEN = Object.keys(WHEN_LABEL) as LostWhen[];
@@ -40,6 +41,8 @@ export default function Declarer() {
   const [when, setWhen] = useState<LostWhen>('today');
   const [holder, setHolder] = useState<'office' | 'finder'>('office');
 
+  // Something typed or picked, not published yet: leaving asks first.
+  const guard = useLeaveGuard(!sending && (!!categoryId || !!photo || !!name.trim() || !!details.trim() || !!spot.trim()));
   const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/(tabs)/lieux', params: { vue: 'objets' } }));
   const cat = categoryId ? lostCategory(categoryId) : null;
   const isObject = cat?.kind === 'object';
@@ -87,7 +90,7 @@ export default function Declarer() {
         ownerName: cat.kind === 'id-card' && owner.trim() ? owner.trim() : null,
       });
       upsert(item);
-      router.replace(`/objet/${item.id}`);
+      guard.leave(() => router.replace(`/objet/${item.id}`));
     } catch (err) {
       Alert.alert('Publication impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
     } finally {
@@ -251,11 +254,16 @@ export default function Declarer() {
                   </View>
                 </View>
 
-                <PrimaryButton label={missing ?? (found ? 'Publier l’objet trouvé' : 'Publier la perte')} disabled={!!missing || sending} loading={sending} onPress={submit} />
               </>
             )
           )}
         </KeyboardAwareScrollView>
+      {/* Pinned, as on every form: what's missing, then « Publier ». */}
+      {!scanFirst && cat && (
+        <StickyFooter>
+          <PrimaryButton label={missing ?? (found ? 'Publier l’objet trouvé' : 'Publier la perte')} disabled={!!missing || sending} loading={sending} onPress={submit} />
+        </StickyFooter>
+      )}
     </SafeAreaView>
   );
 }

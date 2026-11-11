@@ -7,9 +7,8 @@ import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ErrorState } from '@/components/states';
-import { BackButton, Field, PrimaryButton, Segmented } from '@/components/ui';
-import { formatFcfa, paymentMethods } from '@/constants/data';
-import { PaymentLogo } from '@/components/PaymentLogo';
+import { BackButton, Field, PrimaryButton, Segmented, StickyFooter } from '@/components/ui';
+import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
@@ -22,7 +21,6 @@ import { notice } from '@/lib/notice';
 import { toast } from '@/lib/toast';
 
 // The providers' logos (constants/data) for the online methods a business accepts.
-const LOGO: Partial<Record<OrderMethod, (typeof paymentMethods)[number]>> = { wave: paymentMethods.find((m) => m.id === 'wave'), orange_money: paymentMethods.find((m) => m.id === 'om') };
 
 /** The basket: one business, delivery or pickup, paid now with Wave or Orange Money; then the order's tracking. */
 export default function Panier() {
@@ -40,7 +38,6 @@ export default function Panier() {
   // Pre-filled with the room given at sign-up; still editable (delivery to a friend, the BU…).
   const [address, setAddress] = useState(user?.village && user.room ? `${user.village}, chambre ${user.room}` : '');
   const [note, setNote] = useState('');
-  const [picked, setPicked] = useState<OrderMethod | null>(null);
   const [paying, setPaying] = useState(false);
   const businessId = cart.business?.id;
 
@@ -104,10 +101,11 @@ export default function Panier() {
   const gone = Object.keys(cart.items).filter((itemId) => !b.items.some((i) => i.id === itemId));
   const subtotal = lines.reduce((sum, l) => sum + l.qty * l.price, 0);
   const delivery = chosen === 'delivery';
-  // What the student picked, if this business takes it; otherwise its first method.
-  const payment: OrderMethod = picked && b.paymentMethods.some((m) => m.value === picked) ? picked : (b.paymentMethods[0]?.value ?? 'wave');
+  // Cash only, at the delivery or the counter.
+  const payment: OrderMethod = 'cash';
   const fee = delivery && where ? (b.deliveryFees[where] ?? 0) : 0;
-  const feeLabel = b.deliveryFee ? `Livraison · dès ${formatFcfa(b.deliveryFee)}` : 'Livraison gratuite';
+  // Short: it sits in a two-option switch (the fee of the chosen zone is in the total).
+  const feeLabel = b.deliveryFee ? `Livraison ${formatFcfa(b.deliveryFee)}` : 'Livraison gratuite';
   const total = subtotal + fee;
   const blocker = !b.open ? b.statusLabel : gone.length ? 'Retire les articles indisponibles' : delivery && !address.trim() ? 'Indique où te livrer' : null;
   const setQty = (itemId: string, qty: number) => cart.setQty({ id: b.id, name: b.name }, itemId, qty);
@@ -254,27 +252,26 @@ export default function Panier() {
           />
 
           <Text style={styles.section}>Paiement</Text>
-          {/* Only what this business accepts: cash (at delivery or at the counter), Wave, Orange Money. */}
-          {b.paymentMethods.map((m) => {
-            const on = m.value === payment;
-            const logo = LOGO[m.value];
-            return (
-              <Pressable key={m.value} onPress={() => setPicked(m.value)} style={[styles.card, styles.payment, on && styles.paymentOn]} accessibilityRole="radio" accessibilityState={{ checked: on }} accessibilityLabel={m.label}>
-                {logo ? (
-                  <PaymentLogo method={logo} />
-                ) : (
-                  <View style={styles.cash}>
-                    <Ionicons name="cash-outline" size={22} color={colors.successText} />
-                  </View>
-                )}
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.payName}>{m.label}</Text>
-                  <Text style={styles.muted}>{m.value === 'cash' ? (delivery ? 'À payer au livreur' : 'À payer au retrait') : 'Remboursé si la commande est refusée'}</Text>
-                </View>
-                {on ? <Ionicons name="checkmark-circle" size={22} color={colors.primary} /> : <View style={styles.radio} />}
-              </Pressable>
-            );
-          })}
+          {/* Orders are paid in cash, at the delivery or the counter: nothing to choose. */}
+          <View style={[styles.card, styles.payment, styles.paymentOn]}>
+            <View style={styles.cash}>
+              <Ionicons name="cash-outline" size={22} color={colors.successText} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.payName}>Espèces</Text>
+              <Text style={styles.muted}>{delivery ? 'À payer au livreur' : 'À payer au retrait'}</Text>
+            </View>
+            <Ionicons name="checkmark-circle" size={22} color={colors.primary} />
+          </View>
+          {/* Cash at the door: the delivery fee, and the exact amount (the riders carry no change). */}
+          {payment === 'cash' && delivery && (
+            <View style={styles.cashNote}>
+              <Ionicons name="cash-outline" size={18} color={colors.warningText} />
+              <Text style={styles.cashNoteText}>
+                {fee ? `Frais de livraison ${formatFcfa(fee)}. ` : ''}Sois certain d’avoir le montant exact du paiement ({formatFcfa(total)}) : nos livreurs ne sont pas munis de monnaie.
+              </Text>
+            </View>
+          )}
 
           <View style={[styles.card, shadow.card, { gap: 8 }]}>
             <RecapRow k="Sous-total" v={formatFcfa(subtotal)} />
@@ -286,8 +283,11 @@ export default function Panier() {
             </View>
           </View>
 
-          <PrimaryButton label={blocker ?? (payment === 'cash' ? `Commander · ${formatFcfa(total)}` : `Payer ${formatFcfa(total)} et commander`)} onPress={order} disabled={!!blocker || paying} loading={paying} />
         </KeyboardAwareScrollView>
+      {/* Pinned, as on every form: what's missing, then the order and its total. */}
+      <StickyFooter>
+        <PrimaryButton label={blocker ?? `Commander · ${formatFcfa(total)}`} onPress={order} disabled={!!blocker || paying} loading={paying} />
+      </StickyFooter>
     </SafeAreaView>
   );
 }
@@ -358,4 +358,6 @@ const styles = StyleSheet.create({
   emptyIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
   emptyTitle: { ...typo.h3, color: colors.navy },
   emptyText: { ...typo.body, color: colors.muted2, textAlign: 'center', marginBottom: 10 },
+  cashNote: { flexDirection: 'row', gap: 10, padding: 12, borderRadius: radii.md, backgroundColor: colors.warningBg },
+  cashNoteText: { ...typo.small, flex: 1, color: colors.warningText, lineHeight: 19 },
 });

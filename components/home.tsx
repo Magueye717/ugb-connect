@@ -23,7 +23,10 @@ import { useCampus } from '@/context/CampusContext';
 import { useCaravans } from '@/context/CaravansContext';
 import { AlertSheet } from '@/components/AlertSheet';
 import { FillBar, OrganizerLine, shortPlace } from '@/components/caravan';
+import { Hop, LivePulse, SearchingDots } from '@/components/motion';
 import { type LiveBannerDto } from '@/features/banners/api';
+import { methodLabel } from '@/features/payments/checkout';
+import { useMethodsOff } from '@/features/payments/methods';
 import { currentMeal, type AlertDto, type DishStatus } from '@/features/restos/api';
 import { useTaxi } from '@/context/TaxiContext';
 import { documentMeta } from '@/lib/fileSize';
@@ -75,6 +78,31 @@ export function AlertStrip() {
   );
 }
 
+/** Wave or Orange Money switched off by the admins (an outage): said on the home, until it's back. */
+export function PaymentsOffStrip() {
+  const { off } = useMethodsOff();
+  const [hidden, setHidden] = useState(false);
+  if (!off.length || hidden) return null;
+  const names = off.map((m) => methodLabel[m.method]).join(' et ');
+  const others = (['wave', 'orange_money'] as const).filter((m) => !off.some((o) => o.method === m)).map((m) => methodLabel[m]);
+  const note = off.find((m) => m.note)?.note;
+  return (
+    <View style={[styles.alert, { backgroundColor: colors.warningBg, borderLeftColor: colors.warningText }]} accessibilityRole="alert">
+      <Ionicons name="card-outline" size={20} color={colors.warningText} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.alertTitle}>{names} momentanément indisponible{off.length > 1 ? 's' : ''}</Text>
+        <Text style={styles.alertSub}>
+          {others.length ? `Paie avec ${others.join(' ou ')}, ou en espèces quand c’est proposé.` : 'Paie en espèces quand c’est proposé.'}
+          {note ? ` ${note}` : ''}
+        </Text>
+      </View>
+      <Pressable onPress={() => setHidden(true)} hitSlop={10} accessibilityLabel="Masquer">
+        <Ionicons name="close" size={18} color={colors.muted} />
+      </Pressable>
+    </View>
+  );
+}
+
 /**
  * Students who signed up before the UFR and region were asked: announcements for their UFR can't reach them yet.
  * Can be put off for this session.
@@ -82,13 +110,15 @@ export function AlertStrip() {
 export function OriginPrompt() {
   const { user } = useAuth();
   const [later, setLater] = useState(false);
-  if (!user?.isStudent || (user.ufrCode && user.region) || later) return null;
+  if (!user?.isStudent || (user.ufrCode && user.niveau && user.region) || later) return null;
+  // UFR and niveau on « Mon UFR », the région on « Ma carte étudiant ».
+  const studies = !user.ufrCode || !user.niveau;
   return (
-    <Pressable style={[styles.alert, { backgroundColor: colors.primarySoft, borderLeftColor: colors.primary }]} onPress={() => router.push('/mes-etudes')} accessibilityRole="link">
-      <Ionicons name="school-outline" size={20} color={colors.primary} />
+    <Pressable style={[styles.alert, { backgroundColor: colors.primarySoft, borderLeftColor: colors.primary }]} onPress={() => router.push(studies ? '/mes-etudes' : '/ma-carte')} accessibilityRole="link">
+      <Ionicons name={studies ? 'school-outline' : 'map-outline'} size={20} color={colors.primary} />
       <View style={{ flex: 1 }}>
-        <Text style={styles.alertTitle}>Indique ton UFR et ta région</Text>
-        <Text style={styles.alertSub}>Pour recevoir les annonces de ton UFR : examens, élections des délégués…</Text>
+        <Text style={styles.alertTitle}>{studies ? 'Indique ton UFR et ton niveau' : 'Indique ta région d’origine'}</Text>
+        <Text style={styles.alertSub}>{studies ? 'Pour recevoir les annonces de ton UFR : examens, élections des délégués…' : 'Pour recevoir les annonces de ta région.'}</Text>
       </View>
       <Pressable onPress={() => setLater(true)} hitSlop={10} accessibilityLabel="Plus tard">
         <Ionicons name="close" size={18} color={colors.muted} />
@@ -126,8 +156,10 @@ export const eventWhen = (iso: string) => {
  */
 export function AdCarousel() {
   const { banners } = useCampus();
-  const { width } = useWindowDimensions();
+  const { width, fontScale } = useWindowDimensions();
   const slideWidth = width - BODY_PADDING * 2;
+  // The pictures are 16:9: as tall as that on every phone, a little more with large text (title + button fit).
+  const slideHeight = Math.round(Math.max(180, (slideWidth * 9) / 16) * Math.min(Math.max(fontScale, 1), 1.3));
   const ref = useRef<ScrollViewInstance>(null);
   const [index, setIndex] = useState(0);
   const multiple = banners.length > 1;
@@ -169,7 +201,7 @@ export function AdCarousel() {
               onPress={() => openBanner(b)}
               accessibilityRole={b.event || b.cta ? 'button' : undefined}
               accessibilityLabel={`${b.event ? 'Événement' : 'Sponsorisé'} : ${b.title}`}
-              style={[styles.banner, { width: slideWidth }]}>
+              style={[styles.banner, { width: slideWidth, height: slideHeight }]}>
               <Image source={{ uri: b.image }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} />
               {/* Darker at the bottom: the text stays readable on any picture. */}
               <LinearGradient colors={['rgba(10,16,40,0.05)', 'rgba(10,16,40,0.78)']} style={StyleSheet.absoluteFill} />
@@ -424,26 +456,56 @@ function findNextCourse(now: number) {
 /** Sunu Taxi on the home screen: the next open shared ride, one tap to join. */
 export function TaxiCard() {
   const now = useNow();
-  const { trips, me } = useTaxi();
+  const { trips, me, activeTrip } = useTaxi();
+  // My trip (proposed or joined), still waiting for its passengers: shown first, « searching ».
+  const mine = activeTrip();
   const open = trips
     .filter((t) => !t.departed && t.status === 'open' && t.departureAt > now && !t.passengers.includes(me) && t.seatsTaken < t.seats)
     .sort((a, b) => a.departureAt - b.departureAt);
   const next = open[0];
   const go = () => router.push({ pathname: '/(tabs)/caravanes', params: { vue: 'taxi' } });
 
-  return (
+  const card = (
     <View style={[styles.infoCard, shadow.card]}>
       <View style={styles.rowBetween}>
         <View style={styles.label}>
           <Ionicons name="car-outline" size={12} color={colors.primary} />
           <Text style={styles.labelText}>SUNU TAXI</Text>
         </View>
-        {next && <Text style={styles.timeLeft}>{formatTimeLeft(next.departureAt - now)}</Text>}
+        {mine ? <Text style={styles.timeLeft}>Mon trajet</Text> : next && <Text style={styles.timeLeft}>{formatTimeLeft(next.departureAt - now)}</Text>}
       </View>
 
-      {next ? (
+      {mine && !mine.departed ? (
+        <Pressable onPress={() => router.push(`/taxi/${mine.id}`)} style={styles.mineRow} accessibilityRole="button" accessibilityLabel={`Mon trajet vers ${mine.to}, ${mine.seatsTaken} places sur ${mine.seats}`}>
+          <View style={styles.searchIcon}>
+            {mine.seatsTaken < mine.seats && <LivePulse color={colors.primary} size={40} />}
+            <Ionicons name="car" size={20} color="#fff" />
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={styles.city} numberOfLines={1}>
+              {mine.from.split(' · ').pop()} → {mine.to.split(' · ').pop()}
+            </Text>
+            {mine.seatsTaken < mine.seats ? (
+              <View style={styles.searching}>
+                <Text style={styles.searchingText}>Recherche de passagers</Text>
+                <SearchingDots color={colors.primary} />
+              </View>
+            ) : (
+              <Text style={styles.seats}>Complet · c’est parti à l’heure</Text>
+            )}
+            <Text style={styles.detail}>
+              {mine.seatsTaken}/{mine.seats} places · départ dans {formatTimeLeft(mine.departureAt - now)}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+        </Pressable>
+      ) : next ? (
         <>
           <View style={styles.route}>
+            <View style={styles.searchIconSmall}>
+              <LivePulse color={colors.primary} size={28} />
+              <Ionicons name="car" size={15} color="#fff" />
+            </View>
             <Text style={styles.city} numberOfLines={1}>
               {next.from.split(' · ').pop()}
             </Text>
@@ -476,7 +538,7 @@ export function TaxiCard() {
         </View>
       )}
 
-      {open.length > 1 && (
+      {!mine && open.length > 1 && (
         <Pressable style={styles.more} onPress={go}>
           <Text style={styles.moreText}>
             {open.length - 1} autre{open.length > 2 ? 's' : ''} trajet{open.length > 2 ? 's' : ''} ouvert{open.length > 2 ? 's' : ''}
@@ -486,6 +548,8 @@ export function TaxiCard() {
       )}
     </View>
   );
+  // An open trip (mine waiting for passengers, or one to join): the card hops, for every student.
+  return mine || next ? <Hop>{card}</Hop> : card;
 }
 
 export function CourseCard() {
@@ -742,7 +806,6 @@ const styles = StyleSheet.create({
 
   bannerTrack: { borderRadius: radii.lg },
   banner: {
-    height: 172,
     borderRadius: radii.lg,
     padding: 16,
     justifyContent: 'space-between',
@@ -774,6 +837,11 @@ const styles = StyleSheet.create({
   dotOn: { width: 18, backgroundColor: colors.primary },
 
   infoCard: { backgroundColor: colors.card, borderRadius: radii.md, padding: 12, gap: 6 },
+  mineRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  searchIconSmall: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  searchIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  searching: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  searchingText: { ...typo.smallStrong, color: colors.primary },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   label: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   labelText: { ...typo.label, color: colors.muted2, letterSpacing: 0.4 },

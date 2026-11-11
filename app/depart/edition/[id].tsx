@@ -5,16 +5,17 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { DateField } from '@/components/DatePicker';
+import { DateField, StopTimeField } from '@/components/DatePicker';
 import { EmptyState } from '@/components/states';
-import { BackButton, Chip, Field, LabeledField, PrimaryButton, Segmented, TextButton } from '@/components/ui';
+import { BackButton, Field, LabeledField, PrimaryButton, Segmented, StickyFooter, TextButton, useDirty } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { isOwner, useAuth } from '@/context/AuthContext';
 import { caravansApi, dayLabel, type DepartureInput, type DepartureLimits, type OrgDepartureDto, type VehicleDto } from '@/features/caravans/api';
 import { VehicleSheet } from '@/features/caravans/VehicleSheet';
-import { ticketMethodLabel, type TicketMethod } from '@/features/payments/checkout';
 import { ApiError } from '@/lib/api';
+import { useLeaveGuard } from '@/lib/leaveGuard';
+import { notice } from '@/lib/notice';
 import { toast } from '@/lib/toast';
 import { useNow } from '@/lib/useNow';
 
@@ -22,7 +23,6 @@ type Direction = 'aller' | 'retour';
 type StopRow = { place: string; time: string };
 const MAX_STOPS = 15;
 const DAY = 86_400_000;
-const METHODS: TicketMethod[] = ['wave', 'orange_money', 'cash'];
 /** The campus side of a trip: prefilled, editable. */
 const CAMPUS = 'UGB';
 
@@ -30,11 +30,6 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const hhmm = (iso: string) => {
   const d = new Date(iso);
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-/** "1430" → "14:30", as the organizer types. */
-const typeTime = (t: string) => {
-  const d = t.replace(/\D/g, '').slice(0, 4);
-  return d.length > 2 ? `${d.slice(0, 2)}:${d.slice(2)}` : d;
 };
 /** Minutes after midnight, or null. */
 const minutesOf = (t: string) => {
@@ -53,29 +48,53 @@ const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
 /** A departure is planned up to two months ahead. */
 const DAYS_AHEAD = 60;
 
+/** A stop earlier than the one before is the next day only on a night trip: at most 12 h later (22h → 2h). */
+const OVERNIGHT_MAX = 12 * 60;
+const hLabel = (m: number) => `${pad(Math.floor((m % 1440) / 60))}h${pad(m % 60)}`;
+
 /**
- * The stops, in route order, as dates: the first on the chosen day, each next one later; a time earlier than the
- * previous stop's is the next morning (a night bus to Ziguinchor). Null while a time is missing.
+ * The stops, in route order, as dates: the first on the chosen day, each next one later. A time earlier than the stop
+ * before is the next morning only on a night trip (22h → 2h); otherwise it's out of order (12h then 11h) and flagged
+ * on that row. `plan` is null while a time is missing or out of order.
  */
-function schedule(day: Date | null, rows: StopRow[]) {
-  if (!day) return null;
+function schedule(day: Date | null, rows: StopRow[], names: string[]) {
   let offset = 0;
-  let prev = -1;
+  let prev: { abs: number; name: string } | null = null;
+  const errors: (string | null)[] = rows.map(() => null);
   const out: { at: Date; nextDay: boolean }[] = [];
-  for (const r of rows) {
+  let complete = !!day;
+  rows.forEach((r, i) => {
     const m = minutesOf(r.time);
-    if (m === null) return null;
-    let abs = offset * 1440 + m;
-    if (abs < prev) {
-      offset += 1;
-      abs += 1440;
+    if (m === null) {
+      complete = false;
+      return;
     }
-    prev = abs;
-    const at = new Date(day);
-    at.setMinutes(abs);
-    out.push({ at, nextDay: offset > 0 });
-  }
-  return out;
+    let abs = offset * 1440 + m;
+    if (prev && abs < prev.abs) {
+      if (abs + 1440 - prev.abs <= OVERNIGHT_MAX) {
+        offset += 1;
+        abs += 1440;
+      } else {
+        errors[i] = `Pas avant ${hLabel(prev.abs)} (${prev.name})`;
+        complete = false;
+        return;
+      }
+    }
+    prev = { abs, name: names[i]! };
+    if (day) {
+      const at = new Date(day);
+      at.setMinutes(abs);
+      out[i] = { at, nextDay: offset > 0 };
+    }
+  });
+  return { plan: complete && out.length === rows.length ? out : null, partial: out, errors };
+}
+
+/** As the server sets them: sales open until the departure; the minimum checked 24 h before (or at the departure). */
+function deadlinesOf(departureAt: Date, now: number) {
+  const bookingClosesAt = departureAt.getTime();
+  const dayBefore = departureAt.getTime() - DAY;
+  return { bookingClosesAt, confirmBy: dayBefore > now ? dayBefore : bookingClosesAt };
 }
 
 /** What a past or draft departure fills in (the day stays to choose when copying). */
@@ -89,8 +108,27 @@ const fromDeparture = (d: OrgDepartureDto) => ({
   price: String(d.price),
   maxSeats: d.maxSeatsPerStudent,
   minPassengers: String(d.minPassengers),
-  methods: d.paymentMethods,
 });
+
+/**
+ * The way back of a trip: its stops in reverse (the last arrêt becomes the first montée…), each the same time apart,
+ * leaving at the same hour as the original.
+ */
+const reversedDeparture = (d: OrgDepartureDto) => {
+  const x = fromDeparture(d);
+  const route = [...d.pickups, ...d.dropoffs].map((st) => ({ place: st.place, at: Date.parse(st.at) }));
+  const start = route[0]!.at;
+  const end = route[route.length - 1]!.at;
+  const back = [...route].reverse().map((st) => ({ place: st.place, time: hhmm(new Date(start + (end - st.at)).toISOString()) }));
+  return {
+    ...x,
+    direction: (d.direction === 'aller' ? 'retour' : 'aller') as Direction,
+    from: d.to,
+    to: d.from,
+    pickups: back.slice(0, d.dropoffs.length),
+    dropoffs: back.slice(d.dropoffs.length),
+  };
+};
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
 
@@ -203,23 +241,40 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
   const [price, setPrice] = useState(init?.price ?? '');
   const [maxSeats, setMaxSeats] = useState(init?.maxSeats ?? limits.defaultSeatsPerStudent);
   const [minPassengers, setMinPassengers] = useState(init?.minPassengers ?? '0');
-  const [methods, setMethods] = useState<TicketMethod[]>(init?.methods ?? ['wave', 'orange_money']);
   // The vehicle sheet: a new vehicle, or the one being edited.
   const [sheet, setSheet] = useState<VehicleDto | 'new' | null>(null);
   const [saving, setSaving] = useState<'draft' | 'publish' | null>(null);
   const [copiedFrom, setCopiedFrom] = useState<string | null>(null);
   const now = useNow();
+  // Leaving with changes not saved asks first; a save leaves without asking.
+  const dirty = useDirty({ direction, from, to, day: day?.getTime() ?? null, pickups, dropoffs, vehicleId, price, maxSeats, minPassengers });
+  const guard = useLeaveGuard(dirty && !saving);
 
   const vehicle = vehicles.find((v) => v.id === vehicleId) ?? null;
   const seats = vehicle ? vehicle.capacity - vehicle.blockedSeats.length : null;
-  const plan = useMemo(() => schedule(day, [...pickups, ...dropoffs]), [day, pickups, dropoffs]);
-  const departureAt = plan?.[0]?.at ?? null;
-  const tooSoon = !!departureAt && departureAt.getTime() < now + 3_600_000;
+  const timed = useMemo(() => schedule(day, [...pickups, ...dropoffs], [...pickups.map((_, i) => `montée ${i + 1}`), ...dropoffs.map((_, i) => `arrêt ${i + 1}`)]), [day, pickups, dropoffs]);
+  const plan = timed.plan;
+  const departureAt = timed.partial[0]?.at ?? null;
+  const inPast = !!departureAt && departureAt.getTime() <= now;
+  // The first arrêt comes after the last montée: named so.
+  const errors = timed.errors.map((e, i) => (i === pickups.length && e ? e.replace(/\(montée \d+\)/, '(dernière montée)') : e));
+  if (inPast) errors[0] = 'Heure déjà passée';
   const min = Number(minPassengers || 0);
   const minTooHigh = seats !== null && min > seats;
-  const stopsOk = [...pickups, ...dropoffs].every((s) => s.place.trim().length >= 2);
-  const valid =
-    from.trim().length >= 2 && to.trim().length >= 2 && stopsOk && !!plan && !tooSoon && !!vehicle && Number(price) >= 100 && Number(price) <= 100_000 && !minTooHigh && methods.length > 0;
+  const priceOk = Number(price) >= 100 && Number(price) <= 100_000;
+  // Live: what's still missing, said next to the button (which stays disabled until nothing is).
+  const missing = [
+    from.trim().length < 2 && 'le départ',
+    to.trim().length < 2 && 'la destination',
+    !day && 'le jour',
+    [...pickups, ...dropoffs].some((r) => r.place.trim().length < 2) && 'le lieu de chaque arrêt',
+    [...pickups, ...dropoffs].some((r) => !r.time) && 'les heures',
+    !vehicle && 'le véhicule',
+    !priceOk && 'le prix (100 à 100 000 F)',
+  ].filter(Boolean) as string[];
+  const blocking = errors.some(Boolean) || minTooHigh;
+  const valid = !missing.length && !blocking && !!plan;
+  const deadline = plan && departureAt && !inPast ? deadlinesOf(departureAt, now) : null;
 
   const switchDirection = (d: Direction) => {
     if (d === direction) return;
@@ -228,8 +283,19 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
     setFrom(to);
     setTo(from);
   };
-  const copy = (d: OrgDepartureDto) => {
-    const x = fromDeparture(d);
+  // « Reprendre un trajet »: the same way again, or the way back (stops and times reversed).
+  const copy = (d: OrgDepartureDto) =>
+    notice({
+      tone: 'info',
+      title: 'Reprendre ce trajet',
+      message: `${d.from} → ${d.to} · ${d.pickups.length + d.dropoffs.length} arrêts · ${formatFcfa(d.price)}`,
+      choices: [
+        { label: `Sens inverse : ${d.to} → ${d.from}`, tone: 'primary', onPress: () => apply(d, reversedDeparture(d)) },
+        { label: `Même sens : ${d.from} → ${d.to}`, tone: 'primary', onPress: () => apply(d, fromDeparture(d)) },
+        { label: 'Annuler', tone: 'quiet' },
+      ],
+    });
+  const apply = (d: OrgDepartureDto, x: ReturnType<typeof fromDeparture>) => {
     setDirection(x.direction);
     setFrom(x.from);
     setTo(x.to);
@@ -239,11 +305,9 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
     setPrice(x.price);
     setMaxSeats(x.maxSeats);
     setMinPassengers(x.minPassengers);
-    setMethods(x.methods);
     setCopiedFrom(d.id);
   };
-  const leave = () => (router.canGoBack() ? router.back() : router.replace('/activites'));
-  const toggleMethod = (m: TicketMethod) => setMethods((list) => (list.includes(m) ? (list.length > 1 ? list.filter((x) => x !== m) : list) : [...list, m]));
+  const leave = () => guard.leave(() => (router.canGoBack() ? router.back() : router.replace('/activites')));
 
   const input = (): DepartureInput => {
     const all = plan!;
@@ -257,7 +321,7 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
       dropoffs: dropoffs.map((s, i) => ({ place: s.place.trim(), at: at(pickups.length + i) })),
       price: Number(price),
       maxSeatsPerStudent: maxSeats,
-      paymentMethods: methods,
+      paymentMethods: ['cash'],
       minPassengers: min,
     };
   };
@@ -269,7 +333,7 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
       if (publish) {
         saved = await caravansApi.publishDeparture(orgId, saved.id);
         toast('Départ publié : les étudiants peuvent réserver.');
-        router.replace(`/depart/${saved.id}`);
+        guard.leave(() => router.replace(`/depart/${saved.id}`));
       } else {
         toast('Brouillon enregistré.');
         leave();
@@ -281,7 +345,7 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
     }
   };
   const confirmPublish = () =>
-    Alert.alert('Publier ce départ ?', 'Les étudiants pourront réserver tout de suite. Un départ publié ne se modifie plus : tu pourras seulement l’annuler (tout le monde est remboursé).', [
+    Alert.alert('Publier ce départ ?', 'Les étudiants pourront réserver tout de suite. Un départ publié ne se modifie plus : tu pourras ajouter des arrêts ou l’annuler (les passagers sont prévenus).', [
       { text: 'Vérifier encore', style: 'cancel' },
       { text: 'Publier', onPress: () => save(true) },
     ]);
@@ -300,6 +364,7 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
     ]);
 
   return (
+    <View style={{ flex: 1 }}>
     <KeyboardAwareScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" bottomOffset={24}>
       {past.length > 0 && (
         <View style={{ gap: 8 }}>
@@ -321,7 +386,7 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
               </Pressable>
             ))}
           </ScrollView>
-          <Text style={styles.hint}>Arrêts, horaires, prix et véhicule repris : choisis juste le jour.</Text>
+          <Text style={styles.hint}>Même sens ou retour (arrêts et horaires inversés) : prix et véhicule repris, choisis juste le jour.</Text>
         </View>
       )}
 
@@ -354,27 +419,25 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
         title="Montées"
         icon="enter-outline"
         addLabel="Ajouter une montée"
-        hint="Dans l’ordre du trajet. La première heure est l’heure du départ."
+        hint="Dans l’ordre du trajet, chacune après la précédente. La première heure est l’heure du départ."
         rows={pickups}
         setRows={setPickups}
-        plan={plan?.slice(0, pickups.length) ?? null}
+        plan={timed.partial.slice(0, pickups.length)}
+        errors={errors.slice(0, pickups.length)}
         placeholder={direction === 'aller' ? 'UGB · Village E' : 'Dakar · Colobane'}
       />
       <Stops
-        title="Descentes"
+        title="Arrêts"
         icon="exit-outline"
-        addLabel="Ajouter une descente"
-        hint="Heure d’arrivée prévue à chaque arrêt."
+        addLabel="Ajouter un arrêt"
+        hint="Heure d’arrivée prévue, après la dernière montée et dans l’ordre du trajet."
         rows={dropoffs}
         setRows={setDropoffs}
-        plan={plan?.slice(pickups.length) ?? null}
+        plan={timed.partial.slice(pickups.length)}
+        errors={errors.slice(pickups.length)}
         placeholder={direction === 'aller' ? 'Dakar · Colobane' : 'UGB · Village E'}
       />
-      {departureAt && (
-        <Text style={[styles.hint, tooSoon && styles.warn]}>
-          {tooSoon ? 'Le départ doit être dans plus d’une heure.' : `Départ ${dayLabel(departureAt.getTime())} à ${hhmm(departureAt.toISOString()).replace(':', 'h')}.`}
-        </Text>
-      )}
+      {departureAt && !inPast && <Text style={styles.hint}>Départ {dayLabel(departureAt.getTime())} à {hhmm(departureAt.toISOString()).replace(':', 'h')}.</Text>}
 
       <Text style={styles.label}>Véhicule</Text>
       {vehicles.length === 0 && !owner && <Text style={styles.hint}>Aucun véhicule enregistré : demande au responsable de l’organisation d’en ajouter un.</Text>}
@@ -416,9 +479,11 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
         </View>
       </View>
       <Text style={styles.hint}>
-        {min > 0
-          ? `Si ${min} place${min > 1 ? 's ne sont pas réservées' : ' n’est pas réservée'} 24 h avant le départ, il est annulé et tout le monde est remboursé.`
-          : '0 : le départ est garanti, quel que soit le nombre de passagers.'}
+        {min === 0
+          ? '0 : le départ est garanti, quel que soit le nombre de passagers.'
+          : deadline
+            ? `Vérifié le ${dayLabel(deadline.confirmBy)} à ${hhmm(new Date(deadline.confirmBy).toISOString()).replace(':', 'h')} : avec moins de ${min} place${min > 1 ? 's' : ''} réservée${min > 1 ? 's' : ''}, le départ est annulé.${deadline.confirmBy === deadline.bookingClosesAt ? ' (Départ dans moins de 24 h : vérifié à l’heure du départ.)' : ''} Les réservations restent ouvertes jusqu’au départ.`
+            : `Avec moins de ${min} place${min > 1 ? 's' : ''} réservée${min > 1 ? 's' : ''} 24 h avant (ou à l’heure du départ pour un départ plus proche), il est annulé.`}
       </Text>
 
       <View style={styles.row}>
@@ -438,19 +503,13 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
       </View>
       <Text style={[styles.hint, { marginTop: -6 }]}>Sa place et celles de ses accompagnants.</Text>
 
-      <Text style={styles.label}>Paiement des places</Text>
-      <View style={styles.wrap}>
-        {METHODS.map((m) => (
-          <Chip key={m} label={ticketMethodLabel[m]} icon={m === 'cash' ? 'cash-outline' : 'phone-portrait-outline'} selected={methods.includes(m)} onPress={() => toggleMethod(m)} role="checkbox" />
-        ))}
+      <View style={styles.cashHint}>
+        <Ionicons name="cash-outline" size={18} color={colors.successText} />
+        <Text style={[styles.hint, { flex: 1, color: colors.successText }]}>
+          Les étudiants demandent leurs places et viennent te payer en espèces : tu valides chaque demande à réception de l’argent (sous 24 h, sinon elle est annulée). Le billet devient alors valable.
+        </Text>
       </View>
-      <Text style={styles.hint}>
-        {methods.includes('cash')
-          ? 'Espèces : la place est réservée tout de suite, l’étudiant paie à l’embarquement quand tu scannes son billet. L’app te dit combien encaisser.'
-          : 'Payé dans l’app : tu récupères l’argent une fois le bus parti.'}
-      </Text>
 
-      <PrimaryButton label="Publier le départ" disabled={!valid || !!saving} loading={saving === 'publish'} onPress={confirmPublish} />
       <TextButton
         label={saving === 'draft' ? 'Enregistrement…' : 'Enregistrer le brouillon'}
         icon="save-outline"
@@ -478,6 +537,16 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
         }}
       />
     </KeyboardAwareScrollView>
+    {/* Always in view: the button, and live, what's still missing or wrong. */}
+    <StickyFooter>
+      {!valid && (
+        <Text style={[styles.hint, styles.footerHint, blocking && styles.warn]} numberOfLines={2}>
+          {blocking ? 'Corrige les heures en rouge.' : missing.length ? `À compléter : ${missing.join(', ')}.` : ''}
+        </Text>
+      )}
+      <PrimaryButton label="Publier le départ" disabled={!valid || !!saving} loading={saving === 'publish'} onPress={confirmPublish} />
+    </StickyFooter>
+    </View>
   );
 }
 
@@ -489,13 +558,15 @@ type StopsProps = {
   addLabel: string;
   rows: StopRow[];
   setRows: (f: (list: StopRow[]) => StopRow[]) => void;
-  /** The computed date of each row, to flag the next day. */
-  plan: { at: Date; nextDay: boolean }[] | null;
+  /** The computed date of each row (missing while its time is), to flag the next day. */
+  plan: ({ at: Date; nextDay: boolean } | undefined)[];
+  /** Out of order: what it must come after. */
+  errors: (string | null)[];
   placeholder: string;
 };
 
 /** A list of stops on a line, in route order: place and time, then the row to add one more. */
-function Stops({ title, icon, hint, addLabel, rows, setRows, plan, placeholder }: StopsProps) {
+function Stops({ title, icon, hint, addLabel, rows, setRows, plan, errors, placeholder }: StopsProps) {
   const set = (i: number, patch: Partial<StopRow>) => setRows((list) => list.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const full = rows.length >= MAX_STOPS;
   return (
@@ -507,7 +578,7 @@ function Stops({ title, icon, hint, addLabel, rows, setRows, plan, placeholder }
       </View>
       <Text style={[styles.hint, { marginBottom: 8 }]}>{hint}</Text>
       {rows.map((r, i) => (
-        <View key={i} style={styles.stopRow}>
+        <View key={i} style={[styles.stopRow, { flexWrap: 'wrap' }]}>
           {/* The route: a dot per stop, joined by a line down to the add row. */}
           <View style={styles.rail}>
             <View style={styles.dot}>
@@ -519,24 +590,22 @@ function Stops({ title, icon, hint, addLabel, rows, setRows, plan, placeholder }
             <View style={{ flex: 1 }}>
               <Field placeholder={placeholder} value={r.place} onChangeText={(t) => set(i, { place: t })} maxLength={80} accessibilityLabel={`${title} ${i + 1} : lieu`} />
             </View>
-            <View style={{ width: 96 }}>
-              <Field
-                placeholder="14:30"
-                keyboardType="number-pad"
-                value={r.time}
-                onChangeText={(t) => set(i, { time: typeTime(t) })}
-                invalid={r.time.length === 5 && minutesOf(r.time) === null}
-                // Earlier than the stop before: the next morning.
-                right={plan?.[i]?.nextDay ? <Text style={styles.nextDayText}>+1 j</Text> : null}
-                accessibilityLabel={`${title} ${i + 1} : heure`}
-              />
-            </View>
+            <StopTimeField
+              label={`${title.replace(/s$/, '')} ${i + 1}`}
+              value={r.time}
+              onChange={(t) => set(i, { time: t })}
+              invalid={!!errors[i]}
+              // Earlier than the stop before, on a night trip: the next morning.
+              nextDay={!!plan[i]?.nextDay}
+              hint={errors[i]}
+            />
             {rows.length > 1 && (
               <Pressable onPress={() => setRows((list) => list.filter((_, j) => j !== i))} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Retirer l’arrêt ${i + 1}`}>
                 <Ionicons name="trash-outline" size={18} color={colors.muted2} />
               </Pressable>
             )}
           </View>
+          {!!errors[i] && <Text style={[styles.hint, styles.warn, styles.rowError]}>{errors[i]}</Text>}
         </View>
       ))}
       {!full && (
@@ -612,9 +681,9 @@ function ExtendForm({ orgId, departure: d, vehicles }: { orgId: string; departur
         </Text>
       </View>
       <LockedStops title="Montées" icon="enter-outline" booked={d.bookedStopIds} departureStop={d.pickups[0]?.stopId} removed={removed} onToggleRemove={toggleRemove} stops={d.pickups} rows={pickups} setRows={setPickups} addLabel="Ajouter une montée" placeholder="Louga · Gare routière" dateOf={dateOf} departAt={departAt} />
-      <LockedStops title="Descentes" icon="exit-outline" booked={d.bookedStopIds} removed={removed} onToggleRemove={toggleRemove} stops={d.dropoffs} rows={dropoffs} setRows={setDropoffs} addLabel="Ajouter une descente" placeholder="Rufisque · Gare" dateOf={dateOf} departAt={departAt} />
+      <LockedStops title="Arrêts" icon="exit-outline" booked={d.bookedStopIds} removed={removed} onToggleRemove={toggleRemove} stops={d.dropoffs} rows={dropoffs} setRows={setDropoffs} addLabel="Ajouter un arrêt" placeholder="Rufisque · Gare" dateOf={dateOf} departAt={departAt} />
 
-      {dropoffsLeft === 0 && <Text style={[styles.hint, styles.warn]}>Garde au moins une descente.</Text>}
+      {dropoffsLeft === 0 && <Text style={[styles.hint, styles.warn]}>Garde au moins un arrêt.</Text>}
       <Text style={styles.label}>Véhicule</Text>
       <View style={{ gap: 8 }}>
         {vehicles.map((v) => {
@@ -727,18 +796,14 @@ function LockedStops({ title, icon, stops, rows, setRows, addLabel, placeholder,
               <View style={{ flex: 1 }}>
                 <Field placeholder={placeholder} value={r.place} onChangeText={(t) => set(i, { place: t })} maxLength={80} accessibilityLabel={`Nouvel arrêt ${i + 1} : lieu`} />
               </View>
-              <View style={{ width: 96 }}>
-                <Field
-                  placeholder="14:30"
-                  keyboardType="number-pad"
-                  value={r.time}
-                  onChangeText={(t) => set(i, { time: typeTime(t) })}
-                  invalid={r.time.length === 5 && !at}
-                  // The next morning (a time earlier than the departure).
-                  right={at && !sameDay(at, new Date(departAt)) ? <Text style={styles.nextDayText}>+1 j</Text> : null}
-                  accessibilityLabel={`Nouvel arrêt ${i + 1} : heure`}
-                />
-              </View>
+              <StopTimeField
+                label={`Nouvel arrêt ${i + 1}`}
+                value={r.time}
+                onChange={(t) => set(i, { time: t })}
+                // The next morning (a time earlier than the departure).
+                nextDay={!!at && !sameDay(at, new Date(departAt))}
+                hint="Placé dans le trajet selon son heure."
+              />
               <Pressable onPress={() => setRows((list) => list.filter((_, j) => j !== i))} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Retirer le nouvel arrêt ${i + 1}`}>
                 <Ionicons name="trash-outline" size={18} color={colors.muted2} />
               </Pressable>
@@ -815,4 +880,7 @@ const styles = StyleSheet.create({
   optionTitle: { ...typo.smallStrong, color: colors.navy },
   step: { width: 32, height: 32, borderRadius: 16, borderWidth: 1.5, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   nextDayText: { ...typo.label, color: colors.warningText },
+  rowError: { width: '100%', paddingLeft: 34, marginTop: -6, marginBottom: 8 },
+  footerHint: { textAlign: 'center', marginBottom: 8 },
+  cashHint: { flexDirection: 'row', gap: 10, padding: 12, borderRadius: radii.md, backgroundColor: colors.successBg },
 });

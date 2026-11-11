@@ -7,6 +7,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-na
 import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
 import { LivePulse, PopOnChange } from '@/components/motion';
 import { EmptyState } from '@/components/states';
 import { BackButton, OutlineButton, PrimaryButton } from '@/components/ui';
@@ -39,18 +40,18 @@ export default function CommandeScreen() {
   const home = () => router.dismissTo('/(tabs)');
   const back = () => (router.canGoBack() ? router.back() : home());
 
-  useFocusEffect(
-    useCallback(() => {
-      if (!id) return;
-      commerceApi.myOrder(id).then(
-        (o) => {
-          setFetched(o);
-          upsert(o);
-        },
-        (err) => err instanceof ApiError && err.status === 404 && setMissing(true),
-      );
-    }, [id, upsert]),
-  );
+  const load = useCallback(() => {
+    if (!id) return;
+    return commerceApi.myOrder(id).then(
+      (o) => {
+        setFetched(o);
+        upsert(o);
+      },
+      (err) => err instanceof ApiError && err.status === 404 && setMissing(true),
+    );
+  }, [id, upsert]);
+  useFocusEffect(useCallback(() => void load(), [load]));
+  const pull = usePullRefresh(load);
 
   // Felt as well as seen: a tick at each step, a success buzz when it's ready or done.
   const status = order?.status;
@@ -106,7 +107,7 @@ export default function CommandeScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <Header onBack={back} code={order.code} />
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} refreshControl={pull}>
         <View style={[styles.hero, done && { backgroundColor: colors.successText }, (ended || pending) && { backgroundColor: ended ? colors.muted2 : colors.accent }]} accessibilityLiveRegion="polite">
           <View style={styles.heroIcon}>
             <PopOnChange id={order.status}>
@@ -219,11 +220,13 @@ export default function CommandeScreen() {
           )}
           <View style={styles.divider} />
           <View style={styles.rowBetween}>
-            <Text style={styles.total}>
-              {order.method === 'cash' ? (order.status === 'completed' ? 'Total payé en espèces' : `À payer en espèces ${order.mode === 'delivery' ? 'au livreur' : 'au retrait'}`) : order.refunded ? 'Total · remboursé' : 'Total payé'}
-            </Text>
+            <Text style={[styles.total, { flex: 1 }]}>{order.method === 'cash' ? (order.status === 'completed' ? 'Total payé' : 'À payer') : order.refunded ? 'Total · remboursé' : 'Total payé'}</Text>
             <Text style={styles.totalValue}>{formatFcfa(order.total)}</Text>
           </View>
+          {/* Said on its own line: too long to share one with the amount. */}
+          {order.method === 'cash' && order.status !== 'completed' && (
+            <Text style={styles.muted}>En espèces, {order.mode === 'delivery' ? 'au livreur' : 'au retrait'}. Prévois le montant exact.</Text>
+          )}
         </View>
 
         {order.status === 'placed' && (

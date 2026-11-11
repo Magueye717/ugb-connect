@@ -5,14 +5,17 @@ import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Tex
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
+import { PhoneField, phoneOk } from '@/components/PhoneField';
 import { ErrorState } from '@/components/states';
-import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, SheetHeader, TextButton } from '@/components/ui';
+import { Chip, Field, LabeledField, PrimaryButton, SheetFooter, SheetHeader, TextButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { passwordRules, validatePassword } from '@/features/register/validation';
 import { staffApi, type StaffRestoDto } from '@/features/restos/api';
 import { platformTeamApi, type PlatformLookup, type PlatformMember, type PlatformRole } from '@/features/team/api';
 import { ApiError } from '@/lib/api';
+import { closeGuarded } from '@/lib/leaveGuard';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
 const digits = (v: string) => v.replace(/\D/g, '');
@@ -49,6 +52,7 @@ export default function EquipePlateforme() {
     loadRestos();
   }, [loadRestos]);
   useFocusEffect(load);
+  const pull = usePullRefresh(load);
 
   const label = (r: string) => roles.find((x) => x.value === r)?.label ?? r;
   // Out of the team, from the list: every role goes (the super admin can't remove themself).
@@ -60,7 +64,7 @@ export default function EquipePlateforme() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView refreshControl={pull} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <View style={styles.row}>
           <View style={{ flex: 1 }}>
             <Text style={styles.h1}>Équipe UGB Connect</Text>
@@ -174,15 +178,18 @@ function MemberSheet({ member, roles, restos, restosFailed, onRetryRestos, self,
       { text: 'Retirer', style: 'destructive', onPress: () => platformTeamApi.remove(member!.userId).then(onDone, fail('Retrait impossible')) },
     ]);
 
+  // Closing with roles picked or a person typed, not saved: asks first.
+  const close = () => closeGuarded(!busy && (!!found || (!!member && JSON.stringify(picked) !== JSON.stringify(member.roles))), onClose);
   const ready = picked.length > 0 && (!picked.includes('resto_u_staff') || restoIds.length > 0) && (!isNew || (!!firstName.trim() && !!lastName.trim() && !validatePassword(password))) && !busy;
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} />
+    <Modal visible transparent animationType="slide" onRequestClose={close}>
+      <Pressable style={styles.backdrop} onPress={close} />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
-        <ScrollView style={styles.sheet} contentContainerStyle={{ gap: 12, paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
+        <View style={styles.sheet}>
+        <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 12, paddingBottom: 16 }} keyboardShouldPersistTaps="handled">
           <SheetHeader
-            onClose={onClose}
+            onClose={close}
             titleStyle={styles.sheetTitle}
             subtitle={member ? 'Ses rôles changent tout de suite, et la personne est prévenue.' : 'Fais-toi aider : chaque rôle ouvre un espace de travail, et rien de plus.'}>
             {member ? `${member.firstName} ${member.lastName}` : 'Ajouter à l’équipe'}
@@ -191,10 +198,7 @@ function MemberSheet({ member, roles, restos, restosFailed, onRetryRestos, self,
           {!member &&
             (!found ? (
               <>
-                <LabeledField label="1. Son numéro de téléphone">
-                  <Field icon="call-outline" keyboardType="phone-pad" placeholder="77 123 45 67" value={phone} onChangeText={setPhone} maxLength={16} />
-                </LabeledField>
-                <PrimaryButton label="Vérifier le numéro" disabled={digits(phone).length < 9 || busy} loading={busy} onPress={check} />
+                <PhoneField label="1. Son numéro de téléphone" value={phone} onChange={setPhone} />
               </>
             ) : (
               <View style={[styles.found, { backgroundColor: found.exists ? colors.successBg : colors.primarySoft }]}>
@@ -257,12 +261,19 @@ function MemberSheet({ member, roles, restos, restosFailed, onRetryRestos, self,
                   </View>
                 </>
               )}
-              <PrimaryButton label={member ? 'Enregistrer' : isNew ? 'Créer le compte et l’ajouter' : 'Ajouter à l’équipe'} disabled={!ready} loading={busy} onPress={save} />
               {member && !self && <TextButton label="Retirer de l’équipe" tone="danger" icon="person-remove-outline" style={{ alignSelf: 'center' }} onPress={remove} />}
             </>
           )}
-          <SafeBottom />
         </ScrollView>
+        {/* Pinned, as on every form: the step's button. */}
+        <SheetFooter>
+          {!member && !found ? (
+            <PrimaryButton label="Vérifier le numéro" disabled={!phoneOk(phone) || busy} loading={busy} onPress={check} />
+          ) : (
+            <PrimaryButton label={member ? 'Enregistrer' : isNew ? 'Créer le compte et l’ajouter' : 'Ajouter à l’équipe'} disabled={!ready} loading={busy} onPress={save} />
+          )}
+        </SheetFooter>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );

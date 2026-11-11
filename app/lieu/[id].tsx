@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
 import { ErrorState } from '@/components/states';
 import { PrimaryButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
@@ -41,6 +42,7 @@ export default function LieuScreen() {
     placesApi.get(id).then(setFetched, (err) => (err instanceof ApiError && err.status === 404 ? setMissing(true) : setFailed(true)));
   }, [id]);
   useFocusEffect(load);
+  const pull = usePullRefresh(load);
   const p = fetched ?? places?.find((x) => x.id === id) ?? null;
   const back = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/lieux'));
   if (!p) {
@@ -57,7 +59,7 @@ export default function LieuScreen() {
 
   return (
     <View style={styles.root}>
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24 }} showsVerticalScrollIndicator={false}>
+      <ScrollView refreshControl={pull} contentContainerStyle={{ paddingBottom: insets.bottom + 24 }} showsVerticalScrollIndicator={false}>
         <View style={[styles.hero, { backgroundColor: tone.bg }]}>
           {p.photos.length ? (
             <Gallery photos={p.photos} name={p.name} />

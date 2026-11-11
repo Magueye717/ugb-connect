@@ -84,6 +84,7 @@ export type NewAccount = {
   village: string | null;
   room: string | null;
   ufr: string;
+  niveau: string;
   region: string;
   password: string;
 };

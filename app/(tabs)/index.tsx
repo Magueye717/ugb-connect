@@ -4,18 +4,30 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AdCarousel, AlertStrip, CaravanCard, EventCard, Headlines, OriginPrompt, RestoCard, TaxiCard } from '@/components/home';
+import { usePullRefresh } from '@/components/PullRefresh';
+import { AdCarousel, AlertStrip, CaravanCard, EventCard, Headlines, OriginPrompt, PaymentsOffStrip, RestoCard, TaxiCard } from '@/components/home';
 import { InProgress } from '@/components/InProgress';
 import { RatingPrompt } from '@/features/ratings/RatingPrompt';
 import { UnreadBadge } from '@/components/UnreadBadge';
 import { colors, radii, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { useCampus } from '@/context/CampusContext';
+import { useCaravans } from '@/context/CaravansContext';
+import { useOrders } from '@/context/OrdersContext';
+import { useTaxi } from '@/context/TaxiContext';
+import { refreshMethods } from '@/features/payments/methods';
 import { bellLabel, useNotifications } from '@/context/NotificationsContext';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
-  const { unreadCount } = useNotifications();
+  const { user, reloadAccount } = useAuth();
+  const { unreadCount, refresh: refreshNotifications } = useNotifications();
+  // Pull: banners, alerts, menus, trips, tickets, orders, the bell, and the Wave / Orange Money status.
+  const campus = useCampus();
+  const caravans = useCaravans();
+  const taxi = useTaxi();
+  const orders = useOrders();
+  const pull = usePullRefresh(campus.refresh, caravans.refresh, taxi.refresh, orders.refresh, refreshNotifications, reloadAccount, () => refreshMethods(true));
   // While the profile loads: a neutral greeting, never someone else's name.
 
   return (
@@ -46,10 +58,11 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} refreshControl={pull}>
         {/* The banners (paid ads, events) open the home screen. */}
         <AdCarousel />
         <AlertStrip />
+        <PaymentsOffStrip />
         <OriginPrompt />
         {/* What the student has going on comes first; the tabs cover the rest (no services grid). */}
         <InProgress />

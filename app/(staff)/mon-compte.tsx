@@ -8,10 +8,11 @@ import { formatPhone, phoneDigits } from '@/features/register/validation';
 import { SpacesList, spaceInfo } from '@/components/SpacesList';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { PaymentSwitches } from '@/features/payments/PaymentSwitches';
 
 /** Account screen of a work space (restaurants, alerts): what's done here, the account's other spaces, sign out. */
 export default function StaffCompte() {
-  const { user, current } = useAuth();
+  const { user, current, space } = useAuth();
   const here = current ? spaceInfo(current) : null;
 
   return (
@@ -32,6 +33,9 @@ export default function StaffCompte() {
             </View>
           </View>
         )}
+
+        {/* The Wave / Orange Money switches, app-wide: the admins only. */}
+        {space === 'admin' && user?.roles.includes('admin') && <PaymentSwitches />}
 
         <SpacesList />
 

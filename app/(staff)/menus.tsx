@@ -161,6 +161,8 @@ function MealCard({
   onChanged: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState(!menu);
+  // Stock is changed during this meal's service only (the server checks it too): today, from 30 min before it opens.
+  const serving = servingNow(resto, date, meal, useNow());
   const [dishes, setDishes] = useState<DishInput[]>(() => (menu?.dishes.length ? menu.dishes.map((d) => ({ id: d.id, name: d.name, detail: d.detail })) : []));
   const [saving, setSaving] = useState(false);
   const label = MEAL_LABEL[meal].toLowerCase();
@@ -248,12 +250,16 @@ function MealCard({
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
           <Text style={styles.cardTitle}>{MEAL_LABEL[meal]} publié</Text>
-          <Text style={styles.muted}>Touche le niveau de stock d’un plat pendant le service.</Text>
+          <Text style={[styles.muted, !serving && { color: colors.warningText }]}>
+            {serving
+              ? 'Touche le niveau de stock d’un plat pendant le service.'
+              : `Le stock se change pendant le ${MEAL_LABEL[meal].toLowerCase()} (${hmLabel(resto.services[meal].start)} – ${hmLabel(resto.services[meal].end)}), dès ${STOCK_EARLY_MIN} min avant.`}
+          </Text>
         </View>
         <TextButton label="Modifier" icon="create-outline" onPress={() => setEditing(true)} />
       </View>
       {menu!.dishes.map((d) => (
-        <DishRow key={d.id} dish={d} resto={resto.name} onSet={(status, notify) => staffApi.setDishStatus(resto.id, date, meal, d.id, status, notify).then(onChanged)} />
+        <DishRow key={d.id} dish={d} resto={resto.name} locked={!serving} onSet={(status, notify) => staffApi.setDishStatus(resto.id, date, meal, d.id, status, notify).then(onChanged)} />
       ))}
       <TextButton label={`Retirer le menu du ${label}`} tone="danger" icon="eye-off-outline" style={{ alignSelf: 'center' }} onPress={unpublish} />
     </View>
@@ -341,10 +347,20 @@ function DishPicker({ meal, taken, onPick }: { meal: Meal; taken: string[]; onPi
   );
 }
 
-function DishRow({ dish, resto, onSet }: { dish: DishDto; resto: string; onSet: (status: DishStatus, notify: boolean) => Promise<void> }) {
+/** Same rule as the server: today's meal, from STOCK_EARLY_MIN before it opens until it closes (Dakar is UTC+0). */
+const STOCK_EARLY_MIN = 30;
+function servingNow(resto: StaffRestoDto, date: string, meal: Meal, now: number) {
+  const s = resto.services[meal];
+  const from = Date.parse(`${date}T${s.start}:00Z`) - STOCK_EARLY_MIN * 60_000;
+  const to = Date.parse(`${date}T${s.end}:00Z`);
+  return now >= from && now <= to;
+}
+
+/** `locked`: outside this meal's service, the levels show but don't change. */
+function DishRow({ dish, resto, locked, onSet }: { dish: DishDto; resto: string; locked: boolean; onSet: (status: DishStatus, notify: boolean) => Promise<void> }) {
   const [saving, setSaving] = useState<DishStatus | null>(null);
   const set = (status: DishStatus) => {
-    if (status === dish.status || saving) return;
+    if (locked || status === dish.status || saving) return;
     const go = (notify = false) => {
       setSaving(status);
       onSet(status, notify)
@@ -374,9 +390,10 @@ function DishRow({ dish, resto, onSet }: { dish: DishDto; resto: string; onSet: 
             <Pressable
               key={l.status}
               onPress={() => set(l.status)}
-              style={[styles.level, on && { backgroundColor: l.bg, borderColor: l.bg }]}
+              disabled={locked}
+              style={[styles.level, on && { backgroundColor: l.bg, borderColor: l.bg }, locked && !on && { opacity: 0.4 }]}
               accessibilityRole="radio"
-              accessibilityState={{ checked: on }}
+              accessibilityState={{ checked: on, disabled: locked }}
               accessibilityLabel={`${dish.name} : ${l.label}`}>
               {saving === l.status ? (
                 <ActivityIndicator size="small" color={on ? l.fg : colors.primary} />

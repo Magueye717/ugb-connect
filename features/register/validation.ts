@@ -79,6 +79,9 @@ export const ufrLabel = (code: string) => {
 };
 
 /** Where the student comes from: Senegal's 14 regions, or abroad. */
+/** The year of study, asked with the UFR (it changes at each rentrée). */
+export const NIVEAUX = ['Licence 1', 'Licence 2', 'Licence 3', 'Master 1', 'Master 2', 'Doctorat'] as const;
+
 export const REGIONS = [
   'Dakar', 'Diourbel', 'Fatick', 'Kaffrine', 'Kaolack', 'Kédougou', 'Kolda', 'Louga', 'Matam', 'Saint-Louis', 'Sédhiou', 'Tambacounda', 'Thiès', 'Ziguinchor',
   'Hors Sénégal',

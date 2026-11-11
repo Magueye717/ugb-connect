@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
 import { LogoutButton } from '@/components/LogoutButton';
 import { ProfileHero } from '@/components/ProfileHero';
 import { SpacesList } from '@/components/SpacesList';
@@ -10,11 +11,12 @@ import { colors, radii, shadow, typo } from '@/constants/theme';
 import { isOwner, useAuth } from '@/context/AuthContext';
 
 export default function Compte() {
-  const { organizer } = useAuth();
+  const { organizer, reloadAccount } = useAuth();
+  const pull = usePullRefresh(reloadAccount);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} refreshControl={pull}>
         <Text style={styles.h1}>Compte</Text>
 
         {/* The same card as on the student profile: only the chips say which organization. */}

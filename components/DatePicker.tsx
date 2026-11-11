@@ -200,7 +200,95 @@ export function TimeField({ label, value, onChange, times }: TimeProps) {
   );
 }
 
+type StopTimeProps = {
+  /** "14:30", or "" while not chosen. */
+  value: string;
+  onChange: (t: string) => void;
+  /** Read by screen readers and shown on the sheet: « Montée 2 ». */
+  label: string;
+  /** Out of order (red), or the next day (« +1 j »). */
+  invalid?: boolean;
+  nextDay?: boolean;
+  /** What comes before (« après 12h00 »): shown on the sheet. */
+  hint?: string | null;
+};
+
+const HOURS = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'));
+const MINUTES = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
+
+/**
+ * A stop's time, compact: « 14h30 » in a pill, tapped to open a sheet: the hour (a grid), then the minutes. No typing,
+ * no impossible time.
+ */
+export function StopTimeField({ value, onChange, label, invalid, nextDay, hint }: StopTimeProps) {
+  const [open, setOpen] = useState(false);
+  const [hour, setHour] = useState<string | null>(null);
+  const start = () => {
+    setHour(value ? value.slice(0, 2) : null);
+    setOpen(true);
+  };
+  const pickMinute = (m: string) => {
+    if (!hour) return;
+    haptics.select();
+    onChange(`${hour}:${m}`);
+    setOpen(false);
+  };
+  return (
+    <>
+      <Pressable
+        onPress={start}
+        style={({ pressed }) => [styles.stopTime, !!value && styles.stopTimeSet, invalid && styles.stopTimeBad, pressed && { opacity: 0.85 }]}
+        accessibilityRole="button"
+        accessibilityLabel={`${label} : ${value ? value.replace(':', 'h') : 'heure à choisir'}`}>
+        <Ionicons name="time-outline" size={15} color={invalid ? colors.dangerText : value ? colors.primary : colors.muted} />
+        <Text style={[styles.stopTimeText, !value && { color: colors.muted }, invalid && { color: colors.dangerText }]}>{value ? value.replace(':', 'h') : '--h--'}</Text>
+        {nextDay && <Text style={styles.nextDay}>+1 j</Text>}
+      </Pressable>
+      {open && (
+        <Modal visible transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+          <Pressable style={styles.backdrop} onPress={() => setOpen(false)} accessibilityLabel="Fermer" />
+          <View style={styles.sheet}>
+            <SheetHeader onClose={() => setOpen(false)}>{label}</SheetHeader>
+            {!!hint && <Text style={styles.sheetHint}>{hint}</Text>}
+            <Text style={styles.label}>Heure</Text>
+            <View style={styles.hours}>
+              {HOURS.map((h) => {
+                const on = h === hour;
+                return (
+                  <Pressable key={h} onPress={() => { haptics.select(); setHour(h); }} style={[styles.hourCell, on && styles.timeOn]} accessibilityRole="button" accessibilityState={{ selected: on }} accessibilityLabel={`${Number(h)} heures`}>
+                    <Text style={[styles.timeText, on && { color: '#fff' }]}>{h}h</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={[styles.label, !hour && { color: colors.muted }]}>Minutes</Text>
+            <View style={styles.hours}>
+              {MINUTES.map((m) => {
+                const on = !!hour && value === `${hour}:${m}`;
+                return (
+                  <Pressable key={m} disabled={!hour} onPress={() => pickMinute(m)} style={[styles.hourCell, on && styles.timeOn, !hour && { opacity: 0.4 }]} accessibilityRole="button" accessibilityLabel={`${hour ?? ''}h${m}`}>
+                    <Text style={[styles.timeText, on && { color: '#fff' }]}>{hour ? `${hour}h${m}` : `:${m}`}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <SafeBottom />
+          </View>
+        </Modal>
+      )}
+    </>
+  );
+}
+
 const styles = StyleSheet.create({
+  stopTime: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 48, paddingHorizontal: 10, borderRadius: radii.md, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.card },
+  stopTimeSet: { borderColor: colors.primarySoft, backgroundColor: colors.primarySoft },
+  stopTimeBad: { borderColor: colors.dangerText, backgroundColor: colors.dangerBg },
+  stopTimeText: { ...typo.bodyStrong, color: colors.primary },
+  nextDay: { ...typo.label, color: colors.orangeText },
+  sheetHint: { ...typo.small, color: colors.muted2, marginTop: -6 },
+  hours: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  hourCell: { width: '15%', flexGrow: 1, minHeight: 40, borderRadius: radii.md, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   label: { ...typo.smallStrong, color: colors.navy },
   field: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingHorizontal: 12, borderRadius: radii.md, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.card },
   fieldOn: { borderColor: colors.primarySoft },

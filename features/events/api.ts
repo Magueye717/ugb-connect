@@ -36,7 +36,31 @@ export type EventDto = {
   myTicketsLeft: number;
   /** I'm on its organizing team (owner, manager, door staff): I run it, I can't book it (422 OWN_EVENT). */
   organizedByMe: boolean;
-  myBooking: { id: string; total: number; holdExpiresAt: string; payment: { reference: string; checkoutUrl: string | null } | null } | null;
+  /**
+   * My request: the places held until `holdExpiresAt` while I pay the organizer in cash; they validate it and my
+   * tickets appear (`awaitingValidation`).
+   */
+  myBooking: { id: string; total: number; holdExpiresAt: string; payment: { reference: string; checkoutUrl: string | null } | null; count?: number; orderedBy?: string | null; awaitingValidation?: boolean; code?: string | null; organizer?: { name: string; phone: string } | null; /** Each ticket still waiting, its own code: paid one by one, or all with `code`. */ units?: RequestUnit[] } | null;
+};
+
+/** One ticket of a request still waiting for its payment, with its own code (UGBREQ:…). */
+export type RequestUnit = { id: string; name: string; price: number; code: string | null };
+
+/** A request waiting for its organizer: who, what, how much, until when. */
+export type TicketRequestDto = {
+  id: string;
+  status: string;
+  total: number;
+  expiresAt: string;
+  createdAt: string;
+  tickets: { name: string; qty: number }[];
+  student: { name: string; phone: string } | null;
+  /** The tickets still waiting: validated some (paid one by one) or all. */
+  units?: RequestUnit[];
+  /** Tickets of this request validated already. */
+  validated?: number;
+  /** Found by one ticket's own code: that ticket. */
+  matched?: string | null;
 };
 
 export type EventBookingDto = {
@@ -131,13 +155,24 @@ export const eventsApi = {
   list: () => api<{ items: EventDto[] }>('GET', '/events', auth),
   get: (id: string) => api<EventDto>('GET', `/events/${id}`, auth),
   /**
-   * `cash` (or a free event): the tickets are issued at once, `payment` is null. `forFriends`: its organizing team's
-   * only way to order (every ticket is one to give).
+   * A request: the places held 24 h while the student pays the organizer in cash; validated, the tickets are issued
+   * (`status` confirmed at once for a free event). `forFriends` / `friendPhone`: its organizing team orders (the cash in
+   * hand): issued at once (422 FRIEND_NOT_FOUND when the friend isn't on UGB Connect: nothing is ordered).
    */
-  book: (id: string, body: { items: { typeId: string; qty: number }[]; method: TicketMethod; forFriends?: boolean }) =>
-    api<{ booking: EventBookingDto; payment: PaymentDto | null }>('POST', `/events/${id}/bookings`, { ...auth, body: { ...body, returnUrl: paymentReturnUrl() } }),
+  book: (id: string, body: { items: { typeId: string; qty: number }[]; forFriends?: boolean; friendPhone?: string }) =>
+    api<{ booking: EventBookingDto; payment: PaymentDto | null }>('POST', `/events/${id}/bookings`, { ...auth, body }),
   booking: (id: string) => api<EventBookingDto>('GET', `/events/bookings/${id}`, auth),
   release: (id: string) => api<void>('DELETE', `/events/bookings/${id}`, auth),
+  /** My own event's requests: validated once the cash is received, or refused. */
+  /** At the organizer's: a request by its code (QR UGBREQ:… scanned, or typed); null when none here. */
+  requestByCode: (orgId: string, code: string) => api<{ request: (TicketRequestDto & { title: string }) | null }>('GET', `/org/${orgId}/events/requests/by-code/${encodeURIComponent(code)}`, auth),
+  /** `unitIds`: only those tickets (paid one by one); every ticket waiting otherwise. */
+  validateRequest: (orgId: string, bookingId: string, unitIds?: string[]) => api<TicketRequestDto>('POST', `/org/${orgId}/events/requests/${bookingId}/validate`, { ...auth, body: unitIds?.length ? { unitIds } : undefined }),
+  refuseRequest: (orgId: string, bookingId: string, reason: string | null) => api<void>('POST', `/org/${orgId}/events/requests/${bookingId}/refuse`, { ...auth, body: { reason } }),
+  orgRequests: (orgId: string, eventId: string) => api<{ items: TicketRequestDto[] }>('GET', `/org/${orgId}/events/${eventId}/requests`, auth),
+  myRequests: (eventId: string) => api<{ items: TicketRequestDto[] }>('GET', `/me/events/${eventId}/requests`, auth),
+  validateMine: (bookingId: string, unitIds?: string[]) => api<TicketRequestDto>('POST', `/me/events/requests/${bookingId}/validate`, { ...auth, body: unitIds?.length ? { unitIds } : undefined }),
+  refuseMine: (bookingId: string, reason: string | null) => api<void>('POST', `/me/events/requests/${bookingId}/refuse`, { ...auth, body: { reason } }),
   ofOrg: (orgId: string) => api<{ items: OrgEventDto[] }>('GET', `/org/${orgId}/events`, auth),
   // A student's own events (reviewed by the admins)
   publicationFee: () => api<{ perPlace: number; minimum: number }>('GET', '/me/events/publication-fee', auth),

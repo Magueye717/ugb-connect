@@ -8,7 +8,7 @@ import { realtime } from '@/features/chat/realtime';
 import { payInBrowser, type PaymentDto, type PaymentMethod, type TicketMethod } from '@/features/payments/checkout';
 
 /** How a purchase ended, from the server's point of view. */
-export type BookingOutcome = { status: 'confirmed'; ticketId: string } | { status: 'refunded' | 'failed' | 'pending' };
+export type BookingOutcome = { status: 'confirmed'; ticketId: string } | { status: 'refunded' | 'failed' | 'pending' | 'requested' };
 
 type CaravansValue = {
   /** Bookable departures, soonest first. */
@@ -23,7 +23,8 @@ type CaravansValue = {
   /** The valid ticket I travel on for a departure (not the companions' ones I hold). */
   ticketFor: (caravanId: string) => CaravanTicketDto | undefined;
   /** Holds the seats (mine and/or companions'), opens Wave / Orange Money once, and waits for the server's answer. */
-  book: (caravanId: string, input: { seats: SeatRequest[]; pickupStopId: string; dropoffStopId: string; method: TicketMethod }) => Promise<BookingOutcome>;
+  /** A request (to pay the organizer in cash, who validates it): `requested`. */
+  book: (caravanId: string, input: { seats: SeatRequest[]; pickupStopId: string; dropoffStopId: string; method?: TicketMethod }) => Promise<BookingOutcome>;
   /** Back to the payment page for a seat taken but not paid yet. */
   resume: (caravan: Caravan) => Promise<BookingOutcome>;
   release: (bookingId: string) => Promise<void>;
@@ -128,9 +129,9 @@ export function CaravansProvider({ children }: { children: ReactNode }) {
       book: async (caravanId, input) => {
         const { booking, payment } = await caravansApi.book(caravanId, input);
         if (payment) return settle(booking.id, payment);
-        // Cash: the ticket is issued at once, to pay at boarding.
+        // A request: the organizer validates it once paid in cash.
         await refresh();
-        return booking.ticketId ? { status: 'confirmed', ticketId: booking.ticketId } : { status: 'failed' };
+        return booking.ticketId ? { status: 'confirmed', ticketId: booking.ticketId } : booking.status === 'held' ? { status: 'requested' } : { status: 'failed' };
       },
       resume: async (caravan) => {
         const held = caravan.myBooking;

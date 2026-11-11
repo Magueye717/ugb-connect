@@ -76,7 +76,7 @@ export function CaravanSummary({
         </View>
         <View style={{ alignItems: 'flex-end' }}>
           <Text style={styles.city}>{c.to}</Text>
-          <Text style={styles.cityLabel}>{c.dropoffs.length > 1 ? plural(c.dropoffs.length, 'descente') : 'Arrivée'}</Text>
+          <Text style={styles.cityLabel}>{c.dropoffs.length > 1 ? plural(c.dropoffs.length, 'arrêt') : 'Arrivée'}</Text>
         </View>
       </View>
 

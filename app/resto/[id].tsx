@@ -15,6 +15,7 @@ import {
 import Animated, { LayoutAnimationConfig, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
 import { fadeIn, PopOnChange } from '@/components/motion';
 import { PhotoGallery } from '@/components/PhotoGallery';
 import { EmptyState } from '@/components/states';
@@ -55,6 +56,7 @@ export default function BusinessScreen() {
     commerceApi.get(id).then(setB, (err) => err instanceof ApiError && err.status === 404 && setMissing(true));
   }, [id]);
   useFocusEffect(load);
+  const pull = usePullRefresh(load);
   // Its owner or a manager, on their own page: an item to edit.
   const [editing, setEditing] = useState<ItemDto | null>(null);
 
@@ -132,7 +134,7 @@ export default function BusinessScreen() {
 
   return (
     <View style={styles.root}>
-      <ScrollView
+      <ScrollView refreshControl={pull}
         ref={scroll}
         contentContainerStyle={{ paddingBottom: count ? 120 : 48 }}
         showsVerticalScrollIndicator={false}
@@ -182,7 +184,7 @@ export default function BusinessScreen() {
             <View style={styles.metaItem}>
               <Ionicons name={b.deliveryFee !== null ? 'bicycle-outline' : 'walk-outline'} size={15} color={colors.primary} />
               <Text style={[styles.metaText, { color: colors.primary, fontWeight: '600' }]}>
-                {b.deliveryFee === null ? 'À emporter' : b.deliveryFee ? `Livraison dès ${formatFcfa(b.deliveryFee)}` : 'Livraison gratuite'}
+                {b.deliveryFee === null ? 'À emporter' : b.deliveryFee ? `Livraison ${formatFcfa(b.deliveryFee)}` : 'Livraison gratuite'}
               </Text>
             </View>
           </View>

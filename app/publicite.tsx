@@ -13,12 +13,14 @@ import { PaymentLogo } from '@/components/PaymentLogo';
 import { ErrorState } from '@/components/states';
 import { BackButton, Chip, Field, LabeledField, PrimaryButton, Segmented, STICKY_FOOTER_SPACE, StickyFooter, TextButton } from '@/components/ui';
 import { formatFcfa, paymentMethods } from '@/constants/data';
+import { methodsOffLine, useMethodsOff } from '@/features/payments/methods';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { bannerLastDay, bannersApi, holdsSlot, type BannerPackageDto, type CtaTarget } from '@/features/banners/api';
 import { eventsApi, type OrgEventDto } from '@/features/events/api';
 import { payInBrowser, type PaymentMethod } from '@/features/payments/checkout';
 import { ApiError } from '@/lib/api';
+import { useLeaveGuard } from '@/lib/leaveGuard';
 import { notice } from '@/lib/notice';
 import { uploadImage } from '@/lib/upload';
 
@@ -73,6 +75,10 @@ export default function NouvellePublicite() {
   const [pkg, setPkg] = useState<string | null>(null);
   const [startsOn, setStartsOn] = useState<string>(ymd(startDays()[0]!));
   const [method, setMethod] = useState(paymentMethods[0].id);
+  // Not a method the admins switched off; the choice falls back to the first one left.
+  const { off, isOff } = useMethodsOff();
+  const shownMethods = paymentMethods.filter((m) => !isOff(m.id));
+  const payWith = shownMethods.some((m) => m.id === method) ? method : (shownMethods[0]?.id ?? method);
   const [paying, setPaying] = useState(false);
   // The events to promote couldn't be loaded: a retry instead of "no published event".
   const [eventsFailed, setEventsFailed] = useState(false);
@@ -91,6 +97,8 @@ export default function NouvellePublicite() {
     );
   }, [isManager, organizer, fromEvent, attempt]);
 
+  // A banner being written (picture, text), not paid yet: leaving asks first.
+  const guard = useLeaveGuard(!paying && (!!image || !!title.trim() || !!description.trim()));
   const back = () => (router.canGoBack() ? router.back() : router.replace('/mes-publicites'));
   const event = events.find((e) => e.id === eventId && !promoted[e.id]) ?? null;
   const until = (iso: string) => bannerLastDay({ endsAt: iso });
@@ -134,10 +142,10 @@ export default function NouvellePublicite() {
         cta: kind === 'ad' && withCta ? { label: ctaLabel.trim(), target: ctaTarget, value: ctaValue.trim() } : null,
         packageCode: chosen.code,
         startsOn,
-        method: METHOD[method] ?? 'wave',
+        method: METHOD[payWith] ?? 'wave',
       });
       const paid = await payInBrowser(payment);
-      router.replace('/mes-publicites');
+      guard.leave(() => router.replace('/mes-publicites'));
       const firstDay = new Date(`${startsOn}T12:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
       if (paid.status !== 'succeeded') {
         notice({ tone: 'pending', title: 'Paiement en attente', message: 'Ta place sur l’accueil est gardée 15 minutes. Termine le paiement depuis « Mes publicités ».' });
@@ -352,8 +360,8 @@ export default function NouvellePublicite() {
         </Text>
 
         <Text style={styles.label}>Moyen de paiement</Text>
-        {paymentMethods.map((m) => {
-          const on = m.id === method;
+        {shownMethods.map((m) => {
+          const on = m.id === payWith;
           return (
             <Pressable key={m.id} onPress={() => setMethod(m.id)} style={[styles.option, on && styles.optionOn]}>
               <PaymentLogo method={m} />
@@ -362,6 +370,7 @@ export default function NouvellePublicite() {
             </Pressable>
           );
         })}
+        {!!methodsOffLine(off) && <Text style={styles.hint}>{methodsOffLine(off)}</Text>}
       </KeyboardAwareScrollView>
       <StickyFooter>
         <PrimaryButton label={chosen ? `Payer ${formatFcfa(chosen.price)}` : picked ? 'Choisis une formule plus courte' : 'Choisis une formule'} disabled={!ready} loading={paying} onPress={submit} />

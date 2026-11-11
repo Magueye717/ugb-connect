@@ -6,8 +6,9 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Animated, { LayoutAnimationConfig } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Chip, Field, LabeledField, PrimaryButton, SheetHeader } from '@/components/ui';
-import { PopOnChange, popIn } from '@/components/motion';
+import { usePullRefresh } from '@/components/PullRefresh';
+import { Chip, Field, LabeledField, PrimaryButton, SheetFooter, SheetHeader } from '@/components/ui';
+import { Hop, PopOnChange, popIn } from '@/components/motion';
 import { EmptyState, ErrorState, SkeletonCard } from '@/components/states';
 import { SPACE_BUTTON_CLEARANCE } from '@/components/SpaceSwitcher';
 import { formatFcfa, TAXI_LOCK_MIN, TAXI_STRIKES_LIMIT, taxiSeatPrice } from '@/constants/data';
@@ -16,6 +17,7 @@ import { useTaxi, type TaxiTrip } from '@/context/TaxiContext';
 import type { NewTrip } from '@/features/taxi/api';
 import { useTaxiActions } from '@/features/taxi/useTaxiActions';
 import { ApiError } from '@/lib/api';
+import { closeGuarded } from '@/lib/leaveGuard';
 
 const LEAVE_IN = [15, 30, 60, 120]; // minutes
 const SEAT_OPTIONS = [2, 3, 4];
@@ -51,6 +53,7 @@ const leaveLabel = (m: number) => (m < 60 ? `${m} min` : `${m / 60} h`);
 /** Screen content without header or safe area: used by a tab and by its standalone page. */
 export function SunuTaxiBoard() {
   const taxi = useTaxi();
+  const pull = usePullRefresh(taxi.refresh);
   const { me, trips, strikes } = taxi;
   const now = useNow();
   const [creating, setCreating] = useState(false);
@@ -73,7 +76,7 @@ export function SunuTaxiBoard() {
   return (
     <>
 
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} refreshControl={pull}>
         <View style={styles.hero}>
           <View style={{ flex: 1 }}>
             <Text style={styles.heroTitle}>Tu pars quelque part ?</Text>
@@ -115,7 +118,10 @@ export function SunuTaxiBoard() {
           />
         )}
 
-        {upcoming.map((t) => (
+        {upcoming.map((t) => {
+          // Open and not mine: it hops (seats to take), as on the home screen.
+          const joinable = t.status === 'open' && !t.passengers.includes(me) && t.seatsTaken < t.seats;
+          const card = (
           <TripCard
             key={t.id}
             trip={t}
@@ -136,7 +142,9 @@ export function SunuTaxiBoard() {
             compact
             onOpen={() => router.push(`/taxi/${t.id}`)}
           />
-        ))}
+          );
+          return joinable ? <Hop key={t.id}>{card}</Hop> : <View key={t.id}>{card}</View>;
+        })}
       </ScrollView>
 
       <NewTripSheet
@@ -513,6 +521,8 @@ function NewTripSheet({
   const lockMinutes = lockOptions.includes(lock) ? lock : 0;
   const shownLock = lockMinutes || Math.min(DEFAULT_LOCK, Math.floor(leaveIn / 2));
   const valid = from.trim().length > 1 && to.trim().length > 1 && fareValue > 0 && !fareError;
+  // Closing with something typed, not published: asks first.
+  const close = () => closeGuarded(!submitting && (!!to.trim() || !!fare), onClose);
 
   const submit = async () => {
     setSubmitting(true);
@@ -530,13 +540,13 @@ function NewTripSheet({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
+      <Pressable style={styles.backdrop} onPress={close} accessibilityLabel="Fermer" />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
-        <SafeAreaView edges={['bottom']} style={styles.sheet}>
+        <View style={styles.sheet}>
           <View style={styles.handle} />
-          <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>Proposer un trajet</SheetHeader>
-          <ScrollView contentContainerStyle={{ gap: 16 }} keyboardShouldPersistTaps="handled">
+          <SheetHeader onClose={close} titleStyle={styles.sheetTitle}>Proposer un trajet</SheetHeader>
+          <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 16, paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
             <LabeledField label="Départ">
               <Field icon="radio-button-on-outline" placeholder="UGB · Village E" value={from} onChangeText={setFrom} />
             </LabeledField>
@@ -578,9 +588,12 @@ function NewTripSheet({
               </Text>
             )}
             {error && <Text style={styles.error}>{error}</Text>}
-            <PrimaryButton label="Publier le trajet" onPress={submit} disabled={!valid} loading={submitting} />
           </ScrollView>
-        </SafeAreaView>
+          {/* Pinned, as on every form. */}
+          <SheetFooter>
+            <PrimaryButton label="Publier le trajet" onPress={submit} disabled={!valid} loading={submitting} />
+          </SheetFooter>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -715,8 +728,8 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radii.lg,
     paddingHorizontal: 20,
     paddingTop: 10,
-    paddingBottom: 12,
-    maxHeight: 640,
+    flexShrink: 1,
+    maxHeight: 680,
   },
   handle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border, marginBottom: 14 },
   sheetTitle: { ...typo.h3, color: colors.navy, marginBottom: 12 },

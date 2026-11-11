@@ -3,7 +3,7 @@ import * as Notifications from 'expo-notifications';
 import { AndroidImportance, AndroidNotificationVisibility } from 'expo-notifications';
 import { router } from 'expo-router';
 import { useEffect } from 'react';
-import { Platform, Vibration } from 'react-native';
+import { AppState, Platform, Vibration } from 'react-native';
 
 import { mealTimes } from '@/constants/data';
 import { api } from '@/lib/api';
@@ -206,6 +206,23 @@ export async function registerPushToken(): Promise<string | null> {
     // Network error or Expo Go on Android: try again on next launch.
     return null;
   }
+}
+
+/**
+ * Keeps this phone registered for the signed-in account: again each time the app comes back to the foreground. A
+ * registration that failed once (no network, Firebase not ready, permission given later in the settings) is retried,
+ * not left until the next cold start; meanwhile the account's pushes would reach no phone. The call is idempotent.
+ */
+export function useKeepPushToken(signedIn: boolean) {
+  useEffect(() => {
+    if (!signedIn) return;
+    const sub = AppState.addEventListener('change', async (s) => {
+      if (s !== 'active') return;
+      const { granted } = await Notifications.getPermissionsAsync().catch(() => ({ granted: false }));
+      if (granted) await registerPushToken();
+    });
+    return () => sub.remove();
+  }, [signedIn]);
 }
 
 /** Sign-out: this phone stops receiving the account's notifications. Best effort. */

@@ -4,29 +4,28 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
 import { CaravanSummary, FillBar, OrganizerLine } from '@/components/caravan';
 import { HoldCountdown } from '@/components/HoldCountdown';
 import { ErrorState } from '@/components/states';
-import { BackButton } from '@/components/ui';
-import { caravanState, cashMethod, formatDateTime, formatFcfa, paymentMethods, type Caravan, type CaravanStop } from '@/constants/data';
-import { PaymentLogo } from '@/components/PaymentLogo';
+import { RequestPass } from '@/components/RequestPass';
+import { BackButton, PrimaryButton, STICKY_FOOTER_SPACE, StickyFooter, TextButton } from '@/components/ui';
+import { caravanState, formatDateTime, formatFcfa, type Caravan, type CaravanStop } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCaravans, type BookingOutcome } from '@/context/CaravansContext';
-import { caravansApi, isCaravanTicket, toCaravan, type PassengerDto, type SeatMap } from '@/features/caravans/api';
-import { CompanionSheet } from '@/features/caravans/CompanionSheet';
-import type { TicketMethod } from '@/features/payments/checkout';
+import { caravansApi, isCaravanTicket, toCaravan, type CaravanTicketDto, type PassengerDto, type SeatMap } from '@/features/caravans/api';
+import { CompanionSheet, type CompanionStops } from '@/features/caravans/CompanionSheet';
 import { ApiError } from '@/lib/api';
 import { notice } from '@/lib/notice';
 import { haptics } from '@/lib/haptics';
 import { scheduleCaravanReminder } from '@/lib/notifications';
 
 const SERVICE_FEE = 0;
-/** The app's payment choices, as the API names them. */
-const METHOD: Record<string, TicketMethod> = { wave: 'wave', om: 'orange_money', cash: 'cash' };
 
 export default function CaravaneReservation() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { caravans, tickets, book, resume, release, refresh } = useCaravans();
+  const { caravans, tickets, book, release, refresh } = useCaravans();
+  // Pull: the departure (seats left, confirmed…) and the seat plan.
   // From the list, or straight from a link (notification): then fetched.
   const [fetched, setFetched] = useState<Caravan | null>(null);
   const c = caravans.find((x) => x.id === id) ?? fetched;
@@ -45,10 +44,7 @@ export default function CaravaneReservation() {
   // A single choice is made for the student.
   const pickup = pickedUp ?? (c?.pickups.length === 1 ? c.pickups[0]! : null);
   const dropoff = droppedOff ?? (c?.dropoffs.length === 1 ? c.dropoffs[0]! : null);
-  const [picked, setPayment] = useState(paymentMethods[0].id);
-  // Only the providers this trip accepts; the choice falls back to the first of them.
-  const accepted = [...paymentMethods, cashMethod].filter((m) => (c ? c.paymentMethods.includes(METHOD[m.id] ?? 'wave') : m.id !== 'cash'));
-  const payment = accepted.some((m) => m.id === picked) ? picked : (accepted[0]?.id ?? picked);
+  // Only the providers this trip accepts (and not one the admins switched off); the choice falls back to the first.
   const [paying, setPaying] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -58,6 +54,7 @@ export default function CaravaneReservation() {
     if (!id) return;
     caravansApi.seats(id).then(setMap, () => setSeatsFailed(true));
   }, [id]);
+  const pull = usePullRefresh(refresh, loadSeats);
   const retrySeats = () => {
     setSeatsFailed(false);
     loadSeats();
@@ -168,8 +165,6 @@ export default function CaravaneReservation() {
       ]
     : [];
   const total = (c.price + SERVICE_FEE) * Math.max(1, picks.length);
-  // Cash: the seats are booked now, the price handed over at boarding.
-  const cash = payment === 'cash';
   const ready = picks.length > 0 && !!pickup && !!dropoff && !paying;
   const ordered = [...picks].sort((a, b) => Number(!!a.passenger) - Number(!!b.passenger));
   const held = c.myBooking;
@@ -183,8 +178,15 @@ export default function CaravaneReservation() {
       router.replace({ pathname: '/billet/[id]', params: { id: outcome.ticketId, nouveau: '1' } });
     } else if (outcome.status === 'refunded') {
       notice({ tone: 'warning', title: 'Place perdue', message: `Le paiement est arrivé après la fin de la réservation et la place a été reprise. ${formatFcfa(amount)} te sont remboursés.` });
+    } else if (outcome.status === 'requested') {
+      haptics.success();
+      notice({
+        tone: 'success',
+        title: 'Demande envoyée',
+        message: `Va payer ${formatFcfa(amount)} en espèces à l’organisateur${c.organizer.name ? ` (${c.organizer.name})` : ''} dans les 24 h. Il valide ta demande et ${picks.length > 1 ? 'tes billets apparaissent' : 'ton billet apparaît'}, avec ${picks.length > 1 ? 'leur' : 'son'} QR code.`,
+      });
     } else if (outcome.status === 'pending') {
-      notice({ tone: 'pending', title: 'Paiement en attente', message: 'Tes places sont gardées 10 minutes. Termine le paiement depuis cet écran.' });
+      notice({ tone: 'pending', title: 'Demande en attente', message: 'Va payer l’organisateur en espèces : il valide ta demande.' });
     } else {
       notice({ tone: 'warning', title: 'Paiement non effectué', message: 'Les places ont été libérées. Tu peux réessayer.' });
     }
@@ -195,8 +197,9 @@ export default function CaravaneReservation() {
     if (!picks.length || !pickup || !dropoff) return;
     setPaying(true);
     try {
-      const seats = ordered.map((p) => (p.passenger ? { seat: p.seat, passenger: p.passenger } : { seat: p.seat }));
-      finish(await book(c.id, { seats, pickupStopId: pickup.stopId, dropoffStopId: dropoff.stopId, method: METHOD[payment] ?? 'wave' }), pickup, total);
+      const seats = ordered.map((p) => (p.passenger ? { seat: p.seat, passenger: p.passenger, ...(p.stops ?? {}) } : { seat: p.seat }));
+      finish(await book(c.id, { seats, pickupStopId: pickup.stopId, dropoffStopId: dropoff.stopId }), pickup, total);
+      setPicks([]);
     } catch (err) {
       if (err instanceof ApiError && err.code === 'SEAT_TAKEN') {
         setPicks([]);
@@ -209,16 +212,23 @@ export default function CaravaneReservation() {
     }
   };
 
-  const resumePayment = async () => {
-    setPaying(true);
-    try {
-      finish(await resume(c), c.pickups[0] ?? null, heldTotal);
-    } catch (err) {
-      Alert.alert('Paiement impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
-    } finally {
-      setPaying(false);
-    }
-  };
+  // Everything already mine on this departure, in one place: my ticket, my companions', a request waiting.
+  const mineHere = tickets.filter(isCaravanTicket).filter((t) => t.status === 'active' && t.details.departureId === c.id).sort((a, b) => Number(!!a.passenger) - Number(!!b.passenger));
+  const hasMine = !!held || !!existing || mineHere.length > 0;
+  // The booking steps: nothing waiting, places left for me, still open, and (when I have my seat) for a companion.
+  const flow = !held && limit > 0 && c.bookingOpen && booking;
+  const canAdd = !held && !!existing && !forCompanion && limit > 0 && c.bookingOpen;
+  const seatsDone = picks.length > 0;
+  const tripDone = !!pickup && !!dropoff;
+  const cta = paying
+    ? 'Envoi…'
+    : !seatsDone
+      ? 'Choisis une place'
+      : !pickup
+        ? 'Choisis le point de montée'
+        : !dropoff
+          ? 'Choisis ton arrêt'
+          : 'Envoyer ma demande';
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -228,375 +238,299 @@ export default function CaravaneReservation() {
         <View style={{ width: 44 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.body, flow && { paddingBottom: STICKY_FOOTER_SPACE.two }]} showsVerticalScrollIndicator={false} refreshControl={pull}>
         <View style={[styles.card, shadow.card, { gap: 14 }]}>
           {/* The organizer is detailed in the card below: no need to repeat it here. */}
           <CaravanSummary caravan={c} header="price" />
           <FillBar caravan={c} />
         </View>
 
-        <View style={[styles.card, shadow.card, { gap: 10 }]}>
-          <OrganizerLine organizer={c.organizer} />
-          <Text style={styles.muted}>
-            {c.organizer.kind} · {c.organizer.trips ? `${c.organizer.trips} trajets effectués` : 'Premier trajet sur l’app'} · {c.vehicle.label}
-            {c.vehicle.plate ? ` (${c.vehicle.plate})` : ''}
-          </Text>
-          <View style={styles.divider} />
-          <Guarantee icon="document-text-outline" text="Assurance, visite technique et permis du chauffeur vérifiés" />
-          <Guarantee icon="person-outline" text={`${c.totalSeats} places assises, pas une de plus`} />
-          {c.vehicle.airConditioned && <Guarantee icon="snow-outline" text="Car climatisé" />}
-          <Guarantee
-            icon="wallet-outline"
-            text={
-              confirmed
-                ? 'Ton argent reste bloqué jusqu’au départ'
-                : `Remboursé à 100 % si ${c.minPassengers} passagers ne sont pas atteints le ${formatDateTime(c.confirmBy)}`
+        {/* What I already have here comes first: the answer to « where do I stand? » before anything to choose. */}
+        {hasMine && (
+          <MyPlaces
+            caravan={c}
+            held={held}
+            heldTotal={heldTotal}
+            tickets={mineHere}
+            existing={existing}
+            onRelease={() => held && release(held.id).then(loadSeats, (err) => Alert.alert('Annulation impossible', err instanceof ApiError ? err.message : 'Vérifie ta connexion et réessaie.'))}
+            footer={
+              canAdd ? (
+                <Pressable style={styles.addRow} onPress={() => setForCompanion(true)} accessibilityRole="button">
+                  <Ionicons name="person-add-outline" size={18} color={colors.primary} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.addRowTitle}>Ajouter un accompagnant</Text>
+                    <Text style={styles.muted}>Encore {limit > 1 ? `${limit} places possibles` : 'une place possible'} pour toi sur ce départ.</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+                </Pressable>
+              ) : forCompanion ? (
+                <TextButton label="Ne pas ajouter d’accompagnant" onPress={() => (setForCompanion(false), setPicks([]))} style={{ alignSelf: 'center' }} />
+              ) : !held && existing ? (
+                <Text style={[styles.muted, { textAlign: 'center' }]}>{c.bookingOpen ? limitText : 'Réservations fermées sur ce départ.'}</Text>
+              ) : null
             }
           />
-          <Guarantee icon="refresh-outline" text="Annulation gratuite jusqu’à 24 h avant le départ, puis 10 % de frais" />
-        </View>
+        )}
 
-        {held ? (
-          <View style={[styles.card, shadow.card, styles.already]}>
-            <Ionicons name="time-outline" size={28} color={colors.primary} />
-            <Text style={styles.alreadyTitle}>
-              {held.seats.length > 1 ? `Places n° ${held.seats.map((x) => x.seat).join(' et ')} gardées pour toi` : `Place n° ${held.seat} gardée pour toi`}
-            </Text>
-            {held.seats
-              .filter((x) => x.passenger)
-              .map((x) => (
-                <Text key={x.seat} style={styles.alreadyText}>
-                  Place {x.seat} : {x.passenger!.name}
-                </Text>
-              ))}
-            <HoldCountdown until={held.holdExpiresAt} />
-            <Text style={styles.alreadyText}>Termine le paiement avant {formatDateTime(Date.parse(held.holdExpiresAt))}, sinon elles sont rendues aux autres.</Text>
-            <Pressable style={styles.alreadyBtn} onPress={resumePayment} disabled={paying}>
-              <Text style={styles.alreadyBtnText}>{paying ? 'Paiement…' : `Payer ${formatFcfa(heldTotal)}`}</Text>
-            </Pressable>
-            <Pressable onPress={() => release(held.id).then(loadSeats, (err) => Alert.alert('Libération impossible', err instanceof ApiError ? err.message : 'Vérifie ta connexion et réessaie.'))} hitSlop={8} accessibilityRole="button">
-              <Text style={styles.change}>{held.seats.length > 1 ? 'Libérer les places' : 'Libérer la place'}</Text>
-            </Pressable>
-          </View>
-        ) : existing && !forCompanion ? (
-          <View style={[styles.card, shadow.card, styles.already]}>
-            <Ionicons name="ticket-outline" size={28} color={colors.primary} />
-            <Text style={styles.alreadyTitle}>Tu as déjà ta place pour ce départ</Text>
-            <Text style={styles.alreadyText}>
-              {limit > 0 && c.bookingOpen
-                ? `Tu voyages avec quelqu’un ? Tu peux encore réserver ${limit > 1 ? `${limit} places` : 'une place'} pour un accompagnant (${limitText.toLowerCase()})`
-                : limitText}
-            </Text>
-            <Pressable style={styles.alreadyBtn} onPress={() => router.replace(`/billet/${existing}`)}>
-              <Text style={styles.alreadyBtnText}>Voir mon billet</Text>
-            </Pressable>
-            {limit > 0 && c.bookingOpen && (
-              <Pressable onPress={() => setForCompanion(true)} hitSlop={8} accessibilityRole="button">
-                <Text style={styles.change}>Réserver pour un accompagnant</Text>
-              </Pressable>
-            )}
-          </View>
-        ) : limit === 0 ? (
+        {!hasMine && limit === 0 && (
           <View style={[styles.card, shadow.card, styles.already]}>
             <Ionicons name="ticket-outline" size={28} color={colors.primary} />
             <Text style={styles.alreadyTitle}>{c.purchasedHere ? 'Tu as transféré ton billet' : 'Limite atteinte'}</Text>
             <Text style={styles.alreadyText}>{limitText} Les billets transférés comptent aussi, pour que chaque place aille à un vrai voyageur.</Text>
           </View>
-        ) : !c.bookingOpen ? (
+        )}
+        {!hasMine && limit > 0 && !c.bookingOpen && (
           <View style={[styles.card, shadow.card, styles.already]}>
             <Ionicons name="lock-closed-outline" size={28} color={colors.muted} />
             <Text style={styles.alreadyTitle}>{c.seats ? 'Réservations fermées' : 'Départ complet'}</Text>
           </View>
-        ) : booking ? (
+        )}
+
+        <OrganizerCard caravan={c} confirmed={confirmed} />
+
+        {flow && (
           <>
-          <View style={styles.sectionRow}>
-            <Text style={styles.section}>{existing ? 'Sa place' : limit > 1 ? 'Tes places' : 'Ta place'}</Text>
-            <Text style={styles.free}>{c.seats} places libres</Text>
-          </View>
-
-          {paid.length > 0 && (
-            <View style={[styles.card, shadow.card, { gap: 10 }]}>
-              <Text style={styles.recapTitle}>Déjà payé{paid.length > 1 ? 'es' : 'e'} sur ce départ</Text>
-              {paid.map((t) => (
-                <Pressable key={t.id} style={styles.picked} onPress={() => router.push(`/billet/${t.id}`)} accessibilityRole="button">
-                  <View style={[styles.pickedSeat, styles.pickedCompanion]}>
-                    <Text style={styles.pickedSeatText}>{t.seat}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.payName}>
-                      Place n° {t.seat} · {t.passenger!.name}
-                    </Text>
-                    <Text style={styles.muted}>Ton accompagnant · son billet reste valable</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={colors.muted} />
-                </Pressable>
-              ))}
-            </View>
-          )}
-
-          {/* The 64-seat plan is long: folded by default, one tap picks a good seat. */}
-          {!showMap ? (
-            <View style={[styles.card, shadow.card, { gap: 12 }]}>
-              {ordered.map((p) => (
-                <Pressable
-                  key={p.seat}
-                  style={styles.picked}
-                  disabled={!p.passenger}
-                  onPress={() => setSheet(p.seat)}
-                  accessibilityRole={p.passenger ? 'button' : undefined}
-                  accessibilityLabel={p.passenger ? `Place ${p.seat}, ${p.passenger.name}. Modifier` : undefined}>
-                  <View style={[styles.pickedSeat, p.passenger && styles.pickedCompanion]}>
-                    <Text style={styles.pickedSeatText}>{p.seat}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.payName}>
-                      Place n° {p.seat} · {p.passenger ? p.passenger.name : 'Toi'}
-                    </Text>
-                    <Text style={styles.muted}>
-                      {p.passenger ? `Accompagnant · ${p.passenger.phone}` : `${seatKind(p.seat)} · rangée ${rowOf(p.seat)}`}
-                    </Text>
-                  </View>
-                  {p.passenger && <Ionicons name="create-outline" size={18} color={colors.muted2} />}
-                </Pressable>
-              ))}
-              {picks.length > 0 ? (
-                <View style={styles.pickedActions}>
-                  <Pressable onPress={() => openMap(mine ? 'mine' : ordered[0]!.seat)} hitSlop={10} accessibilityRole="button">
-                    <Text style={styles.change}>{picks.length > 1 ? 'Changer les places' : 'Changer'}</Text>
+            <Step n={1} title={existing ? 'Sa place' : limit > 1 ? 'Tes places' : 'Ta place'} done={seatsDone} aside={`${c.seats} libres`}>
+            {/* The 64-seat plan is long: folded by default, one tap picks a good seat. */}
+            {!showMap ? (
+              <View style={[styles.card, shadow.card, { gap: 12 }]}>
+                {ordered.map((p) => (
+                  <Pressable
+                    key={p.seat}
+                    style={styles.picked}
+                    disabled={!p.passenger}
+                    onPress={() => setSheet(p.seat)}
+                    accessibilityRole={p.passenger ? 'button' : undefined}
+                    accessibilityLabel={p.passenger ? `Place ${p.seat}, ${p.passenger.name}. Modifier` : undefined}>
+                    <View style={[styles.pickedSeat, p.passenger && styles.pickedCompanion]}>
+                      <Text style={styles.pickedSeatText}>{p.seat}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.payName}>
+                        Place n° {p.seat} · {p.passenger ? p.passenger.name : 'Toi'}
+                      </Text>
+                      <Text style={styles.muted}>
+                        {p.passenger ? (p.stops ? `${c.pickups.find((x) => x.stopId === p.stops!.pickupStopId)?.place ?? ''} → ${c.dropoffs.find((x) => x.stopId === p.stops!.dropoffStopId)?.place ?? ''}` : `Accompagnant · ${p.passenger.phone}`) : `${seatKind(p.seat)} · rangée ${rowOf(p.seat)}`}
+                      </Text>
+                    </View>
+                    {p.passenger && <Ionicons name="create-outline" size={18} color={colors.muted2} />}
                   </Pressable>
-                  {picks.length < limit && (
-                    <Pressable onPress={() => openMap('add')} hitSlop={10} accessibilityRole="button" style={styles.addCompanion}>
-                      <Ionicons name="person-add-outline" size={16} color={colors.primary} />
-                      <Text style={styles.addCompanionText}>Ajouter un accompagnant</Text>
+                ))}
+                {picks.length > 0 ? (
+                  <View style={styles.pickedActions}>
+                    <Pressable onPress={() => openMap(mine ? 'mine' : ordered[0]!.seat)} hitSlop={10} accessibilityRole="button">
+                      <Text style={styles.change}>{picks.length > 1 ? 'Changer les places' : 'Changer'}</Text>
                     </Pressable>
-                  )}
-                </View>
-              ) : (
-                <>
-                  <Text style={styles.muted}>
-                    {existing ? 'Choisis la place de ton accompagnant : on te demandera son nom et son numéro.' : 'Laisse-nous choisir, ou regarde le plan du bus.'}
-                    {!existing && limit > 1 ? ` Tu voyages avec quelqu’un ? Après ta place, ajoute un accompagnant (${limitText.toLowerCase().replace('.', '')}).` : ''}
-                  </Text>
-                  <View style={styles.seatActions}>
-                    <Pressable style={[styles.seatAction, styles.seatActionMain]} onPress={pickForMe} accessibilityRole="button">
-                      <Ionicons name="sparkles-outline" size={16} color="#fff" />
-                      <Text style={[styles.seatActionText, { color: '#fff' }]}>Choisis pour moi</Text>
-                    </Pressable>
-                    <Pressable style={styles.seatAction} onPress={() => openMap(existing ? 'add' : 'mine')} accessibilityRole="button">
-                      <Ionicons name="grid-outline" size={16} color={colors.primary} />
-                      <Text style={styles.seatActionText}>Voir les places</Text>
-                    </Pressable>
-                  </View>
-                </>
-              )}
-            </View>
-          ) : (
-            <>
-              <View style={styles.legend}>
-                <Legend style={styles.seatFree} label="Libre" />
-                <Legend style={styles.seatTaken} label="Occupée" />
-                {!existing && <Legend style={styles.seatSelected} label="Toi" />}
-                {limit > 1 || existing || paid.length ? <Legend style={styles.seatCompanion} label="Accompagnant" /> : null}
-                {perRow === 5 && <Legend style={[styles.seatFree, styles.seatMiddle]} label="Versailler" />}
-              </View>
-              {/* Which seat the next tap places: mine, a companion's, or a new companion. */}
-              {(picks.length > 0 || paid.length > 0) && (
-                <View style={styles.targets}>
-                  {ordered.map((p) => {
-                    const t: Target = p.passenger ? p.seat : 'mine';
-                    const on = current === t;
-                    return (
-                      <Pressable
-                        key={p.seat}
-                        onPress={() => setTarget(t)}
-                        style={[styles.target, on && (p.passenger ? styles.targetOnCompanion : styles.targetOn)]}
-                        accessibilityRole="tab"
-                        accessibilityState={{ selected: on }}>
-                        <Text style={[styles.targetText, on && { color: '#fff' }]} numberOfLines={1}>
-                          {p.passenger ? p.passenger.name.split(' ')[0] : 'Toi'} · {p.seat}
-                        </Text>
+                    {picks.length < limit && (
+                      <Pressable onPress={() => openMap('add')} hitSlop={10} accessibilityRole="button" style={styles.addCompanion}>
+                        <Ionicons name="person-add-outline" size={16} color={colors.primary} />
+                        <Text style={styles.addCompanionText}>Ajouter un accompagnant</Text>
                       </Pressable>
-                    );
-                  })}
-                  {picks.length < limit && (existing || mine) && (
-                    <Pressable
-                      onPress={() => setTarget('add')}
-                      style={[styles.target, current === 'add' && styles.targetOnCompanion]}
-                      accessibilityRole="tab"
-                      accessibilityState={{ selected: current === 'add' }}>
-                      <Text style={[styles.targetText, current === 'add' && { color: '#fff' }]}>+ Accompagnant</Text>
-                    </Pressable>
-                  )}
+                    )}
+                  </View>
+                ) : (
+                  <>
+                    <Text style={styles.muted}>
+                      {existing ? 'Choisis la place de ton accompagnant : on te demandera son nom et son numéro.' : 'Laisse-nous choisir, ou regarde le plan du bus.'}
+                      {!existing && limit > 1 ? ` Tu voyages avec quelqu’un ? Après ta place, ajoute un accompagnant (${limitText.toLowerCase().replace('.', '')}).` : ''}
+                    </Text>
+                    <View style={styles.seatActions}>
+                      <Pressable style={[styles.seatAction, styles.seatActionMain]} onPress={pickForMe} accessibilityRole="button">
+                        <Ionicons name="sparkles-outline" size={16} color="#fff" />
+                        <Text style={[styles.seatActionText, { color: '#fff' }]}>Choisis pour moi</Text>
+                      </Pressable>
+                      <Pressable style={styles.seatAction} onPress={() => openMap(existing ? 'add' : 'mine')} accessibilityRole="button">
+                        <Ionicons name="grid-outline" size={16} color={colors.primary} />
+                        <Text style={styles.seatActionText}>Voir les places</Text>
+                      </Pressable>
+                    </View>
+                  </>
+                )}
+              </View>
+            ) : (
+              <>
+                <View style={styles.legend}>
+                  <Legend style={styles.seatFree} label="Libre" />
+                  <Legend style={styles.seatTaken} label="Occupée" />
+                  {!existing && <Legend style={styles.seatSelected} label="Toi" />}
+                  {limit > 1 || existing || paid.length ? <Legend style={styles.seatCompanion} label="Accompagnant" /> : null}
+                  {perRow === 5 && <Legend style={[styles.seatFree, styles.seatMiddle]} label="Versailler" />}
                 </View>
-              )}
-              <Text style={styles.mapHint}>
-                {current === 'mine'
-                  ? mine
-                    ? 'Touche une autre place pour déplacer la tienne.'
-                    : limit > 1
-                      ? 'Touche ta place. Tu voyages avec quelqu’un ? Ensuite, choisis « + Accompagnant ».'
-                      : 'Touche ta place.'
-                  : current === 'add'
-                    ? 'Touche une place libre pour ton accompagnant : on te demandera son nom et son numéro.'
-                    : `Touche une autre place pour déplacer celle de ${picks.find((p) => p.seat === current)?.passenger?.name.split(' ')[0] ?? 'ton accompagnant'}.`}
-              </Text>
-              <View style={[styles.card, styles.busCard, shadow.card]}>
-                <View style={styles.front}>
-                  <Ionicons name="bus-outline" size={12} color={colors.primary} />
-                  <Text style={styles.frontText}>Avant du bus</Text>
-                </View>
-                {!map && !seatsFailed && <ActivityIndicator color={colors.primary} />}
-                {!map && seatsFailed && <ErrorState text="Le plan des places n’a pas pu être chargé." onRetry={retrySeats} />}
-                {rows.map((row) => (
-                  <View key={row.find((n) => n !== null)} style={styles.seatRow}>
-                    {row.map((n, i) => {
-                      // 4 per row: the aisle before the third seat. 5: the folding middle seat sits in it.
-                      const aisle = perRow % 2 === 0 ? i === perRow / 2 && styles.afterAisle : i === Math.floor(perRow / 2) && styles.inAisle;
-                      if (n === null) return <View key={`empty-${i}`} style={[styles.seat, aisle]} />;
-                      const isTaken = taken.has(n);
-                      const pick = picks.find((p) => p.seat === n);
-                      const own = paidSeat(n);
-                      const selected = !!pick && current === (pick.passenger ? pick.seat : 'mine');
+                {/* Which seat the next tap places: mine, a companion's, or a new companion. */}
+                {(picks.length > 0 || paid.length > 0) && (
+                  <View style={styles.targets}>
+                    {ordered.map((p) => {
+                      const t: Target = p.passenger ? p.seat : 'mine';
+                      const on = current === t;
                       return (
                         <Pressable
-                          key={n}
-                          disabled={isTaken}
-                          onPress={() => tapSeat(n)}
-                          accessibilityLabel={
-                            own
-                              ? `Place ${n}, ${own.passenger!.name}, déjà payée`
-                              : isTaken
-                                ? `Place ${n}, occupée`
-                                : pick
-                                  ? `Place ${n}, ${pick.passenger ? pick.passenger.name : 'ta place'}`
-                                  : `Place ${n}${isMiddle(n) ? ', versailler' : ''}`
-                          }
-                          style={[
-                            styles.seat,
-                            aisle,
-                            own ? [styles.seatCompanion, styles.seatPaid] : isTaken ? styles.seatTaken : pick ? (pick.passenger ? styles.seatCompanion : styles.seatSelected) : [styles.seatFree, isMiddle(n) && styles.seatMiddle],
-                            selected && styles.seatMoving,
-                          ]}>
-                          {own ? (
-                            <Text style={styles.seatInitials}>{initials(own.passenger!.name)}</Text>
-                          ) : isTaken ? (
-                            <Ionicons name="close" size={16} color={colors.muted} />
-                          ) : pick?.passenger ? (
-                            <Text style={styles.seatInitials}>{initials(pick.passenger.name)}</Text>
-                          ) : (
-                            <Text style={[styles.seatText, !!pick && { color: '#fff' }]}>{n}</Text>
-                          )}
+                          key={p.seat}
+                          onPress={() => setTarget(t)}
+                          style={[styles.target, on && (p.passenger ? styles.targetOnCompanion : styles.targetOn)]}
+                          accessibilityRole="tab"
+                          accessibilityState={{ selected: on }}>
+                          <Text style={[styles.targetText, on && { color: '#fff' }]} numberOfLines={1}>
+                            {p.passenger ? p.passenger.name.split(' ')[0] : 'Toi'} · {p.seat}
+                          </Text>
                         </Pressable>
                       );
                     })}
+                    {picks.length < limit && (existing || mine) && (
+                      <Pressable
+                        onPress={() => setTarget('add')}
+                        style={[styles.target, current === 'add' && styles.targetOnCompanion]}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: current === 'add' }}>
+                        <Text style={[styles.targetText, current === 'add' && { color: '#fff' }]}>+ Accompagnant</Text>
+                      </Pressable>
+                    )}
                   </View>
-                ))}
-              </View>
-              <Pressable style={[styles.seatAction, styles.seatActionMain, styles.mapDone]} onPress={() => setShowMap(false)} accessibilityRole="button">
-                <Ionicons name="checkmark" size={16} color="#fff" />
-                <Text style={[styles.seatActionText, { color: '#fff' }]}>
-                  {picks.length > 1 ? `Valider les ${picks.length} places` : picks.length ? 'Valider ma place' : 'Fermer le plan'}
-                </Text>
-              </Pressable>
-            </>
-          )}
-
-          {/* Like the organizers' own timetables: every stop with the bus's time there. */}
-          <StopPicker
-            title={existing ? 'Où monte-t-il ?' : 'Où montes-tu ?'}
-            hint="Sois au point de montée 15 min avant l’heure : le bus n’attend pas."
-            stops={c.pickups}
-            value={pickup}
-            onChange={setPickup}
-          />
-          <StopPicker
-            title={existing ? 'Où descend-il ?' : 'Où descends-tu ?'}
-            hint="Heures d’arrivée estimées, selon la circulation."
-            stops={c.dropoffs}
-            value={dropoff}
-            onChange={setDropoff}
-            estimated
-          />
-
-          <Text style={styles.section}>Moyen de paiement</Text>
-          {accepted.map((m) => {
-            const on = m.id === payment;
-            return (
-              <Pressable key={m.id} onPress={() => setPayment(m.id)} style={[styles.card, styles.payment, on && styles.paymentOn]}>
-                <PaymentLogo method={m} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.payName}>{m.name}</Text>
-                  <Text style={styles.muted}>{m.detail}</Text>
-                </View>
-                {on ? (
-                  <Ionicons name="checkmark-circle" size={22} color={colors.primary} />
-                ) : (
-                  <View style={styles.radio} />
                 )}
-              </Pressable>
-            );
-          })}
-
-          <View style={[styles.card, shadow.card, { gap: 8 }]}>
-            <Text style={styles.recapTitle}>Récapitulatif</Text>
-            {ordered.length ? (
-              ordered.map((p) => (
-                <RecapRow
-                  key={p.seat}
-                  k={`Place n° ${p.seat} · ${p.passenger ? shortName(p.passenger.name) : 'Toi'}`}
-                  v={formatFcfa(c.price)}
-                />
-              ))
-            ) : (
-              <RecapRow k="Aucune place choisie" v={formatFcfa(c.price)} />
+                <Text style={styles.mapHint}>
+                  {current === 'mine'
+                    ? mine
+                      ? 'Touche une autre place pour déplacer la tienne.'
+                      : limit > 1
+                        ? 'Touche ta place. Tu voyages avec quelqu’un ? Ensuite, choisis « + Accompagnant ».'
+                        : 'Touche ta place.'
+                    : current === 'add'
+                      ? 'Touche une place libre pour ton accompagnant : on te demandera son nom et son numéro.'
+                      : `Touche une autre place pour déplacer celle de ${picks.find((p) => p.seat === current)?.passenger?.name.split(' ')[0] ?? 'ton accompagnant'}.`}
+                </Text>
+                <View style={[styles.card, styles.busCard, shadow.card]}>
+                  <View style={styles.front}>
+                    <Ionicons name="bus-outline" size={12} color={colors.primary} />
+                    <Text style={styles.frontText}>Avant du bus</Text>
+                  </View>
+                  {!map && !seatsFailed && <ActivityIndicator color={colors.primary} />}
+                  {!map && seatsFailed && <ErrorState text="Le plan des places n’a pas pu être chargé." onRetry={retrySeats} />}
+                  {rows.map((row) => (
+                    <View key={row.find((n) => n !== null)} style={styles.seatRow}>
+                      {row.map((n, i) => {
+                        // 4 per row: the aisle before the third seat. 5: the folding middle seat sits in it.
+                        const aisle = perRow % 2 === 0 ? i === perRow / 2 && styles.afterAisle : i === Math.floor(perRow / 2) && styles.inAisle;
+                        if (n === null) return <View key={`empty-${i}`} style={[styles.seat, aisle]} />;
+                        const isTaken = taken.has(n);
+                        const pick = picks.find((p) => p.seat === n);
+                        const own = paidSeat(n);
+                        const selected = !!pick && current === (pick.passenger ? pick.seat : 'mine');
+                        return (
+                          <Pressable
+                            key={n}
+                            disabled={isTaken}
+                            onPress={() => tapSeat(n)}
+                            accessibilityLabel={
+                              own
+                                ? `Place ${n}, ${own.passenger!.name}, déjà payée`
+                                : isTaken
+                                  ? `Place ${n}, occupée`
+                                  : pick
+                                    ? `Place ${n}, ${pick.passenger ? pick.passenger.name : 'ta place'}`
+                                    : `Place ${n}${isMiddle(n) ? ', versailler' : ''}`
+                            }
+                            style={[
+                              styles.seat,
+                              aisle,
+                              own ? [styles.seatCompanion, styles.seatPaid] : isTaken ? styles.seatTaken : pick ? (pick.passenger ? styles.seatCompanion : styles.seatSelected) : [styles.seatFree, isMiddle(n) && styles.seatMiddle],
+                              selected && styles.seatMoving,
+                            ]}>
+                            {own ? (
+                              <Text style={styles.seatInitials}>{initials(own.passenger!.name)}</Text>
+                            ) : isTaken ? (
+                              <Ionicons name="close" size={16} color={colors.muted} />
+                            ) : pick?.passenger ? (
+                              <Text style={styles.seatInitials}>{initials(pick.passenger.name)}</Text>
+                            ) : (
+                              <Text style={[styles.seatText, !!pick && { color: '#fff' }]}>{n}</Text>
+                            )}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ))}
+                </View>
+                <Pressable style={[styles.seatAction, styles.seatActionMain, styles.mapDone]} onPress={() => setShowMap(false)} accessibilityRole="button">
+                  <Ionicons name="checkmark" size={16} color="#fff" />
+                  <Text style={[styles.seatActionText, { color: '#fff' }]}>
+                    {picks.length > 1 ? `Valider les ${picks.length} places` : picks.length ? 'Valider ma place' : 'Fermer le plan'}
+                  </Text>
+                </Pressable>
+              </>
             )}
-            <RecapRow k="Montée" v={pickup ? `${pickup.place} · ${pickup.time}` : 'À choisir'} />
-            <RecapRow k="Descente" v={dropoff?.place ?? 'À choisir'} />
-            <RecapRow k="Frais de service" v={formatFcfa(SERVICE_FEE)} />
-            <View style={styles.divider} />
-            <View style={styles.recapRow}>
-              <Text style={styles.totalLabel}>Total</Text>
-              <Text style={styles.totalValue}>{formatFcfa(total)}</Text>
-            </View>
-          </View>
 
-          <Pressable disabled={!ready} onPress={pay} style={[styles.pay, !ready && styles.payDisabled]}>
-            <Ionicons name={cash ? 'cash-outline' : 'checkmark'} size={18} color="#fff" />
-            <Text style={styles.payText} numberOfLines={1}>
-              {paying
-                ? cash
-                  ? 'Réservation…'
-                  : 'Paiement en cours…'
-                : !picks.length
-                ? 'Choisis une place'
-                : !pickup
-                  ? 'Choisis le point de montée'
-                  : !dropoff
-                    ? 'Choisis la descente'
-                    : cash
-                      ? `Réserver · ${formatFcfa(total)}`
-                      : `Payer ${formatFcfa(total)}`}
-            </Text>
-          </Pressable>
-          <Text style={styles.note}>
-            {cash
-              ? `En espèces, à l’embarquement · ${picks.length > 1 ? 'tes billets arrivent' : 'ton billet arrive'} tout de suite`
-              : picks.length > 1
-                ? 'Un billet avec QR code par place dans ton app après paiement'
-                : 'Billet avec QR code dans l’app après paiement'}
-          </Text>
+            </Step>
+
+            {/* Like the organizers' own timetables: every stop with the bus's time there. */}
+            <Step n={2} title="Trajet" done={tripDone}>
+              <StopPicker
+                title={existing ? 'Où monte-t-il ?' : 'Où montes-tu ?'}
+                hint="Sois au point de montée 15 min avant l’heure : le bus n’attend pas."
+                stops={c.pickups}
+                value={pickup}
+                onChange={setPickup}
+              />
+              <StopPicker
+                title={existing ? 'Où descend-il ?' : 'Où descends-tu ?'}
+                hint="Heures d’arrivée estimées, selon la circulation."
+                stops={c.dropoffs}
+                value={dropoff}
+                onChange={setDropoff}
+                estimated
+              />
+            </Step>
+
+            <Step n={3} title="Paiement" done={false}>
+              <View style={[styles.card, shadow.card, { gap: 8 }]}>
+                {ordered.length ? (
+                  ordered.map((p) => <RecapRow key={p.seat} k={`Place n° ${p.seat} · ${p.passenger ? shortName(p.passenger.name) : 'Toi'}`} v={formatFcfa(c.price)} />)
+                ) : (
+                  <RecapRow k="Aucune place choisie" v={formatFcfa(c.price)} />
+                )}
+                <RecapRow k="Montée" v={pickup ? `${pickup.place} · ${pickup.time}` : 'À choisir'} />
+                <RecapRow k="Arrêt" v={dropoff?.place ?? 'À choisir'} />
+                {SERVICE_FEE > 0 && <RecapRow k="Frais de service" v={formatFcfa(SERVICE_FEE)} />}
+                <View style={styles.divider} />
+                <View style={styles.recapRow}>
+                  <Text style={styles.totalLabel}>Total</Text>
+                  <Text style={styles.totalValue}>{formatFcfa(total)}</Text>
+                </View>
+              </View>
+              <View style={styles.cashInfo}>
+                <Ionicons name="cash-outline" size={18} color={colors.successText} />
+                <Text style={styles.cashInfoText}>
+                  En espèces, en main propre à l’organisateur. {picks.length > 1 ? 'Tes places sont gardées' : 'Ta place est gardée'} 24 h : il valide ta demande dès qu’il reçoit l’argent, et {picks.length > 1 ? 'chaque billet arrive avec son' : 'ton billet arrive avec son'} QR code.
+                </Text>
+              </View>
+            </Step>
           </>
-        ) : null}
+        )}
       </ScrollView>
+
+      {/* The action and its total never scroll away. */}
+      {flow && (
+        <StickyFooter>
+          <View style={styles.footerRow}>
+            <View>
+              <Text style={styles.footerLabel}>{picks.length > 1 ? `${picks.length} places` : 'Total'}</Text>
+              <Text style={styles.footerTotal}>{formatFcfa(total)}</Text>
+            </View>
+            <PrimaryButton label={cta} disabled={!ready} loading={paying} onPress={pay} style={{ flex: 1, paddingHorizontal: 16 }} />
+          </View>
+        </StickyFooter>
+      )}
 
       <CompanionSheet
         key={sheet ?? 'closed'}
         seat={sheet}
         initial={sheetPick?.passenger ?? null}
         route={pickup && dropoff ? `${pickup.place} → ${dropoff.place}` : null}
+        pickups={c.pickups}
+        dropoffs={c.dropoffs}
+        initialStops={sheetPick?.stops ?? null}
         onClose={() => setSheet(null)}
-        onSave={(passenger) => {
-          setPicks((prev) => [...prev.filter((p) => p.seat !== sheet), { seat: sheet!, passenger }]);
+        onSave={(passenger, stops) => {
+          setPicks((prev) => [...prev.filter((p) => p.seat !== sheet), { seat: sheet!, passenger, stops }]);
           // The new companion's seat is the one the next taps move.
           setTarget(sheet);
           setSheet(null);
@@ -610,7 +544,7 @@ export default function CaravaneReservation() {
   );
 }
 
-type SeatPick = { seat: number; passenger: PassengerDto | null };
+type SeatPick = { seat: number; passenger: PassengerDto | null; stops?: CompanionStops | null };
 /** What the next tap on a free seat places: my seat, a new companion, or the companion on that seat. */
 type Target = 'mine' | 'add' | number;
 
@@ -638,6 +572,151 @@ function Legend({ style, label }: { style: StyleProp<ViewStyle>; label: string }
   );
 }
 
+/**
+ * « Mes places sur ce départ »: however many there are, one card. A request waiting (how much, to whom, until when, its
+ * QR code), then each ticket on its own row (mine first, then my companions'), opening the ticket.
+ */
+function MyPlaces({
+  caravan: c,
+  held,
+  heldTotal,
+  tickets,
+  existing,
+  onRelease,
+  footer,
+}: {
+  caravan: Caravan;
+  held: Caravan['myBooking'];
+  heldTotal: number;
+  tickets: CaravanTicketDto[];
+  existing: string | null | undefined;
+  onRelease: () => void;
+  footer: React.ReactNode;
+}) {
+  const count = tickets.length + (held?.seats.length ?? 0);
+  return (
+    <View style={[styles.card, shadow.card, { gap: 12 }]}>
+      <View style={styles.mineHead}>
+        <Ionicons name="ticket" size={18} color={colors.primary} />
+        <Text style={styles.mineTitle}>Mes places sur ce départ</Text>
+        {count > 0 && (
+          <View style={styles.countPill}>
+            <Text style={styles.countPillText}>{count}</Text>
+          </View>
+        )}
+      </View>
+
+      {held && (
+        <View style={styles.heldBox}>
+          <View style={styles.heldTop}>
+            <Text style={styles.heldTitle}>Demande en attente</Text>
+            <HoldCountdown until={held.holdExpiresAt} />
+          </View>
+          {held.seats.map((x) => (
+            <SeatLine key={x.seat} seat={x.seat} name={x.passenger?.name ?? 'Toi'} companion={!!x.passenger} sub="En attente du paiement" />
+          ))}
+          <View style={styles.payStep}>
+            <Ionicons name="cash-outline" size={18} color={colors.warningText} />
+            <Text style={styles.payStepText}>
+              Va payer <Text style={{ fontWeight: '800' }}>{formatFcfa(held.total ?? heldTotal)}</Text> en espèces à {c.organizer.name || 'l’organisateur'} avant le {formatDateTime(Date.parse(held.holdExpiresAt))}. Sans validation, les places sont rendues.
+            </Text>
+          </View>
+          <RequestPass
+            code={held.code}
+            organizer={held.organizer}
+            items={held.seats.map((x) => ({ id: x.id ?? String(x.seat), title: `Place ${x.seat}`, sub: x.passenger ? x.passenger.name : 'Toi', price: x.price ?? c.price, code: x.code ?? null }))}
+          />
+          <TextButton label="Annuler ma demande" tone="danger" onPress={onRelease} style={{ alignSelf: 'center' }} />
+        </View>
+      )}
+
+      {tickets.map((t) => (
+        <SeatLine
+          key={t.id}
+          seat={t.seat}
+          name={t.passenger ? t.passenger.name : 'Toi'}
+          companion={!!t.passenger}
+          sub={`${t.details.pickup.place} → ${t.details.dropoff.place}`}
+          onPress={() => router.push(`/billet/${t.id}`)}
+        />
+      ))}
+      {/* My ticket not in the list yet (just validated, list loading): still one tap away. */}
+      {!!existing && !tickets.some((t) => t.id === existing) && (
+        <TextButton label="Voir mon billet" icon="ticket-outline" onPress={() => router.push(`/billet/${existing}`)} style={{ alignSelf: 'flex-start' }} />
+      )}
+      {footer}
+    </View>
+  );
+}
+
+/** One seat: its number in a badge (mine blue, a companion's orange), who travels, and where. */
+function SeatLine({ seat, name, companion, sub, onPress }: { seat: number | null; name: string; companion: boolean; sub: string; onPress?: () => void }) {
+  return (
+    <Pressable style={styles.picked} onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={`Place ${seat ?? ''}, ${name}, ${sub}`}>
+      <View style={[styles.pickedSeat, companion && styles.pickedCompanion]}>
+        <Text style={styles.pickedSeatText}>{seat ?? '–'}</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.payName} numberOfLines={1}>
+          {name}
+          {companion ? <Text style={styles.muted}> · accompagnant</Text> : null}
+        </Text>
+        <Text style={styles.muted} numberOfLines={1}>
+          {sub}
+        </Text>
+      </View>
+      {onPress && <Ionicons name="chevron-forward" size={16} color={colors.muted} />}
+    </Pressable>
+  );
+}
+
+/** Who drives, folded to one line; the guarantees (insurance, seats, refund, cancellation) one tap away. */
+function OrganizerCard({ caravan: c, confirmed }: { caravan: Caravan; confirmed: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={[styles.card, shadow.card, { gap: 10 }]}>
+      <OrganizerLine organizer={c.organizer} />
+      <Text style={styles.muted}>
+        {c.organizer.kind} · {c.organizer.trips ? `${c.organizer.trips} trajets effectués` : 'Premier trajet sur l’app'} · {c.vehicle.label}
+        {c.vehicle.plate ? ` (${c.vehicle.plate})` : ''}
+        {c.vehicle.airConditioned ? ' · climatisé' : ''}
+      </Text>
+      <Pressable style={styles.fold} onPress={() => setOpen((o) => !o)} accessibilityRole="button" accessibilityState={{ expanded: open }}>
+        <Ionicons name="shield-checkmark-outline" size={16} color={colors.success} />
+        <Text style={styles.foldText}>Garanties et annulation</Text>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={colors.muted2} />
+      </Pressable>
+      {open && (
+        <View style={{ gap: 8 }}>
+          <Guarantee icon="document-text-outline" text="Assurance, visite technique et permis du chauffeur vérifiés" />
+          <Guarantee icon="person-outline" text={`${c.totalSeats} places assises, pas une de plus`} />
+          <Guarantee
+            icon="wallet-outline"
+            text={confirmed ? 'Départ confirmé : le bus part' : `Annulé si ${c.minPassengers} passagers ne sont pas atteints le ${formatDateTime(c.confirmBy)} : tu es prévenu`}
+          />
+          <Guarantee icon="refresh-outline" text="Annulation gratuite jusqu’à 24 h avant le départ, puis 10 % de frais" />
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** A booking step: its number (a tick once done), its title, and what it holds. */
+function Step({ n, title, done, aside, children }: { n: number; title: string; done: boolean; aside?: string; children: React.ReactNode }) {
+  return (
+    <View style={{ gap: 10 }}>
+      <View style={styles.stepHead}>
+        <View style={[styles.stepDot, done && styles.stepDotDone]}>
+          {done ? <Ionicons name="checkmark" size={14} color="#fff" /> : <Text style={styles.stepNum}>{n}</Text>}
+        </View>
+        <Text style={styles.stepTitle}>{title}</Text>
+        {!!aside && <Text style={styles.free}>{aside}</Text>}
+      </View>
+      {children}
+    </View>
+  );
+}
+
 function Guarantee({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: string }) {
   return (
     <View style={styles.guarantee}>
@@ -647,6 +726,10 @@ function Guarantee({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text:
   );
 }
 
+/**
+ * The stops, like a timetable. Chosen, it folds to that one stop (« Changer » opens the list again): a long route
+ * doesn't stretch the screen. A single stop is chosen already.
+ */
 function StopPicker({
   title,
   hint,
@@ -662,18 +745,30 @@ function StopPicker({
   onChange: (s: CaravanStop) => void;
   estimated?: boolean;
 }) {
+  const [open, setOpen] = useState(!value);
+  const only = stops.length === 1;
+  const shown = open && !only ? stops : value ? [value] : stops;
   return (
-    <View style={{ gap: 8 }}>
-      <Text style={styles.section}>{title}</Text>
+    <View style={{ gap: 6 }}>
+      <View style={styles.stopHead}>
+        <Text style={styles.label}>{title}</Text>
+        {!open && !only && value && (
+          <Pressable onPress={() => setOpen(true)} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Changer : ${title}`}>
+            <Text style={styles.change}>Changer</Text>
+          </Pressable>
+        )}
+      </View>
       <View style={[styles.card, shadow.card, styles.stopList]}>
-        {stops.map((s, i) => {
+        {shown.map((s, i) => {
           const on = s.stopId === value?.stopId;
-          const only = stops.length === 1;
           return (
             <Pressable
               key={s.stopId}
-              onPress={() => onChange(s)}
-              disabled={only}
+              onPress={() => {
+                onChange(s);
+                setOpen(false);
+              }}
+              disabled={only || !open}
               style={[styles.stopRow, on && styles.stopRowOn]}
               accessibilityRole="radio"
               accessibilityState={{ checked: on }}
@@ -684,7 +779,7 @@ function StopPicker({
                 <View style={[styles.railDot, on && styles.railDotOn]}>
                   {on && <Ionicons name="checkmark" size={11} color="#fff" />}
                 </View>
-                <View style={[styles.railLine, i === stops.length - 1 && { backgroundColor: 'transparent' }]} />
+                <View style={[styles.railLine, i === shown.length - 1 && { backgroundColor: 'transparent' }]} />
               </View>
               <Text style={[styles.stopPlace, on && styles.stopPlaceOn]}>{s.place}</Text>
               <Text style={[styles.stopTime, on && styles.stopPlaceOn]}>
@@ -695,7 +790,7 @@ function StopPicker({
           );
         })}
       </View>
-      <Text style={styles.stopHint}>{hint}</Text>
+      {open && <Text style={styles.stopHint}>{hint}</Text>}
     </View>
   );
 }
@@ -837,4 +932,30 @@ const styles = StyleSheet.create({
   stopPlaceOn: { fontWeight: '700', color: colors.navy },
   stopTime: { ...typo.smallStrong, color: colors.muted2, fontVariant: ['tabular-nums'] },
   stopHint: { ...typo.caption, color: colors.muted2, lineHeight: 17 },
+  cashInfo: { flexDirection: 'row', gap: 10, padding: 12, borderRadius: radii.md, backgroundColor: colors.successBg },
+  label: { ...typo.smallStrong, color: colors.navy },
+  stopHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  stepHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
+  stepDot: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card },
+  stepDotDone: { backgroundColor: colors.success, borderColor: colors.success },
+  stepNum: { ...typo.smallStrong, color: colors.primary },
+  stepTitle: { ...typo.section, color: colors.navy, flex: 1 },
+  mineHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  mineTitle: { ...typo.section, color: colors.navy, flex: 1 },
+  countPill: { minWidth: 24, height: 24, paddingHorizontal: 7, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  countPillText: { ...typo.label, color: '#fff' },
+  heldBox: { gap: 10, padding: 12, borderRadius: radii.md, backgroundColor: colors.warningBg },
+  // Title above the countdown: side by side, a long countdown would push off the screen.
+  heldTop: { gap: 6 },
+  heldTitle: { ...typo.bodyStrong, color: colors.warningText },
+  payStep: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
+  payStepText: { ...typo.small, flex: 1, color: colors.warningText, lineHeight: 19 },
+  addRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: radii.md, backgroundColor: colors.primarySoft },
+  addRowTitle: { ...typo.bodyStrong, color: colors.primary },
+  fold: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  foldText: { ...typo.smallStrong, color: colors.navy, flex: 1 },
+  footerRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  footerLabel: { ...typo.caption, color: colors.muted2 },
+  footerTotal: { ...typo.title, color: colors.navy },
+  cashInfoText: { ...typo.small, flex: 1, color: colors.successText, lineHeight: 19 },
 });

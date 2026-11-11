@@ -1,21 +1,24 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, Share, StyleSheet, Text, useWindowDimensions, View, type ScrollViewInstance, type ScrollViewProps } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Image } from 'expo-image';
 import QRCode from 'react-native-qrcode-svg';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
+import { PhoneField, phoneOk } from '@/components/PhoneField';
+import { formatPhone } from '@/features/register/validation';
 import { OrganizerLine } from '@/components/caravan';
 import { popIn, riseIn } from '@/components/motion';
-import { BackButton, Field, LabeledField, PrimaryButton, SafeBottom, SheetHeader } from '@/components/ui';
+import { BackButton, PrimaryButton, SafeBottom, SheetHeader } from '@/components/ui';
 import { formatDateTime, formatFcfa } from '@/constants/data';
 import { colors, motion, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useCaravans } from '@/context/CaravansContext';
-import { caravansApi, dayLabel, hourLabel, isCaravanTicket, isEventTicket, toOrganizer, type EventTicketDto, type TicketDto } from '@/features/caravans/api';
+import { caravansApi, dayLabel, hourLabel, isCaravanTicket, isEventTicket, toOrganizer, type CaravanTicketDto, type EventTicketDto, type TicketDto } from '@/features/caravans/api';
 import { ticketMethodLabel } from '@/features/payments/checkout';
 import { RatingCard } from '@/features/ratings/RatingCard';
 import { ApiError } from '@/lib/api';
@@ -34,7 +37,7 @@ function minus15(time: string) {
  * Several tickets bought together: one small stub per ticket ("2/3", its type or seat, for whom), side by side and
  * scrollable, the open one highlighted. Nothing is cut, whatever the type's name.
  */
-function TicketSwitcher({ items, current }: { items: { id: string; title: string; sub: string }[]; current: string }) {
+function TicketSwitcher({ items, current, onPick }: { items: { id: string; title: string; sub: string }[]; current: string; onPick?: (i: number) => void }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.stubs} accessibilityRole="tablist">
       {items.map((t, i) => {
@@ -42,7 +45,7 @@ function TicketSwitcher({ items, current }: { items: { id: string; title: string
         return (
           <Pressable
             key={t.id}
-            onPress={() => !on && router.replace(`/billet/${t.id}`)}
+            onPress={() => !on && (onPick ? onPick(i) : router.replace(`/billet/${t.id}`))}
             style={[styles.stub, on && styles.stubOn]}
             accessibilityRole="tab"
             accessibilityState={{ selected: on }}
@@ -72,9 +75,8 @@ export default function Billet() {
   // `nouveau`: just paid, the ticket is handed over with a short animation (not on later visits).
   const { id, nouveau } = useLocalSearchParams<{ id: string; nouveau?: string }>();
   const fresh = nouveau === '1';
-  const { cancel, tickets } = useCaravans();
-  const { user } = useAuth();
-  const [ticket, setTicket] = useState<TicketDto | null>(() => tickets.find((t) => t.id === id) ?? null);
+  const { tickets } = useCaravans();
+  const [loaded, setTicket] = useState<TicketDto | null>(() => tickets.find((t) => t.id === id) ?? null);
   const [missing, setMissing] = useState(false);
 
   // Fresh from the server each time it shows: the QR, the fee and the transfer state change over time.
@@ -85,10 +87,14 @@ export default function Billet() {
     });
   }, [id]);
   useFocusEffect(load);
+  const pull = usePullRefresh(load);
 
   const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/(tabs)/caravanes', params: { vue: 'caravanes' } }));
 
-  if (!ticket) {
+  // Switched to another ticket of the group: never the previous one's QR while the new one loads (or offline).
+  const shown = loaded?.id === id ? loaded : (tickets.find((t) => t.id === id) ?? null);
+
+  if (!shown) {
     return (
       <SafeAreaView style={styles.safe}>
         <Header onBack={back} />
@@ -107,11 +113,37 @@ export default function Billet() {
   }
 
   // An event (party, conference…): its own layout, the same actions.
-  if (isEventTicket(ticket)) return <EventBillet ticket={ticket} fresh={fresh} onBack={back} load={load} />;
+  const ticket = shown;
+  if (isEventTicket(ticket)) return <EventBillet key={ticket.details.eventId} ticket={ticket} fresh={fresh} onBack={back} load={load} />;
+
+  return <CaravanBillet key={ticket.details.departureId} ticket={ticket} fresh={fresh} onBack={back} load={load} pull={pull} />;
+}
+
+/**
+ * A departure's seats: mine and my companions', every one on this screen side by side — swipe, or tap its stub —
+ * each with its own QR code (one per traveller, checked by the driver).
+ */
+function CaravanBillet({ ticket: opened, fresh, onBack, load, pull }: { ticket: CaravanTicketDto; fresh: boolean; onBack: () => void; load: () => void; pull: ScrollViewProps['refreshControl'] }) {
+  const { cancel, tickets } = useCaravans();
+  const { user } = useAuth();
+  // The other tickets I hold for this departure (my seat and my companions'), the one opened fresh from the server.
+  const mine = tickets
+    .filter(isCaravanTicket)
+    .filter((t) => t.details.departureId === opened.details.departureId && t.status === 'active')
+    .sort((x, y) => Number(!!x.passenger) - Number(!!y.passenger) || (x.seat ?? 0) - (y.seat ?? 0));
+  const group = mine.some((t) => t.id === opened.id) ? mine.map((t) => (t.id === opened.id ? opened : t)) : [opened, ...mine];
+  const [index, setIndex] = useState(() => Math.max(0, group.findIndex((t) => t.id === opened.id)));
+  const ticket = group[Math.min(index, group.length - 1)] ?? opened;
+  const { width } = useWindowDimensions();
+  const pageW = width - 40;
+  const pager = useRef<ScrollViewInstance>(null);
+  const goTo = (i: number) => {
+    setIndex(i);
+    pager.current?.scrollTo({ x: i * pageW, animated: true });
+  };
 
   const d = ticket.details;
   const pickupTime = hourLabel(Date.parse(d.pickup.at));
-  const dropoffTime = hourLabel(Date.parse(d.dropoff.at));
   const missingSeats = Math.max(0, d.minPassengers - d.seatsBooked);
   const active = ticket.status === 'active';
   const quote = ticket.cancellationQuote;
@@ -120,11 +152,6 @@ export default function Billet() {
   const cash = ticket.paidWith === 'cash';
   const companion = ticket.passenger;
   const firstName = companion?.name.split(' ')[0] ?? '';
-  // The other tickets I hold for this departure (my seat and my companion's): one tap from one to the other.
-  const group = tickets
-    .filter(isCaravanTicket)
-    .filter((t) => t.details.departureId === d.departureId && t.status === 'active')
-    .sort((a, b) => (a.seat ?? 0) - (b.seat ?? 0));
 
   const send = () =>
     Share.share({
@@ -192,13 +219,13 @@ export default function Billet() {
             : {
                 tone: 'warning' as const,
                 icon: 'hourglass-outline' as const,
-                text: `En attente de ${missingSeats} passager${missingSeats > 1 ? 's' : ''} d’ici le ${formatDateTime(Date.parse(d.confirmBy))}. ${cash ? 'Sinon ta réservation est annulée.' : 'Sinon tu es remboursé à 100 %.'}`,
+                text: `En attente de ${missingSeats} passager${missingSeats > 1 ? 's' : ''} d’ici le ${formatDateTime(Date.parse(d.confirmBy))}. ${cash ? 'Sinon le départ est annulé : l’organisateur te rembourse en espèces.' : 'Sinon tu es remboursé à 100 %.'}`,
               };
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Header onBack={back} />
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <Header onBack={onBack} title={group.length > 1 ? `Mes billets · ${group.length}` : undefined} />
+      <ScrollView refreshControl={pull} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <StatusBanner {...banner} />
         {active && (ticket.cashDue ?? 0) > 0 && <CashDue amount={ticket.cashDue!} where="à l’embarquement" />}
         {/* The trip is over: « Noter Sunu Voyage » (optional). */}
@@ -207,78 +234,40 @@ export default function Billet() {
         {group.length > 1 && (
           <TicketSwitcher
             current={ticket.id}
+            onPick={goTo}
             items={group.map((t) => ({ id: t.id, title: t.seat ? `Place ${t.seat}` : 'Place libre', sub: t.passenger ? t.passenger.name.split(' ')[0]! : 'Toi' }))}
           />
         )}
 
-        <Animated.View entering={fresh ? riseIn.delay(motion.fast) : undefined} style={[styles.ticket, shadow.raised, !active && { opacity: 0.6 }]}>
-          <View style={styles.top}>
-            <OrganizerLine organizer={toOrganizer(ticket.event.organizer)} />
-            <View style={styles.route}>
-              <Text style={styles.city}>{d.from}</Text>
-              <Ionicons name="arrow-forward" size={18} color={colors.primary} />
-              <Text style={styles.city}>{d.to}</Text>
-            </View>
-            {active && companion ? (
-              <View>
-                <Text style={styles.passenger}>{companion.name}</Text>
-                <Text style={styles.plate}>Accompagnant · réservé par toi · {companion.phone}</Text>
-              </View>
-            ) : (
-              user &&
-              active && (
-                <View>
-                  <Text style={styles.passenger}>
-                    {user.firstName} {user.lastName}
-                  </Text>
-                  {!ticket.purchaser.isMe && <Text style={styles.plate}>Réservé par {ticket.purchaser.name}</Text>}
+        {group.length > 1 ? (
+          <>
+            <ScrollView
+              ref={pager}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              style={{ marginHorizontal: -20 }}
+              contentContainerStyle={{ paddingHorizontal: 20 }}
+              snapToInterval={pageW}
+              decelerationRate="fast"
+              onLayout={() => pager.current?.scrollTo({ x: index * pageW, animated: false })}
+              onMomentumScrollEnd={(ev) => setIndex(Math.max(0, Math.min(group.length - 1, Math.round(ev.nativeEvent.contentOffset.x / pageW))))}>
+              {group.map((t, i) => (
+                <View key={t.id} style={{ width: pageW, paddingVertical: 6 }}>
+                  <CaravanTicketCard ticket={t} fresh={fresh && t.id === opened.id} user={user} label={`Billet ${i + 1} sur ${group.length}${t.passenger ? ` · ${t.passenger.name.split(' ')[0]}` : ' · toi'}`} />
                 </View>
-              )
-            )}
-            <View style={styles.grid}>
-              <Cell label="Date" value={dayLabel(Date.parse(ticket.event.startsAt))} />
-              <Cell label="Heure" value={pickupTime} />
-              <Cell label="Place" value={`n° ${ticket.seat}`} />
+              ))}
+            </ScrollView>
+            <View style={styles.dots} accessibilityElementsHidden>
+              {group.map((t, i) => (
+                <View key={t.id} style={[styles.dot, i === index && styles.dotOn]} />
+              ))}
             </View>
-            {/* Full width: stop names are long ("Diamniadio · Hôpital des enfants"). */}
-            <View style={styles.stops}>
-              <StopLine icon="enter-outline" label="Montée" place={d.pickup.place} time={pickupTime} />
-              <StopLine icon="exit-outline" label="Descente" place={d.dropoff.place} time={`~${dropoffTime}`} />
-            </View>
-            <Text style={styles.plate}>
-              {d.vehicle.label}
-              {d.vehicle.airConditioned ? ' · Climatisé' : ''}
-              {d.vehicle.plate ? ` · ${d.vehicle.plate}` : ''}
-            </Text>
-          </View>
-
-          {/* Tear line between the trip and the code. */}
-          <View style={styles.tear}>
-            <View style={[styles.notch, { left: -12 }]} />
-            <View style={styles.dashes} />
-            <View style={[styles.notch, { right: -12 }]} />
-          </View>
-
-          <View style={styles.bottom}>
-            {active && ticket.qr ? (
-              <>
-                {/* Signed by the server: a screenshot of a ticket given away or cancelled is refused. */}
-                <Animated.View entering={fresh ? popIn.delay(motion.slow) : undefined}>
-                  <QRCode value={ticket.qr} size={190} color={colors.navy} backgroundColor={colors.card} ecl="M" />
-                </Animated.View>
-                <Text style={styles.code}>{ticket.code}</Text>
-                <Text style={styles.muted}>
-                  {companion ? `Embarquez ensemble, ou envoie le code à ${firstName} : le chauffeur vérifie son nom sur sa pièce d’identité` : 'Montre ce code au chauffeur à l’embarquement'}
-                </Text>
-              </>
-            ) : (
-              <View style={styles.void}>
-                <Ionicons name="ban-outline" size={36} color={colors.muted} />
-                <Text style={styles.muted}>Ce billet n’est plus valable</Text>
-              </View>
-            )}
-          </View>
-        </Animated.View>
+            <Text style={[styles.muted, { textAlign: 'center' }]}>Un QR code par voyageur : chacun montre le sien au chauffeur. Glisse pour voir les autres.</Text>
+          </>
+        ) : (
+          <CaravanTicketCard ticket={ticket} fresh={fresh} user={user} />
+        )}
 
         {active && companion && !ticket.admittedAt && (
           <Pressable style={[styles.action, shadow.card]} onPress={send} accessibilityRole="button">
@@ -292,6 +281,7 @@ export default function Billet() {
         )}
 
         <TicketActions
+          key={ticket.id}
           ticket={ticket}
           load={load}
           onCancel={askCancel}
@@ -302,6 +292,87 @@ export default function Billet() {
         />
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/** One seat's ticket: the route, who travels, when and where, and its own QR code at the bottom. */
+function CaravanTicketCard({ ticket, fresh, user, label }: { ticket: CaravanTicketDto; fresh: boolean; user: { firstName: string; lastName: string } | null; label?: string }) {
+  const d = ticket.details;
+  const pickupTime = hourLabel(Date.parse(d.pickup.at));
+  const dropoffTime = hourLabel(Date.parse(d.dropoff.at));
+  const active = ticket.status === 'active';
+  const companion = ticket.passenger;
+  const firstName = companion?.name.split(' ')[0] ?? '';
+  return (
+    <Animated.View entering={fresh ? riseIn.delay(motion.fast) : undefined} style={[styles.ticket, shadow.raised, !active && { opacity: 0.6 }]}>
+      <View style={styles.top}>
+        {!!label && <Text style={styles.pageLabel}>{label}</Text>}
+        <OrganizerLine organizer={toOrganizer(ticket.event.organizer)} />
+        <View style={styles.route}>
+          <Text style={styles.city}>{d.from}</Text>
+          <Ionicons name="arrow-forward" size={18} color={colors.primary} />
+          <Text style={styles.city}>{d.to}</Text>
+        </View>
+        {active && companion ? (
+          <View>
+            <Text style={styles.passenger}>{companion.name}</Text>
+            <Text style={styles.plate}>Accompagnant · réservé par toi · {companion.phone}</Text>
+          </View>
+        ) : (
+          user &&
+          active && (
+            <View>
+              <Text style={styles.passenger}>
+                {user.firstName} {user.lastName}
+              </Text>
+              {!ticket.purchaser.isMe && <Text style={styles.plate}>Réservé par {ticket.purchaser.name}</Text>}
+            </View>
+          )
+        )}
+        <View style={styles.grid}>
+          <Cell label="Date" value={dayLabel(Date.parse(ticket.event.startsAt))} />
+          <Cell label="Heure" value={pickupTime} />
+          <Cell label="Place" value={`n° ${ticket.seat}`} />
+        </View>
+        {/* Full width: stop names are long ("Diamniadio · Hôpital des enfants"). */}
+        <View style={styles.stops}>
+          <StopLine icon="enter-outline" label="Montée" place={d.pickup.place} time={pickupTime} />
+          <StopLine icon="exit-outline" label="Arrêt" place={d.dropoff.place} time={`~${dropoffTime}`} />
+        </View>
+        <Text style={styles.plate}>
+          {d.vehicle.label}
+          {d.vehicle.airConditioned ? ' · Climatisé' : ''}
+          {d.vehicle.plate ? ` · ${d.vehicle.plate}` : ''}
+        </Text>
+      </View>
+
+      {/* Tear line between the trip and the code. */}
+      <View style={styles.tear}>
+        <View style={[styles.notch, { left: -12 }]} />
+        <View style={styles.dashes} />
+        <View style={[styles.notch, { right: -12 }]} />
+      </View>
+
+      <View style={styles.bottom}>
+        {active && ticket.qr ? (
+          <>
+            {/* Signed by the server: a screenshot of a ticket given away or cancelled is refused. */}
+            <Animated.View entering={fresh ? popIn.delay(motion.slow) : undefined}>
+              <QRCode value={ticket.qr} size={190} color={colors.navy} backgroundColor={colors.card} ecl="M" />
+            </Animated.View>
+            <Text style={styles.code}>{ticket.code}</Text>
+            <Text style={styles.muted}>
+              {companion ? `Embarquez ensemble, ou envoie le code à ${firstName} : le chauffeur vérifie son nom sur sa pièce d’identité` : 'Montre ce code au chauffeur à l’embarquement'}
+            </Text>
+          </>
+        ) : (
+          <View style={styles.void}>
+            <Ionicons name="ban-outline" size={36} color={colors.muted} />
+            <Text style={styles.muted}>Ce billet n’est plus valable</Text>
+          </View>
+        )}
+      </View>
+    </Animated.View>
   );
 }
 
@@ -412,24 +483,38 @@ function CashDue({ amount, where }: { amount: number; where: string }) {
   );
 }
 
-/** An event ticket: the cover, what and when, the type, the QR code for the entrance. */
-function EventBillet({ ticket, fresh, onBack, load }: { ticket: EventTicketDto; fresh: boolean; onBack: () => void; load: () => void }) {
+/**
+ * An event's tickets: the cover, what and when, the type, the QR code for the entrance. Several bought together (for
+ * friends): every one on this screen, side by side — swipe, or tap its stub — each with its own QR code.
+ */
+function EventBillet({ ticket: opened, fresh, onBack, load }: { ticket: EventTicketDto; fresh: boolean; onBack: () => void; load: () => void }) {
   const { cancel, tickets } = useCaravans();
-  const d = ticket.details;
+  // My tickets for this event, the one opened as fresh from the server.
+  const others = tickets.filter(isEventTicket).filter((t) => t.details.eventId === opened.details.eventId && t.status === 'active');
+  const group = others.some((t) => t.id === opened.id) ? others.map((t) => (t.id === opened.id ? opened : t)) : [opened, ...others];
+  const [index, setIndex] = useState(() => Math.max(0, group.findIndex((t) => t.id === opened.id)));
+  const ticket = group[Math.min(index, group.length - 1)] ?? opened;
+  const { width } = useWindowDimensions();
+  const pageW = width - 40;
+  const pager = useRef<ScrollViewInstance>(null);
+  const goTo = (i: number) => {
+    setIndex(i);
+    pager.current?.scrollTo({ x: i * pageW, animated: true });
+  };
+
   const active = ticket.status === 'active';
   const method = ticketMethodLabel[ticket.paidWith] ?? 'ton compte';
   // Paid in cash: nothing paid in the app, nothing refunded; the price handed over at boarding.
   const cash = ticket.paidWith === 'cash';
+  const d = ticket.details;
   const at = Date.parse(d.startsAt);
-  // My other tickets for this event (bought for friends): one tap from one to the other.
-  const group = tickets.filter(isEventTicket).filter((t) => t.details.eventId === d.eventId && t.status === 'active');
   const quote = ticket.cancellationQuote;
 
   const askCancel = () => {
     if (!quote) return;
     if (!quote.allowed) return Alert.alert('Annulation impossible', quote.reason);
     Alert.alert(
-      'Annuler ce billet ?',
+      group.length > 1 ? `Annuler le billet ${index + 1} ?` : 'Annuler ce billet ?',
       cash
         ? 'Ta place est libérée. Rien n’a été payé, rien à rembourser.'
         : quote.fee === 0
@@ -457,64 +542,57 @@ function EventBillet({ ticket, fresh, onBack, load }: { ticket: EventTicketDto; 
       : ticket.status === 'transferred'
         ? { tone: 'neutral' as const, icon: 'swap-horizontal' as const, text: `Billet offert à ${ticket.transfer?.to.name ?? 'un ami'} (${ticket.transfer?.to.phoneMasked ?? ''})` }
         : ticket.admittedAt
-          ? { tone: 'success' as const, icon: 'checkmark-circle' as const, text: 'Tu es entré · profite bien !' }
+          ? { tone: 'success' as const, icon: 'checkmark-circle' as const, text: group.length > 1 ? `Billet ${index + 1} : entré · profitez bien !` : 'Tu es entré · profite bien !' }
           : { tone: 'success' as const, icon: 'sparkles' as const, text: `${dayLabel(at)} à ${hourLabel(at)} · ${d.venue.name}` };
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Header onBack={onBack} />
+      <Header onBack={onBack} title={group.length > 1 ? `Mes billets · ${group.length}` : undefined} />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <StatusBanner {...banner} />
         {active && (ticket.cashDue ?? 0) > 0 && <CashDue amount={ticket.cashDue!} where="à l’entrée" />}
         {active && <RatingCard subject="event" id={d.eventId} />}
 
-        {group.length > 1 && <TicketSwitcher current={ticket.id} items={group.map((t) => ({ id: t.id, title: t.details.typeName, sub: formatFcfa(t.price) }))} />}
+        {group.length > 1 && (
+          <TicketSwitcher current={ticket.id} onPick={goTo} items={group.map((t) => ({ id: t.id, title: t.details.typeName, sub: t.admittedAt ? 'Entré' : t.code }))} />
+        )}
 
-        <Animated.View entering={fresh ? riseIn.delay(motion.fast) : undefined} style={[styles.ticket, shadow.raised, !active && { opacity: 0.6 }]}>
-          {d.image && <Image source={{ uri: d.image }} style={styles.cover} contentFit="cover" />}
-          <View style={styles.top}>
-            <OrganizerLine organizer={toOrganizer(ticket.event.organizer)} />
-            <Text style={styles.city}>{ticket.event.title}</Text>
-            <View style={styles.grid}>
-              <Cell label="Date" value={dayLabel(at)} />
-              <Cell label="Heure" value={hourLabel(at)} />
-              <Cell label="Billet" value={d.typeName} />
+        {group.length > 1 ? (
+          <>
+            <ScrollView
+              ref={pager}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              style={{ marginHorizontal: -20 }}
+              contentContainerStyle={{ paddingHorizontal: 20 }}
+              snapToInterval={pageW}
+              decelerationRate="fast"
+              onLayout={() => pager.current?.scrollTo({ x: index * pageW, animated: false })}
+              onMomentumScrollEnd={(ev) => setIndex(Math.max(0, Math.min(group.length - 1, Math.round(ev.nativeEvent.contentOffset.x / pageW))))}>
+              {group.map((t, i) => (
+                <View key={t.id} style={{ width: pageW, paddingVertical: 6 }}>
+                  <EventTicketCard ticket={t} fresh={fresh && t.id === opened.id} label={`Billet ${i + 1} sur ${group.length}`} />
+                </View>
+              ))}
+            </ScrollView>
+            <View style={styles.dots} accessibilityElementsHidden>
+              {group.map((t, i) => (
+                <View key={t.id} style={[styles.dot, i === index && styles.dotOn]} />
+              ))}
             </View>
-            <View style={styles.stops}>
-              <StopLine icon="location-outline" label="Lieu" place={d.venue.name} time={d.venue.address ?? ''} />
-            </View>
-            {!ticket.purchaser.isMe && <Text style={styles.plate}>Offert par {ticket.purchaser.name}</Text>}
-          </View>
-
-          <View style={styles.tear}>
-            <View style={[styles.notch, { left: -12 }]} />
-            <View style={styles.dashes} />
-            <View style={[styles.notch, { right: -12 }]} />
-          </View>
-
-          <View style={styles.bottom}>
-            {active && ticket.qr ? (
-              <>
-                <Animated.View entering={fresh ? popIn.delay(motion.slow) : undefined}>
-                  <QRCode value={ticket.qr} size={190} color={colors.navy} backgroundColor={colors.card} ecl="M" />
-                </Animated.View>
-                <Text style={styles.code}>{ticket.code}</Text>
-                <Text style={styles.muted}>Montre ce QR code à l’entrée</Text>
-              </>
-            ) : (
-              <View style={styles.void}>
-                <Ionicons name="ban-outline" size={36} color={colors.muted} />
-                <Text style={styles.muted}>Ce billet n’est plus valable</Text>
-              </View>
-            )}
-          </View>
-        </Animated.View>
+            <Text style={[styles.muted, { textAlign: 'center' }]}>Un QR code par personne : chacun montre le sien à l’entrée. Glisse pour voir les autres.</Text>
+          </>
+        ) : (
+          <EventTicketCard ticket={ticket} fresh={fresh} />
+        )}
 
         <TicketActions
+          key={ticket.id}
           ticket={ticket}
           load={load}
           onCancel={askCancel}
-          transferTitle="Offrir à un ami"
+          transferTitle={group.length > 1 ? `Offrir le billet ${index + 1} à un ami` : 'Offrir à un ami'}
           transferText="Ton ami accepte dans son app, le billet devient le sien avec son propre QR code"
           lateFee="à moins de 24 h de l’événement"
           initialPhone=""
@@ -524,11 +602,60 @@ function EventBillet({ ticket, fresh, onBack, load }: { ticket: EventTicketDto; 
   );
 }
 
-function Header({ onBack }: { onBack: () => void }) {
+/** One event ticket, its own QR code at the bottom. `label`: « Billet 2 sur 3 » when there are several. */
+function EventTicketCard({ ticket, fresh, label }: { ticket: EventTicketDto; fresh: boolean; label?: string }) {
+  const d = ticket.details;
+  const active = ticket.status === 'active';
+  const at = Date.parse(d.startsAt);
+  return (
+    <Animated.View entering={fresh ? riseIn.delay(motion.fast) : undefined} style={[styles.ticket, shadow.raised, !active && { opacity: 0.6 }]}>
+      {d.image && <Image source={{ uri: d.image }} style={styles.cover} contentFit="cover" />}
+      <View style={styles.top}>
+        {!!label && <Text style={styles.pageLabel}>{label}</Text>}
+        <OrganizerLine organizer={toOrganizer(ticket.event.organizer)} />
+        <Text style={styles.city}>{ticket.event.title}</Text>
+        <View style={styles.grid}>
+          <Cell label="Date" value={dayLabel(at)} />
+          <Cell label="Heure" value={hourLabel(at)} />
+          <Cell label="Billet" value={d.typeName} />
+        </View>
+        <View style={styles.stops}>
+          <StopLine icon="location-outline" label="Lieu" place={d.venue.name} time={d.venue.address ?? ''} />
+        </View>
+        {!ticket.purchaser.isMe && <Text style={styles.plate}>Offert par {ticket.purchaser.name}</Text>}
+      </View>
+
+      <View style={styles.tear}>
+        <View style={[styles.notch, { left: -12 }]} />
+        <View style={styles.dashes} />
+        <View style={[styles.notch, { right: -12 }]} />
+      </View>
+
+      <View style={styles.bottom}>
+        {active && ticket.qr ? (
+          <>
+            <Animated.View entering={fresh ? popIn.delay(motion.slow) : undefined}>
+              <QRCode value={ticket.qr} size={190} color={colors.navy} backgroundColor={colors.card} ecl="M" />
+            </Animated.View>
+            <Text style={styles.code}>{ticket.code}</Text>
+            <Text style={styles.muted}>{ticket.admittedAt ? 'Déjà scanné à l’entrée' : 'Montre ce QR code à l’entrée'}</Text>
+          </>
+        ) : (
+          <View style={styles.void}>
+            <Ionicons name="ban-outline" size={36} color={colors.muted} />
+            <Text style={styles.muted}>Ce billet n’est plus valable</Text>
+          </View>
+        )}
+      </View>
+    </Animated.View>
+  );
+}
+
+function Header({ onBack, title = 'Mon billet' }: { onBack: () => void; title?: string }) {
   return (
     <View style={styles.head}>
       <BackButton onPress={onBack} />
-      <Text style={styles.h1}>Mon billet</Text>
+      <Text style={styles.h1}>{title}</Text>
       <View style={{ width: 44 }} />
     </View>
   );
@@ -589,8 +716,7 @@ function TransferSheet({
   const [digits, setDigits] = useState(() => initialPhone.replace(/^\+221/, '').replace(/\D/g, '').slice(0, 9));
   const [sending, setSending] = useState(false);
   // Senegalese mobile numbers: 9 digits, starting with 7.
-  const valid = /^7\d{8}$/.test(digits);
-  const shown = digits.replace(/^(\d{2})(\d{0,3})(\d{0,2})(\d{0,2}).*/, (_, a, b, c, d) => [a, b, c, d].filter(Boolean).join(' '));
+  const valid = phoneOk(digits);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -601,23 +727,14 @@ function TransferSheet({
           <Text style={styles.actionSub}>
             Ton ami doit avoir un compte étudiant UGB Connect. Une fois qu’il accepte, le billet devient le sien et ton QR code ne marche plus.
           </Text>
-          <LabeledField label="Numéro de ton ami" error={digits.length >= 9 && !valid ? 'Numéro invalide' : null}>
-            <Field
-              prefix="+221"
-              placeholder="77 123 45 67"
-              keyboardType="phone-pad"
-              value={shown}
-              onChangeText={(t) => setDigits(t.replace(/\D/g, '').slice(0, 9))}
-              invalid={digits.length >= 9 && !valid}
-            />
-          </LabeledField>
+          <PhoneField label="Numéro de ton ami" value={digits} onChange={setDigits} />
           <PrimaryButton
             label="Proposer le billet"
             disabled={!valid}
             loading={sending}
             onPress={() => {
               setSending(true);
-              onConfirm(`+221 ${shown}`).finally(() => setSending(false));
+              onConfirm(`+221 ${formatPhone(digits)}`).finally(() => setSending(false));
             }}
           />
           <SafeBottom />
@@ -667,6 +784,10 @@ const styles = StyleSheet.create({
   sheet: { backgroundColor: colors.card, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: 20, paddingBottom: 36, gap: 14 },
   sheetTitle: { ...typo.h3, color: colors.navy },
   stubs: { gap: 10, paddingVertical: 2 },
+  pageLabel: { ...typo.captionStrong, color: colors.primary, textTransform: 'uppercase', letterSpacing: 0.4 },
+  dots: { flexDirection: 'row', justifyContent: 'center', gap: 6 },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.border },
+  dotOn: { width: 18, backgroundColor: colors.primary },
   stub: { width: 112, paddingVertical: 10, paddingHorizontal: 12, gap: 2, borderRadius: radii.md, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.border, backgroundColor: colors.card },
   stubOn: { borderStyle: 'solid', borderColor: colors.primary, backgroundColor: colors.primarySoft },
   stubTop: { flexDirection: 'row', alignItems: 'center', gap: 5 },

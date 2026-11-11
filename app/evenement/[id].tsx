@@ -5,24 +5,23 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, type ScrollViewInstance, Text, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
+import { PhoneField, phoneOk } from '@/components/PhoneField';
 import { HoldCountdown } from '@/components/HoldCountdown';
 import { OrganizerLine } from '@/components/caravan';
 import { eventWhen } from '@/components/home';
 import { NudgeRight } from '@/components/motion';
-import { PaymentLogo } from '@/components/PaymentLogo';
+import { RequestPass } from '@/components/RequestPass';
 import { BackButton, TextButton } from '@/components/ui';
-import { cashMethod, formatDateTime, formatFcfa, paymentMethods } from '@/constants/data';
+import { formatDateTime, formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCaravans } from '@/context/CaravansContext';
 import { toOrganizer } from '@/features/caravans/api';
 import { eventsApi, type EventBookingDto, type EventDto } from '@/features/events/api';
-import { payInBrowser, type TicketMethod } from '@/features/payments/checkout';
 import { ApiError } from '@/lib/api';
-import { notice } from '@/lib/notice';
+import { confirmAction, notice } from '@/lib/notice';
 import { haptics } from '@/lib/haptics';
 
-const METHOD: Record<string, TicketMethod> = { wave: 'wave', om: 'orange_money', cash: 'cash' };
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const price = (n: number) => (n === 0 ? 'Gratuit' : formatFcfa(n));
 
 /**
@@ -50,7 +49,8 @@ export default function Evenement() {
   const [qty, setQty] = useState<Record<string, number>>({});
   // Its organizer orders for friends only: the ticket choice opens once they say so.
   const [forFriends, setForFriends] = useState(false);
-  const [method, setMethod] = useState(paymentMethods[0].id);
+  // For a friend: their phone (they paid the organizer in cash: the tickets are theirs at once).
+  const [friendPhone, setFriendPhone] = useState('');
   const [paying, setPaying] = useState(false);
   const insets = useSafeAreaInsets();
 
@@ -66,6 +66,7 @@ export default function Evenement() {
     }, (err) => err instanceof ApiError && err.status === 404 && setMissing(true));
   }, [id, acheter]);
   useFocusEffect(load);
+  const pull = usePullRefresh(load);
 
   const back = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)'));
 
@@ -82,10 +83,7 @@ export default function Evenement() {
 
   const count = Object.values(qty).reduce((n, q) => n + q, 0);
   const total = e.ticketTypes.reduce((n, t) => n + (qty[t.typeId] ?? 0) * t.price, 0);
-  // Only what the organizer accepts (cash: paid at the door); the choice falls back to the first of them.
-  const allowed = e.paymentMethods ?? ['wave', 'orange_money'];
-  const accepted = [...paymentMethods, cashMethod].filter((m) => allowed.includes(METHOD[m.id] ?? 'wave'));
-  const chosen = accepted.some((m) => m.id === method) ? method : (accepted[0]?.id ?? method);
+  const friendDigits = friendPhone.replace(/\D/g, '');
   const add = (typeId: string, d: number) => {
     const t = e.ticketTypes.find((x) => x.typeId === typeId)!;
     const next = Math.max(0, Math.min((qty[typeId] ?? 0) + d, t.remaining));
@@ -96,60 +94,77 @@ export default function Evenement() {
     setQty((q) => ({ ...q, [typeId]: next }));
   };
 
-  /** After the payment page: the booking tells whether the tickets were issued. */
-  const settle = async (booking: EventBookingDto) => {
-    let b = booking;
-    for (let i = 0; i < 4 && b.status === 'held'; i++) {
-      await sleep(800);
-      b = await eventsApi.booking(b.id);
-    }
+  /** Issued at once (a free event, or ordered by its organizer): to the ticket, or what to do with them. */
+  const issued = async (b: EventBookingDto) => {
     await refresh();
-    if (b.status === 'confirmed') {
-      haptics.success();
-      const first = b.tickets.find((t) => t.ticketId)?.ticketId;
-      if (first) router.replace({ pathname: '/billet/[id]', params: { id: first, nouveau: '1' } });
-      if (forFriends) {
-        const n = b.tickets.length;
-        notice({
-          tone: 'success',
-          title: n > 1 ? `${n} billets prêts à offrir` : 'Billet prêt à offrir',
-          message: 'Ils sont dans « Mes billets ». Envoie chacun à un ami :',
-          steps: ['Ouvre le billet', 'Touche « Transférer à un ami » et entre son numéro', 'Il accepte : le billet et son QR code deviennent les siens'],
-        });
-      }
+    haptics.success();
+    if (forFriends) {
+      const n = b.tickets.length;
+      notice({
+        tone: 'success',
+        title: n > 1 ? `${n} billets prêts à offrir` : 'Billet prêt à offrir',
+        message: 'Ils sont dans « Mes billets ». Envoie chacun à un ami :',
+        steps: ['Ouvre le billet', 'Touche « Transférer à un ami » et entre son numéro', 'Il accepte : le billet et son QR code deviennent les siens'],
+      });
       return;
     }
-    if (b.status === 'held') notice({ tone: 'pending', title: 'Paiement en attente', message: 'Tes billets sont gardés 10 minutes. Termine le paiement depuis cette page.' });
-    else notice({ tone: 'warning', title: 'Paiement non effectué', message: 'Les places ont été libérées. Tu peux réessayer.' });
-    load();
+    const first = b.tickets.find((t) => t.ticketId)?.ticketId;
+    if (first) router.replace({ pathname: '/billet/[id]', params: { id: first, nouveau: '1' } });
   };
 
-  const buy = async () => {
+  /** For a friend who paid the organizer: the tickets are theirs at once. */
+  const orderForFriend = async () => {
     setPaying(true);
     try {
       const items = Object.entries(qty).filter(([, q]) => q > 0).map(([typeId, q]) => ({ typeId, qty: q }));
-      const { booking, payment } = await eventsApi.book(e.id, { items, method: METHOD[chosen] ?? 'wave', ...(e.organizedByMe ? { forFriends: true } : {}) });
-      if (payment) await payInBrowser(payment);
-      await settle(booking.status === 'confirmed' ? booking : await eventsApi.booking(booking.id));
+      const { booking } = await eventsApi.book(e.id, { items, friendPhone: friendDigits });
+      haptics.success();
+      const n = booking.tickets.length;
+      notice({ tone: 'success', title: n > 1 ? `${n} billets envoyés à ton ami` : 'Billet envoyé à ton ami', message: 'Ils sont dans son app, avec leur QR code.' });
       setQty({});
+      setFriendPhone('');
+      setForFriends(false);
+      load();
     } catch (err) {
-      Alert.alert('Réservation impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
+      Alert.alert('Commande impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
       load();
     } finally {
       setPaying(false);
     }
   };
 
-  const resume = async () => {
-    if (!e.myBooking?.payment) return;
+  /** A request: the places held 24 h, paid to the organizer in cash, who validates it. Free: the tickets at once. */
+  const buy = async () => {
+    if (mine && forFriends) return orderForFriend();
     setPaying(true);
     try {
-      await payInBrowser(e.myBooking.payment);
-      await settle(await eventsApi.booking(e.myBooking.id));
+      const items = Object.entries(qty).filter(([, q]) => q > 0).map(([typeId, q]) => ({ typeId, qty: q }));
+      const { booking } = await eventsApi.book(e.id, { items, ...(e.organizedByMe ? { forFriends: true } : {}) });
+      setQty({});
+      if (booking.status === 'confirmed') return issued(booking);
+      haptics.success();
+      notice({
+        tone: 'success',
+        title: 'Demande envoyée',
+        message: `Va payer ${formatFcfa(booking.total)} en espèces à l’organisateur avant le ${formatDateTime(Date.parse(booking.holdExpiresAt))}. Il valide ta demande et ton billet apparaît, avec son QR code.`,
+      });
+      load();
+    } catch (err) {
+      Alert.alert('Demande impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
+      load();
     } finally {
       setPaying(false);
     }
   };
+
+  const cancelRequest = () =>
+    confirmAction({
+      title: 'Annuler ta demande ?',
+      message: 'Les places repartent en vente. Si tu as déjà payé l’organisateur, vois avec lui.',
+      confirm: 'Annuler la demande',
+      keep: 'Garder',
+      onConfirm: () => eventsApi.release(e.myBooking!.id).then(load, (err) => Alert.alert('Annulation impossible', err instanceof ApiError ? err.message : 'Vérifie ta connexion et réessaie.')),
+    });
 
   const closed = !e.salesOpen;
   // Its organizing team sees the page as students do, and orders only for friends.
@@ -157,7 +172,7 @@ export default function Evenement() {
   const canPick = !mine || forFriends;
   return (
     <View style={styles.safe}>
-      <ScrollView ref={scroll} contentContainerStyle={{ paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
+      <ScrollView refreshControl={pull} ref={scroll} contentContainerStyle={{ paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
         <Slider images={cover && e.images.includes(cover) ? [cover, ...e.images.filter((u) => u !== cover)] : e.images} top={insets.top} onBack={back} />
 
         <View style={styles.body} onLayout={(ev) => toTickets('body', ev.nativeEvent.layout.y)}>
@@ -169,7 +184,7 @@ export default function Evenement() {
           {!!e.organizer.name && <OrganizerLine organizer={toOrganizer(e.organizer)} />}
 
           {e.status === 'cancelled' && (
-            <Banner tone="danger" icon="close-circle" text={`Événement annulé${e.cancellation ? ` : ${e.cancellation.reason}` : ''}. Les billets sont remboursés.`} />
+            <Banner tone="danger" icon="close-circle" text={`Événement annulé${e.cancellation ? ` : ${e.cancellation.reason}` : ''}. Si tu as payé l’organisateur, vois avec lui pour le remboursement.`} />
           )}
           {e.myTickets.length > 0 && (
             <Pressable onPress={() => router.push(`/billet/${e.myTickets[0]}`)} accessibilityRole="link">
@@ -191,15 +206,16 @@ export default function Evenement() {
           )}
 
           {e.myBooking ? (
+            // My request: paid to the organizer in cash, who validates it.
             <View style={[styles.card, shadow.card, styles.held]}>
-              <Ionicons name="time-outline" size={26} color={colors.primary} />
-              <Text style={styles.heldTitle}>Billets gardés pour toi</Text>
+              <Ionicons name="hourglass-outline" size={26} color={colors.primary} />
+              <Text style={styles.heldTitle}>Demande en attente de validation</Text>
               <HoldCountdown until={e.myBooking.holdExpiresAt} />
-              <Text style={styles.muted}>Termine le paiement avant {formatDateTime(Date.parse(e.myBooking.holdExpiresAt))}.</Text>
-              <Pressable style={styles.heldBtn} onPress={resume} disabled={paying}>
-                <Text style={styles.heldBtnText}>{paying ? 'Paiement…' : `Payer ${formatFcfa(e.myBooking.total)}`}</Text>
-              </Pressable>
-              <TextButton label="Libérer les places" tone="accent" style={{ alignSelf: 'center' }} onPress={() => eventsApi.release(e.myBooking!.id).then(load, (err) => Alert.alert('Libération impossible', err instanceof ApiError ? err.message : 'Vérifie ta connexion et réessaie.'))} />
+              <Text style={[styles.muted, { textAlign: 'center' }]}>
+                Va payer {formatFcfa(e.myBooking.total)} en espèces à l’organisateur{e.organizer.name ? ` (${e.organizer.name})` : ''} avant le {formatDateTime(Date.parse(e.myBooking.holdExpiresAt))}. Il valide ce que tu as payé et chaque billet apparaît ici, avec son propre QR code. Sinon, la demande est annulée.
+              </Text>
+              <RequestPass code={e.myBooking.code} organizer={e.myBooking.organizer} items={(e.myBooking.units ?? []).map((u) => ({ id: u.id, title: u.name, price: u.price, code: u.code }))} />
+              <TextButton label="Annuler ma demande" tone="accent" style={{ alignSelf: 'center' }} onPress={cancelRequest} />
             </View>
           ) : (
             e.status === 'published' && (
@@ -207,17 +223,24 @@ export default function Evenement() {
                 {mine && <OwnEventCard eventId={e.id} personal={e.organizer.category === 'Étudiant'} />}
                 {mine && !closed && !forFriends && <ForFriendsCard onPress={() => setForFriends(true)} />}
                 <View style={styles.sectionRow}>
-                  <Text style={[styles.section, { flex: 1 }]}>{forFriends ? 'Billets pour tes amis' : 'Billets'}</Text>
+                  <Text style={[styles.section, { flex: 1 }]}>{forFriends ? 'Billets pour ton ami' : 'Billets'}</Text>
                   {forFriends && (
                     <TextButton
                       label="Annuler"
                       onPress={() => {
                         setForFriends(false);
                         setQty({});
+                        setFriendPhone('');
                       }}
                     />
                   )}
                 </View>
+                {mine && forFriends && (
+                  <View style={[styles.card, shadow.card, { gap: 8 }]}>
+                    <PhoneField label="Numéro de ton ami" value={friendPhone} onChange={setFriendPhone} />
+                    <Text style={styles.muted}>Il t’a payé : ses billets arrivent tout de suite dans son app. Pas encore sur UGB Connect ? Rien n’est commandé.</Text>
+                  </View>
+                )}
                 {e.ticketTypes.map((t) => {
                   const n = qty[t.typeId] ?? 0;
                   return (
@@ -247,27 +270,15 @@ export default function Evenement() {
                 {canPick && e.myTicketsLeft < e.maxPerStudent && e.myTicketsLeft > 0 && <Text style={styles.muted}>Tu peux encore prendre {e.myTicketsLeft} billet{e.myTicketsLeft > 1 ? 's' : ''}.</Text>}
                 {canPick && (
                   <Text style={styles.muted}>
-                    {forFriends ? 'Aucun n’est pour toi : chaque billet s’envoie à un ami depuis « Mes billets », avec son propre QR code.' : 'Un QR code par billet dans ton app. Tu peux en offrir à des amis depuis le billet.'}
+                    {forFriends ? 'Les billets sont à son nom, avec leur QR code dans son app.' : 'Un QR code par billet dans ton app. Tu peux en offrir à des amis depuis le billet.'}
                   </Text>
                 )}
 
-                {total > 0 && (
-                  <>
-                    <Text style={styles.section}>Moyen de paiement</Text>
-                    {accepted.map((m) => {
-                      const on = m.id === chosen;
-                      return (
-                        <Pressable key={m.id} onPress={() => setMethod(m.id)} style={[styles.card, styles.payment, on && styles.paymentOn]}>
-                          <PaymentLogo method={m} />
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.typeName}>{m.name}</Text>
-                            {m.id === 'cash' && <Text style={styles.muted}>Billet tout de suite, payé à l’entrée</Text>}
-                          </View>
-                          {on ? <Ionicons name="checkmark-circle" size={22} color={colors.primary} /> : <View style={styles.radio} />}
-                        </Pressable>
-                      );
-                    })}
-                  </>
+                {total > 0 && !(mine && forFriends) && (
+                  <View style={styles.cashInfo}>
+                    <Ionicons name="cash-outline" size={18} color={colors.successText} />
+                    <Text style={styles.cashInfoText}>Paiement en espèces, en main propre à l’organisateur. Tes places sont gardées 24 h : il valide ta demande dès qu’il reçoit l’argent.</Text>
+                  </View>
                 )}
               </View>
             )
@@ -278,11 +289,11 @@ export default function Evenement() {
       {e.status === 'published' && !e.myBooking && !closed && canPick && (
         <View style={[styles.bar, { paddingBottom: 12 + insets.bottom }]}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.muted}>{count ? `${count} billet${count > 1 ? 's' : ''}${forFriends ? ' à offrir' : ''}` : `Dès ${price(e.minPrice)}`}</Text>
-            <Text style={styles.total}>{count ? price(total) : forFriends ? 'Combien pour tes amis ?' : 'Choisis tes billets'}</Text>
+            <Text style={styles.muted}>{count ? `${count} billet${count > 1 ? 's' : ''}${forFriends ? ' pour ton ami' : ''}` : `Dès ${price(e.minPrice)}`}</Text>
+            <Text style={styles.total}>{count ? price(total) : forFriends ? 'Combien pour ton ami ?' : 'Choisis tes billets'}</Text>
           </View>
-          <Pressable style={[styles.buy, (!count || paying) && styles.buyOff]} disabled={!count || paying} onPress={buy} accessibilityRole="button">
-            <Text style={styles.buyText}>{paying ? 'Un instant…' : total > 0 ? (chosen === 'cash' ? 'Réserver · payer à l’entrée' : `Payer ${formatFcfa(total)}`) : forFriends ? 'Commander' : 'Réserver'}</Text>
+          <Pressable style={[styles.buy, (!count || paying || (forFriends && !phoneOk(friendDigits))) && styles.buyOff]} disabled={!count || paying || (forFriends && !phoneOk(friendDigits))} onPress={buy} accessibilityRole="button">
+            <Text style={styles.buyText}>{paying ? 'Un instant…' : forFriends ? 'Envoyer à mon ami' : total > 0 ? 'Envoyer ma demande' : 'Réserver'}</Text>
           </Pressable>
         </View>
       )}
@@ -382,7 +393,7 @@ function OwnEventCard({ eventId, personal }: { eventId: string; personal: boolea
   );
 }
 
-/** Its organizer's way to order: tickets for friends, each sent from « Mes billets ». */
+/** Its organizer's way to order: for a friend, by their phone (the friend pays from their app). */
 function ForFriendsCard({ onPress }: { onPress: () => void }) {
   return (
     <Pressable
@@ -393,13 +404,13 @@ function ForFriendsCard({ onPress }: { onPress: () => void }) {
       style={({ pressed }) => [styles.card, shadow.card, styles.friends, pressed && { opacity: 0.85, transform: [{ scale: 0.99 }] }]}
       accessibilityRole="button"
       accessibilityLabel="Commander pour un ami"
-      accessibilityHint="Choisis des billets à offrir : aucun n’est pour toi">
+      accessibilityHint="Choisis ses billets et entre son numéro : il les paie dans son app">
       <View style={styles.friendsIcon}>
         <Ionicons name="gift" size={20} color="#fff" />
       </View>
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={styles.typeName}>Commander pour un ami</Text>
-        <Text style={styles.muted}>Offre des billets : chacun s’envoie à un ami, avec son propre QR code.</Text>
+        <Text style={styles.muted}>Choisis ses billets et entre son numéro : la commande arrive dans son app, il la paie.</Text>
       </View>
       <NudgeRight>
         <Ionicons name="chevron-forward" size={20} color={colors.accent} />
@@ -437,14 +448,13 @@ const styles = StyleSheet.create({
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   step: { width: 36, height: 36, borderRadius: 18, borderWidth: 1.5, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   qty: { ...typo.title, color: colors.navy, minWidth: 18, textAlign: 'center' },
-  payment: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderColor: 'transparent' },
-  paymentOn: { borderColor: colors.primary },
-  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: colors.border },
   held: { alignItems: 'center', gap: 8, paddingVertical: 18 },
   heldTitle: { ...typo.title, color: colors.navy },
   heldBtn: { marginTop: 4, backgroundColor: colors.accent, paddingHorizontal: 22, minHeight: 42, borderRadius: radii.pill, justifyContent: 'center' },
   heldBtnText: { color: '#fff', fontWeight: '700' },
   own: { flexDirection: 'row', gap: 12, borderWidth: 1.5, borderColor: colors.primarySoft },
+  cashInfo: { flexDirection: 'row', gap: 10, padding: 12, borderRadius: radii.md, backgroundColor: colors.successBg },
+  cashInfoText: { ...typo.small, flex: 1, color: colors.successText, lineHeight: 19 },
   friends: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderColor: colors.accentSoft, backgroundColor: colors.accentSoft },
   friendsIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },

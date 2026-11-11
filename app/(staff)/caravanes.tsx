@@ -5,6 +5,8 @@ import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Tex
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
+import { PhoneField } from '@/components/PhoneField';
 import { OrganizerLine } from '@/components/caravan';
 import { EmptyState, ErrorState } from '@/components/states';
 import { Chip, Field, LabeledField, PrimaryButton, SheetFooter, SheetHeader, Toggle, useDirty } from '@/components/ui';
@@ -12,6 +14,7 @@ import { colors, radii, shadow, typo } from '@/constants/theme';
 import { caravanOrganizersApi, type CaravanOrganizerDto, type OrganizerCategory, type OrganizerLevel } from '@/features/caravans/api';
 import { formatPhone, phoneDigits } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
+import { closeGuarded } from '@/lib/leaveGuard';
 import { notice } from '@/lib/notice';
 import { toast } from '@/lib/toast';
 
@@ -20,11 +23,14 @@ const CATEGORIES: { value: OrganizerCategory; label: string }[] = [
   { value: 'Entreprise', label: 'Entreprise' },
   { value: 'Amicale', label: 'Amicale' },
 ];
+/** The badge is earned by the trips done (same thresholds as the server); Référencement may give a higher one. */
+const TRIPS_FOR = { verifie: 5, confirme: 20 } as const;
 const LEVELS: { value: OrganizerLevel; label: string; hint: string }[] = [
-  { value: 'nouveau', label: 'Nouveau', hint: 'Documents vérifiés, payé après l’arrivée.' },
-  { value: 'verifie', label: 'Vérifié', hint: 'Plus de 3 trajets notés 4/5 ou plus.' },
-  { value: 'confirme', label: 'Certifié', hint: 'Plus de 10 trajets sans incident grave.' },
+  { value: 'nouveau', label: 'Automatique', hint: `Selon ses trajets : Nouveau, puis Vérifié dès ${TRIPS_FOR.verifie}, Certifié dès ${TRIPS_FOR.confirme}.` },
+  { value: 'verifie', label: 'Vérifié', hint: `Donné maintenant (sinon dès ${TRIPS_FOR.verifie} trajets). Certifié reste automatique dès ${TRIPS_FOR.confirme}.` },
+  { value: 'confirme', label: 'Certifié', hint: `Donné maintenant (sinon dès ${TRIPS_FOR.confirme} trajets).` },
 ];
+const LEVEL_NAME: Record<OrganizerLevel, string> = { nouveau: 'Nouveau', verifie: 'Vérifié', confirme: 'Certifié' };
 /** "+221771234567" → "77 123 45 67". */
 const local = (phone: string | null) => (phone ? formatPhone(phoneDigits(phone.replace(/^\+221/, ''))) : '');
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
@@ -45,6 +51,7 @@ export default function Caravanes() {
     caravanOrganizersApi.list().then((r) => setItems(r.items), () => setLoadFailed(true));
   }, []);
   useFocusEffect(load);
+  const pull = usePullRefresh(load);
 
   const setActive = (o: CaravanOrganizerDto, active: boolean) => {
     const go = () => {
@@ -63,7 +70,7 @@ export default function Caravanes() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView refreshControl={pull} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <View style={styles.row}>
           <Text style={[styles.h1, { flex: 1 }]}>Caravanes</Text>
           <Pressable style={styles.add} onPress={() => setSheet('new')} accessibilityRole="button">
@@ -129,7 +136,8 @@ type SheetProps = { organizer: CaravanOrganizerDto | null; onClose: () => void; 
 function OrganizerSheet({ organizer: o, onClose, onSaved }: SheetProps) {
   const [name, setName] = useState(o?.name ?? '');
   const [category, setCategory] = useState<OrganizerCategory>(o?.category ?? 'Transporteur');
-  const [level, setLevel] = useState<OrganizerLevel>(o?.level ?? 'verifie');
+  // What the team gives (optional): « Automatique » lets the trips decide.
+  const [level, setLevel] = useState<OrganizerLevel>(o?.levelGiven ?? 'nouveau');
   const [payout, setPayout] = useState(o?.payoutPhone ? phoneDigits(o.payoutPhone.replace(/^\+221/, '')) : '');
   const [phone, setPhone] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -157,6 +165,8 @@ function OrganizerSheet({ organizer: o, onClose, onSaved }: SheetProps) {
   const payoutOk = payout.length === 0 || payout.length === 9;
   // Editing: usable once something changed.
   const dirty = useDirty({ name, category, level, payout });
+  // Closing with changes not saved asks first.
+  const close = () => closeGuarded(dirty && !saving, onClose);
   const ready = name.trim().length >= 2 && ownerOk && payoutOk && (!o || dirty) && !saving;
 
   const save = async () => {
@@ -184,28 +194,18 @@ function OrganizerSheet({ organizer: o, onClose, onSaved }: SheetProps) {
   };
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
+    <Modal visible transparent animationType="slide" onRequestClose={close}>
+      <Pressable style={styles.backdrop} onPress={close} accessibilityLabel="Fermer" />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
         <View style={styles.sheet}>
         <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 12, paddingBottom: 16 }} keyboardShouldPersistTaps="handled">
-          <SheetHeader onClose={onClose} subtitle={o ? undefined : 'Son responsable reçoit l’espace organisateur.'}>
+          <SheetHeader onClose={close} subtitle={o ? undefined : 'Son responsable reçoit l’espace organisateur.'}>
             {o ? `Modifier ${o.name}` : 'Nouvel organisateur'}
           </SheetHeader>
 
           {!o && (
             <>
-              <LabeledField label="Téléphone du responsable (son identifiant)">
-                <Field
-                  icon="call-outline"
-                  prefix="+221"
-                  keyboardType="phone-pad"
-                  placeholder="77 123 45 67"
-                  value={formatPhone(phone)}
-                  onChangeText={(t) => setPhone(phoneDigits(t))}
-                  right={looking ? <ActivityIndicator size="small" color={colors.primary} /> : undefined}
-                />
-              </LabeledField>
+              <PhoneField label="Téléphone du responsable (son identifiant)" value={phone} onChange={setPhone} right={looking ? <ActivityIndicator size="small" color={colors.primary} /> : undefined} />
               {found && (
                 <View style={[styles.found, { backgroundColor: taken ? colors.dangerBg : found.account ? colors.successBg : colors.primarySoft }]}>
                   <Ionicons name={taken ? 'alert-circle-outline' : found.account ? 'person-circle-outline' : 'person-add-outline'} size={18} color={taken ? colors.dangerText : found.account ? colors.successText : colors.primary} />
@@ -230,13 +230,16 @@ function OrganizerSheet({ organizer: o, onClose, onSaved }: SheetProps) {
               <Chip key={c.value} label={c.label} selected={category === c.value} onPress={() => setCategory(c.value)} />
             ))}
           </View>
-          <Text style={styles.label}>Niveau</Text>
+          <Text style={styles.label}>Badge (facultatif)</Text>
           <View style={styles.row}>
             {LEVELS.map((l) => (
               <Chip key={l.value} label={l.label} selected={level === l.value} onPress={() => setLevel(l.value)} />
             ))}
           </View>
-          <Text style={[styles.muted, { marginTop: -4 }]}>{LEVELS.find((l) => l.value === level)?.hint} Affiché aux étudiants sur chaque départ.</Text>
+          <Text style={[styles.muted, { marginTop: -4 }]}>
+            {LEVELS.find((l) => l.value === level)?.hint}
+            {o ? ` Aujourd’hui : ${LEVEL_NAME[o.level]} · ${o.trips} trajet${o.trips > 1 ? 's' : ''}.` : ''} Affiché aux étudiants sur chaque départ.
+          </Text>
 
           {!o && !found?.account && !taken && phone.length === 9 && found && (
             <>

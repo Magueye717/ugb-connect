@@ -7,18 +7,22 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
 import { PhotoStrip, type StripPhoto } from '@/components/PhotoStrip';
 import { EmptyState, ErrorState } from '@/components/states';
-import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, SheetHeader, Toggle } from '@/components/ui';
+import { Chip, Field, LabeledField, PrimaryButton, SheetFooter, SheetHeader, Toggle, useDirty } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
-import { commerceApi, type BusinessKind, type BusinessTarget, type ItemDto, type ItemSection } from '@/features/commerce/api';
+import { commerceApi, daysLabel, WEEK_DAYS, type BusinessKind, type BusinessTarget, type ItemDto, type ItemSection } from '@/features/commerce/api';
 import { useCommerceReference } from '@/features/commerce/useCommerceReference';
 import { ApiError } from '@/lib/api';
+import { closeGuarded } from '@/lib/leaveGuard';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
 const SECTION_LABEL: Record<ItemSection, string> = { menu: 'Menus du jour', drink: 'Boissons', article: 'Articles' };
 /** The usual aisles of a campus shop; the shop's own ones are added to them. */
 const AISLES = ['Fournitures', 'Impression', 'Épicerie', 'Boissons', 'Hygiène', 'Téléphonie', 'Électronique', 'Vêtements', 'Accessoires'];
 /** The aisles to pick from: the usual ones and the shop's own. */
+/** Today, 1 (lundi) to 7 (dimanche). */
+const today = () => ((new Date().getDay() + 6) % 7) + 1;
+
 export const aislesFor = (items: Pick<ItemDto, 'category'>[]) => [...new Set([...AISLES, ...items.flatMap((i) => (i.category ? [i.category] : []))])];
 
 /**
@@ -102,6 +106,13 @@ export function CatalogEditor({ target, kind, canManage, title = 'Catalogue' }: 
                       {i.stock !== null && <Text style={[styles.muted, i.stock <= 3 && { color: colors.dangerText }]}>  ·  {i.stock} en stock</Text>}
                       {!i.orderable && <Text style={styles.muted}>  ·  Infos seulement</Text>}
                     </Text>
+                    {/* The weekly menu: its days; « Pas au menu aujourd’hui » when today isn't one of them. */}
+                    {kind === 'restaurant' && !!i.days && (
+                      <Text style={[styles.muted, !i.days.includes(today()) && { color: colors.orangeText }]} numberOfLines={1}>
+                        {daysLabel(i.days)}
+                        {!i.days.includes(today()) ? ' · pas au menu aujourd’hui' : ''}
+                      </Text>
+                    )}
                   </View>
                   <Toggle value={i.available} onValueChange={(v) => toggle(i, v)} accessibilityLabel={`${i.name} disponible`} />
                 </Pressable>
@@ -139,19 +150,25 @@ export function ItemEditor({ business, kind, item, aisles, onClose, onSaved }: {
   const [stock, setStock] = useState(item?.stock !== null && item?.stock !== undefined ? String(item.stock) : '');
   // A service done on the spot (printing, photocopies…): shown with its price, students don't order it.
   const [orderable, setOrderable] = useState(item?.orderable ?? true);
+  // Restaurants: the days it's on the menu (all: every day).
+  const [days, setDays] = useState<number[]>(item?.days ?? WEEK_DAYS.map((d) => d.day));
+  const toggleDay = (d: number) => setDays((list) => (list.includes(d) ? list.filter((x) => x !== d) : [...list, d].sort()));
   // The cover first. The limit comes from the server; until it answers, the photos already there.
   const [photos, setPhotos] = useState<StripPhoto[]>(item ? item.photoIds.map((id, k) => ({ id, url: item.photos[k]! })) : []);
   const { reference } = useCommerceReference();
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const ready = name.trim().length >= 2 && /^\d+$/.test(price) && (!stock || /^\d+$/.test(stock)) && !uploading && !saving;
+  // Closing with changes not saved asks first.
+  const dirty = useDirty({ section, name, detail, category, price, stock, orderable, photos: photos.map((p) => p.id), days });
+  const close = () => closeGuarded(dirty && !saving, onClose);
+  const ready = name.trim().length >= 2 && /^\d+$/.test(price) && (!stock || /^\d+$/.test(stock)) && (kind !== 'restaurant' || days.length > 0) && !uploading && !saving;
   const save = async () => {
     setSaving(true);
     try {
       const body = {
         section, name: name.trim(), detail: detail.trim(), price: Number(price), photoIds: photos.map((p) => p.id), orderable,
-        ...(kind === 'shop' ? { category: category.trim() || null, stock: stock && orderable ? Number(stock) : null } : {}),
+        ...(kind === 'shop' ? { category: category.trim() || null, stock: stock && orderable ? Number(stock) : null } : { days: days.length === 7 ? null : days }),
       };
       if (item) await commerceApi.updateItem(business, item.id, body);
       else await commerceApi.addItem(business, body);
@@ -170,11 +187,12 @@ export function ItemEditor({ business, kind, item, aisles, onClose, onSaved }: {
     ]);
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} />
+    <Modal visible transparent animationType="slide" onRequestClose={close}>
+      <Pressable style={styles.backdrop} onPress={close} />
       <KeyboardAvoidingView behavior="padding" style={{ flexShrink: 1 }}>
-        <ScrollView style={styles.sheet} contentContainerStyle={{ gap: 12, paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
-          <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>{item ? 'Modifier' : 'Nouvel article'}</SheetHeader>
+        <View style={styles.sheet}>
+        <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 12, paddingBottom: 16 }} keyboardShouldPersistTaps="handled">
+          <SheetHeader onClose={close} titleStyle={styles.sheetTitle}>{item ? 'Modifier' : 'Nouvel article'}</SheetHeader>
           {kind === 'restaurant' && (
             <View style={styles.row}>
               {(['menu', 'drink'] as const).map((s) => (
@@ -197,6 +215,25 @@ export function ItemEditor({ business, kind, item, aisles, onClose, onSaved }: {
           <LabeledField label="Détail (facultatif)">
             <Field placeholder={kind === 'restaurant' ? 'Riz · sauce arachide' : 'Grands carreaux'} value={detail} onChangeText={setDetail} maxLength={120} />
           </LabeledField>
+          {kind === 'restaurant' && (
+            <View style={{ gap: 8 }}>
+              <Text style={styles.daysLabel}>Au menu le</Text>
+              <View style={styles.days}>
+                {WEEK_DAYS.map((d) => {
+                  const on = days.includes(d.day);
+                  return (
+                    <Pressable key={d.day} onPress={() => toggleDay(d.day)} style={[styles.day, on && styles.dayOn]} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={d.long}>
+                      <Text style={[styles.dayText, on && { color: '#fff' }]}>{d.short}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Text style={styles.muted}>
+                {days.length === 0 ? 'Choisis au moins un jour.' : days.length === 7 ? 'Tous les jours. ' : `Publié automatiquement : ${daysLabel(days)}. `}
+                Le bouton « disponible » le retire juste pour aujourd’hui.
+              </Text>
+            </View>
+          )}
           {kind === 'shop' && (
             <View style={{ gap: 8 }}>
               <Text style={styles.label}>Rayon</Text>
@@ -244,14 +281,17 @@ export function ItemEditor({ business, kind, item, aisles, onClose, onSaved }: {
               </View>
             )}
           </View>
-          <PrimaryButton label="Enregistrer" disabled={!ready} loading={saving} onPress={save} />
           {item && (
             <Pressable onPress={remove} style={{ alignSelf: 'center' }} hitSlop={8}>
               <Text style={{ color: colors.dangerText, fontWeight: '700' }}>Retirer du catalogue</Text>
             </Pressable>
           )}
-          <SafeBottom />
         </ScrollView>
+        {/* Pinned, as on every form. */}
+        <SheetFooter>
+          <PrimaryButton label="Enregistrer" disabled={!ready} loading={saving} onPress={save} />
+        </SheetFooter>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -276,4 +316,9 @@ const styles = StyleSheet.create({
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   thumbCount: { position: 'absolute', right: 3, bottom: 3, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, backgroundColor: 'rgba(10,16,40,0.75)', alignItems: 'center', justifyContent: 'center' },
   thumbCountText: { ...typo.label, color: '#fff' },
+  daysLabel: { ...typo.smallStrong, color: colors.navy },
+  days: { flexDirection: 'row', gap: 6 },
+  day: { flex: 1, minHeight: 40, borderRadius: radii.md, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  dayOn: { backgroundColor: colors.primary },
+  dayText: { ...typo.smallStrong, color: colors.primary },
 });

@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -23,15 +24,19 @@ const TONES = {
  * and a green / orange / red flash over the camera, then the card with the details.
  * `onOpenList`: shows a link to the departure's passenger list under the verdict.
  * `active`: false turns the camera off (a tab that isn't on screen), to save battery.
+ * `org`: the organization scanning when it isn't the organizer space's (a student's own events): a request's QR opens
+ * « Valider un paiement » for it.
  */
 export function TicketScanner({
   check,
   onOpenList,
   active = true,
+  org,
 }: {
   check: (raw: string) => Promise<ScanResult>;
   onOpenList?: (caravanId: string) => void;
   active?: boolean;
+  org?: string;
 }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [result, setResult] = useState<ScanResult | null>(null);
@@ -54,6 +59,12 @@ export function TicketScanner({
   };
   const read = async (raw: string) => {
     if (result || checking || !raw.trim()) return; // the camera keeps firing while the code is in view
+    // A request's QR (to pay in cash): validated on its own screen.
+    if (/^UGBREQ:/i.test(raw.trim())) {
+      haptics.select();
+      router.push({ pathname: '/valider-paiement', params: { code: raw.trim().replace(/^UGBREQ:/i, ''), ...(org ? { org } : {}) } });
+      return;
+    }
     setChecking(true);
     const r = await check(raw).finally(() => setChecking(false));
     TONES[r.tone].feel();

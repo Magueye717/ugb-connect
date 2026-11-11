@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, type Href } from 'expo-router';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCart } from '@/context/CartContext';
 import { useLost } from '@/context/LostContext';
@@ -35,7 +36,7 @@ const hhmm = (at: number) => {
 /** "En cours": tickets, taxi trip, basket and lost-and-found conversations, in one place. Hidden when empty. */
 export function InProgress() {
   const now = useNow();
-  const { tickets } = useCaravans();
+  const { tickets, caravans } = useCaravans();
   const taxi = useTaxi();
   const cart = useCart();
   const lost = useLost();
@@ -49,24 +50,7 @@ export function InProgress() {
     const step = o.status === 'pending_payment' ? { title: 'Paiement à terminer' } : orderSteps(o.mode).find((x) => x.key === o.status)!;
     items.push({ key: o.id, icon: 'receipt-outline', title: `Commande · ${o.business.name}`, detail: `${step.title} · ${o.code}`, href: `/commande/${o.id}` });
   }
-  // One line per departure, even with a companion's ticket too.
-  const upcoming = tickets.filter((t) => t.status === 'active' && Date.parse(t.event.startsAt) >= now);
-  // Events: one line per event, however many tickets.
-  const seenEvents = new Set<string>();
-  for (const t of upcoming.filter(isEventTicket)) {
-    if (seenEvents.has(t.details.eventId)) continue;
-    seenEvents.add(t.details.eventId);
-    const n = upcoming.filter((x) => isEventTicket(x) && x.details.eventId === t.details.eventId).length;
-    const at = Date.parse(t.event.startsAt);
-    items.push({ key: t.id, icon: 'sparkles-outline', title: t.event.title, detail: `${dayLabel(at)} · ${hourLabel(at)} · ${t.details.venue.name}${n > 1 ? ` · ${n} billets` : ''}`, href: `/billet/${t.id}` });
-  }
-  for (const group of byDeparture(upcoming.filter(isCaravanTicket))) {
-    const t = group[0]!;
-    const at = Date.parse(t.event.startsAt);
-    const pickup = Date.parse(t.details.pickup.at);
-    const count = group.length > 1 ? ` · ${group.length} billets` : '';
-    items.push({ key: t.id, icon: 'ticket-outline', title: `Caravane ${t.event.title}`, detail: `${dayLabel(at)} · ${hourLabel(pickup)} · ${t.details.pickup.place}${count}`, href: `/billet/${t.id}` });
-  }
+  // A taxi trip next: it leaves soonest (a proposal waiting for passengers included).
   const trip = taxi.activeTrip();
   if (trip) {
     items.push({
@@ -87,6 +71,35 @@ export function InProgress() {
           ? { label: 'Je suis là', onPress: () => taxi.checkIn(trip.id).catch((err) => Alert.alert('Pointage impossible', err instanceof ApiError ? err.message : 'Vérifie ta connexion et réessaie.')) }
           : undefined,
     });
+  }
+  // Caravan requests waiting: to pay the organizer in cash before they expire.
+  for (const c of caravans) {
+    if (!c.myBooking?.awaitingValidation) continue;
+    items.push({
+      key: `request-${c.myBooking.id}`,
+      icon: 'hourglass-outline',
+      title: `Demande · ${c.from} → ${c.to}`,
+      detail: `Va payer ${formatFcfa(c.myBooking.total ?? c.price)} à l’organisateur avant ${hhmm(Date.parse(c.myBooking.holdExpiresAt))}`,
+      href: `/caravane/${c.id}`,
+    });
+  }
+  // One line per departure, even with a companion's ticket too.
+  const upcoming = tickets.filter((t) => t.status === 'active' && Date.parse(t.event.startsAt) >= now);
+  // Events: one line per event, however many tickets.
+  const seenEvents = new Set<string>();
+  for (const t of upcoming.filter(isEventTicket)) {
+    if (seenEvents.has(t.details.eventId)) continue;
+    seenEvents.add(t.details.eventId);
+    const n = upcoming.filter((x) => isEventTicket(x) && x.details.eventId === t.details.eventId).length;
+    const at = Date.parse(t.event.startsAt);
+    items.push({ key: t.id, icon: 'sparkles-outline', title: t.event.title, detail: `${dayLabel(at)} · ${hourLabel(at)} · ${t.details.venue.name}${n > 1 ? ` · ${n} billets` : ''}`, href: `/billet/${t.id}` });
+  }
+  for (const group of byDeparture(upcoming.filter(isCaravanTicket))) {
+    const t = group[0]!;
+    const at = Date.parse(t.event.startsAt);
+    const pickup = Date.parse(t.details.pickup.at);
+    const count = group.length > 1 ? ` · ${group.length} billets` : '';
+    items.push({ key: t.id, icon: 'ticket-outline', title: `Caravane ${t.event.title}`, detail: `${dayLabel(at)} · ${hourLabel(pickup)} · ${t.details.pickup.place}${count}`, href: `/billet/${t.id}` });
   }
   if (cart.count && cart.business) {
     items.push({

@@ -3,6 +3,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { usePullRefresh } from '@/components/PullRefresh';
 import { EmptyState } from '@/components/states';
 import { BackButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
@@ -15,6 +16,7 @@ import { ApiError } from '@/lib/api';
 export default function TaxiTripScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const taxi = useTaxi();
+  const pull = usePullRefresh(taxi.refresh);
   const actions = useTaxiActions();
   const now = useNow();
   const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/(tabs)/caravanes', params: { vue: 'taxi' } }));
@@ -35,7 +37,7 @@ export default function TaxiTripScreen() {
       {!t ? (
         <EmptyState icon="car-outline" title="Trajet introuvable" text="Il a peut-être été annulé ou est déjà terminé." action={{ label: 'Voir les trajets', onPress: back }} />
       ) : (
-        <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} refreshControl={pull}>
           <TripCard
             trip={t}
             me={taxi.me}
