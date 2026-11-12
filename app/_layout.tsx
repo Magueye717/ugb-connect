@@ -95,6 +95,8 @@ function Screens() {
         <Stack.Screen name="panier" />
         <Stack.Screen name="commande/[id]" />
         <Stack.Screen name="billet/[id]" />
+        {/* A ticket a friend offers (or a seat booked for me): accepted here, from its notification. */}
+        <Stack.Screen name="cadeau/[id]" />
         <Stack.Screen name="noter/[subject]/[id]" options={{ presentation: 'transparentModal', animation: 'fade' }} />
         <Stack.Screen name="taxi/[id]" />
         <Stack.Screen name="trajet/[id]" />

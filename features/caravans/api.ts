@@ -73,6 +73,8 @@ export type SeatRequestDto = {
   seats: { id?: string; seat: number; price?: number; code?: string | null; passenger: string | null; pickup: string; dropoff: string }[];
   /** Found by one seat's own code: that seat. */
   matched?: string | null;
+  /** The whole request's code (« Tout payer »). */
+  code?: string | null;
 };
 
 export type OrgDepartureDto = DepartureDto & {

@@ -4,16 +4,17 @@ import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { ActivityIndicator, Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, { Extrapolation, FadeIn, interpolate, interpolateColor, runOnJS, useAnimatedReaction, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DateField, TimeField } from '@/components/DatePicker';
 import { eventWhen } from '@/components/home';
 import { LivePulse, NudgeRight } from '@/components/motion';
 import { PaymentLogo } from '@/components/PaymentLogo';
 import { RequestsCard } from '@/components/RequestsCard';
-import { DoorActions } from '@/features/events/DoorActions';
 import { BackButton, Chip, Field, LabeledField, PrimaryButton, Segmented, StatusChip, STICKY_FOOTER_SPACE, StickyFooter, TextButton, useDirty } from '@/components/ui';
 import { formatFcfa, paymentMethods } from '@/constants/data';
 import { methodsOffLine, useMethodsOff } from '@/features/payments/methods';
@@ -101,12 +102,22 @@ export default function MonEvenement() {
   const back = () => (router.canGoBack() ? router.back() : router.replace(listHref));
   const editable = isNew || event?.status === 'draft' || event?.status === 'changes_requested';
 
+  const heading = isNew ? 'Nouvel événement' : org ? 'Événement' : 'Mon événement';
+  // Submitted, published or over: the dashboard, full screen under its cover.
+  if (!loading && event && !editable && event.status !== 'approved') {
+    return (
+      <EventsSourceProvider value={src}>
+        <EventState event={event} onChanged={setEvent} onBack={back} title={heading} />
+      </EventsSourceProvider>
+    );
+  }
+
   return (
     <EventsSourceProvider value={src}>
     <SafeAreaView style={styles.safe}>
       <View style={styles.head}>
         <BackButton onPress={back} />
-        <Text style={styles.h1}>{isNew ? 'Nouvel événement' : org ? 'Événement' : 'Mon événement'}</Text>
+        <Text style={styles.h1}>{heading}</Text>
         <View style={{ width: 44 }} />
       </View>
       {loading ? (
@@ -140,9 +151,7 @@ export default function MonEvenement() {
             else setEvent(saved);
           }}
         />
-      ) : (
-        event && <EventState event={event} onChanged={setEvent} />
-      )}
+      ) : null}
     </SafeAreaView>
     </EventsSourceProvider>
   );
@@ -150,14 +159,36 @@ export default function MonEvenement() {
 
 type Tab = 'billetterie' | 'demandes' | 'visibilite';
 
+const HERO_H = 300;
+const BAR_H = 52;
+
+/** « Dans 3 j », « Demain · 20h00 », « Aujourd’hui · 20h00 », « En cours », « Terminé ». */
+function countdown(startsAt: string, endsAt: string, now: number) {
+  const start = Date.parse(startsAt);
+  const end = Date.parse(endsAt);
+  if (now >= end) return 'Terminé';
+  if (now >= start) return 'En cours';
+  const hour = new Date(start).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }).replace(':', 'h');
+  const day = (t: number) => {
+    const d = new Date(t);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  };
+  const days = Math.round((day(start) - day(now)) / 86_400_000);
+  return days === 0 ? `Aujourd’hui · ${hour}` : days === 1 ? `Demain · ${hour}` : `Dans ${days} j`;
+}
+
 /**
- * Once submitted. Being reviewed, refused, over: where it stands and what the team said. Published, a small dashboard:
- * the cover with its status, three numbers (sold, entered, waiting), then one tab per job — the ticket office (the
- * door, sales per ticket, history), the requests to validate (opened first when someone is waiting), and visibility
- * (banner, photos).
+ * Once submitted. A dashboard under the event's cover: the cover full width behind the status bar (it drifts slower
+ * than the page, and grows when pulled), the status and a countdown on it; the three numbers that matter (sold,
+ * entered, waiting) in a card over its edge; the door's four actions (scan, validate, see the page, share); then one
+ * tab per job — the ticket office, the requests to validate (opened first when someone is waiting), visibility. The
+ * tabs stay pinned under the top bar, which appears once the cover is gone.
  */
-function EventState({ event: e, onChanged }: { event: OrgEventDto; onChanged: (e: OrgEventDto) => void }) {
+function EventState({ event: e, onChanged, onBack, title }: { event: OrgEventDto; onChanged: (e: OrgEventDto) => void; onBack: () => void; title: string }) {
   const src = useEventsSource();
+  const insets = useSafeAreaInsets();
+  const now = useNow();
   const published = e.status === 'published';
   const cancel = () =>
     confirmAction({
@@ -181,7 +212,7 @@ function EventState({ event: e, onChanged }: { event: OrgEventDto; onChanged: (e
     src.requests(e.id).then((r) => setWaiting(r.items.length), () => undefined);
   }, [published, src, e.id]);
   useFocusEffect(loadWaiting);
-  const [picked, setTab] = useState<Tab | null>(null);
+  const [picked, setPicked] = useState<Tab | null>(null);
   const tab: Tab = picked ?? (waiting ? 'demandes' : 'billetterie');
   const refresh = () => {
     loadWaiting();
@@ -190,146 +221,281 @@ function EventState({ event: e, onChanged }: { event: OrgEventDto; onChanged: (e
 
   const capacity = e.ticketTypes.reduce((n, t) => n + t.capacity, 0);
   const sold = e.ticketTypes.reduce((n, t) => n + t.sold, 0);
+  const collected = e.ticketTypes.reduce((n, t) => n + t.sold * t.price, 0);
+  const s = EVENT_STATUS[e.status];
+
+  // ---- Motion: the cover drifts, the top bar appears, the tabs stay pinned under it ---------------------------
+  const scroll = useAnimatedRef<Animated.ScrollView>();
+  const y = useSharedValue(0);
+  const tabsY = useSharedValue(10_000);
+  const barH = insets.top + BAR_H;
+  const [dark, setDark] = useState(false);
+  const onScroll = useAnimatedScrollHandler((ev) => {
+    y.set(ev.contentOffset.y);
+  });
+  // The status bar's icons: white over the picture, dark once the bar is shown.
+  useAnimatedReaction(
+    () => y.get() > HERO_H - barH - 20,
+    (now, before) => {
+      if (now !== before) runOnJS(setDark)(now);
+    },
+  );
+  const coverStyle = useAnimatedStyle(() => {
+    const v = y.get();
+    return { transform: [{ translateY: v > 0 ? v * 0.45 : v / 2 }, { scale: v < 0 ? 1 + -v / HERO_H : 1 }] };
+  });
+  const heroTextStyle = useAnimatedStyle(() => ({ opacity: interpolate(y.get(), [0, HERO_H * 0.55], [1, 0], Extrapolation.CLAMP) }));
+  const barStyle = useAnimatedStyle(() => ({ opacity: interpolate(y.get(), [HERO_H - barH - 60, HERO_H - barH - 10], [0, 1], Extrapolation.CLAMP) }));
+  const backStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(y.get(), [HERO_H - barH - 60, HERO_H - barH - 10], ['rgba(10,16,40,0.45)', 'rgba(10,16,40,0)']),
+  }));
+  const whiteIcon = useAnimatedStyle(() => ({ opacity: interpolate(y.get(), [HERO_H - barH - 60, HERO_H - barH - 10], [1, 0], Extrapolation.CLAMP) }));
+  const tabsStyle = useAnimatedStyle(() => {
+    const lift = Math.max(0, y.get() + barH - tabsY.get());
+    return { transform: [{ translateY: lift }], shadowOpacity: lift > 0 ? 0.08 : 0, elevation: lift > 0 ? 3 : 0 };
+  });
+  const pick = (t: Tab, jump = false) => {
+    setPicked(t);
+    // From a tile: brings the tabs up under the bar.
+    if (jump) scroll.current?.scrollTo({ y: Math.max(0, tabsY.get() - barH), animated: true });
+  };
+
+  const share = () =>
+    Share.share({ message: `${e.title}\n${eventWhen(e.startsAt)} · ${e.venue.name}\nDemande ton billet sur UGB Connect.` }).catch(() => undefined);
+  const actions: { icon: keyof typeof Ionicons.glyphMap; label: string; tone: string; onPress: () => void }[] = published
+    ? [
+        { icon: 'qr-code', label: 'Scanner', tone: colors.navy, onPress: () => router.push({ pathname: '/scanner-billets', params: { org: e.organizer.id, event: e.id, title: e.title } }) },
+        { icon: 'cash', label: 'Valider', tone: colors.accent, onPress: () => router.push({ pathname: '/valider-paiement', params: { org: e.organizer.id } }) },
+        { icon: 'eye', label: 'Voir la page', tone: colors.primary, onPress: () => router.push(`/evenement/${e.id}`) },
+        { icon: 'share-social', label: 'Partager', tone: colors.success, onPress: share },
+      ]
+    : [];
 
   return (
-    <>
-      <ScrollView contentContainerStyle={[styles.body, photos.editable && tab === 'visibilite' && { paddingBottom: STICKY_FOOTER_SPACE.one }]}>
-        <Hero image={photos.editable ? photos.images[0]?.url : e.images[0]} event={e} />
+    <View style={styles.dash}>
+      <StatusBar style={dark ? 'dark' : 'light'} />
+      <Animated.ScrollView
+        ref={scroll}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: (photos.editable && published && tab === 'visibilite' ? STICKY_FOOTER_SPACE.one : 0) + 40 + insets.bottom }}>
+        {/* The cover, behind the status bar. */}
+        <View style={[styles.hero2, { height: HERO_H + insets.top }]}>
+          <Animated.View style={[StyleSheet.absoluteFill, coverStyle]}>
+            <Image source={{ uri: photos.editable ? photos.images[0]?.url : e.images[0] }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
+          </Animated.View>
+          <LinearGradient colors={['rgba(10,16,40,0.55)', 'rgba(10,16,40,0)', 'rgba(10,16,40,0.9)']} locations={[0, 0.35, 1]} style={StyleSheet.absoluteFill} />
+          <Animated.View style={[styles.hero2Text, heroTextStyle]}>
+            <View style={styles.chips}>
+              <StatusChip label={s.label} tone={s.tone} />
+              <View style={styles.countChip}>
+                <Ionicons name="time-outline" size={12} color="#fff" />
+                <Text style={styles.countText}>{countdown(e.startsAt, e.endsAt, now)}</Text>
+              </View>
+            </View>
+            <Text style={styles.heroTitle} numberOfLines={2}>
+              {e.title}
+            </Text>
+            <View style={styles.heroLine}>
+              <Ionicons name="calendar-outline" size={14} color="rgba(255,255,255,0.9)" />
+              <Text style={styles.heroMeta} numberOfLines={1}>
+                {eventWhen(e.startsAt)}
+              </Text>
+            </View>
+            <View style={styles.heroLine}>
+              <Ionicons name="location-outline" size={14} color="rgba(255,255,255,0.9)" />
+              <Text style={styles.heroMeta} numberOfLines={1}>
+                {e.venue.name}
+                {e.venue.address ? ` · ${e.venue.address}` : ''}
+              </Text>
+            </View>
+          </Animated.View>
+        </View>
 
-        {e.review && (e.status === 'rejected' || e.status === 'changes_requested') && (
-          <View style={styles.reviewBox}>
-            <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.dangerText} />
-            <Text style={styles.reviewText}>{e.review.message}</Text>
-          </View>
-        )}
-        {e.status === 'pending_review' && (
-          <View style={styles.infoBox}>
-            <Ionicons name="hourglass-outline" size={18} color={colors.primary} />
-            <Text style={styles.infoText}>L’équipe UGB Connect vérifie ton événement. Tu seras notifié de sa décision.</Text>
-          </View>
-        )}
-
-        {(published || e.status === 'completed') && (
-          <View style={styles.stats}>
-            <Stat value={`${sold}`} of={`/${capacity}`} label="vendus" />
-            <Stat value={`${e.counts.admitted}`} label={e.counts.admitted > 1 ? 'entrés' : 'entré'} />
-            {published && <Stat value={waiting === null ? '…' : `${waiting}`} label="à valider" hot={!!waiting} onPress={() => setTab('demandes')} />}
-          </View>
-        )}
-
-        {published && (
-          <Segmented<Tab>
-            value={tab}
-            onChange={setTab}
-            options={[
-              { value: 'billetterie', label: 'Billetterie' },
-              { value: 'demandes', label: waiting ? `Demandes · ${waiting}` : 'Demandes' },
-              { value: 'visibilite', label: 'Visibilité' },
-            ]}
-          />
-        )}
-
-        {(!published || tab === 'billetterie') && (
-          <>
-            {/* The door: tickets scanned at the entrance, cash requests validated. */}
-            {published && <DoorActions org={e.organizer.id} event={e.id} title={e.title} />}
-            {(published || e.status === 'completed') && (
-              <View style={[styles.card, shadow.card, { gap: 14 }]}>
-                <Text style={styles.cardTitle}>Ventes par billet</Text>
-                {e.ticketTypes.map((t) => (
-                  <View key={t.typeId} style={{ gap: 6 }}>
-                    <View style={styles.row}>
-                      <Text style={[styles.label, { flex: 1 }]} numberOfLines={1}>
-                        {t.name} · {t.price ? formatFcfa(t.price) : 'Gratuit'}
-                      </Text>
-                      <Text style={styles.muted}>
-                        {t.sold}/{t.capacity}
-                      </Text>
-                    </View>
-                    <View style={styles.bar}>
-                      <View style={[styles.barFill, { width: `${t.capacity ? Math.min(100, (t.sold / t.capacity) * 100) : 0}%` }, t.sold >= t.capacity && { backgroundColor: colors.success }]} />
-                    </View>
-                  </View>
-                ))}
-                <View style={styles.metaLine}>
-                  <Ionicons name="eye-outline" size={14} color={colors.muted2} />
-                  <Text style={[styles.muted, { flex: 1 }]}>Visible par : {audienceLabel(e.audience)}</Text>
+        <View style={styles.sheet}>
+          {/* The three numbers, over the cover's edge. */}
+          {(published || e.status === 'completed') && (
+            <View style={[styles.statsCard, shadow.raised]}>
+              <View style={styles.statCol}>
+                <Text style={styles.statValue}>
+                  {sold}
+                  <Text style={styles.statOf}>/{capacity}</Text>
+                </Text>
+                <Text style={styles.statLabel}>vendus</Text>
+                <View style={styles.miniBar}>
+                  <View style={[styles.miniFill, { width: `${capacity ? Math.min(100, (sold / capacity) * 100) : 0}%` }]} />
                 </View>
               </View>
-            )}
-            <History log={e.reviewLog} />
-            {published && <TextButton label="Annuler l’événement" onPress={cancel} style={{ alignSelf: 'center' }} tone="danger" />}
-          </>
+              <View style={styles.statSep} />
+              <View style={styles.statCol}>
+                <Text style={styles.statValue}>{e.counts.admitted}</Text>
+                <Text style={styles.statLabel}>{e.counts.admitted > 1 ? 'entrés' : 'entré'}</Text>
+              </View>
+              {published && (
+                <>
+                  <View style={styles.statSep} />
+                  <Pressable style={styles.statCol} onPress={() => pick('demandes', true)} accessibilityRole="button" accessibilityLabel={`${waiting ?? 0} demandes à valider`}>
+                    <View style={styles.statHotRow}>
+                      <Text style={[styles.statValue, !!waiting && { color: colors.accent }]}>{waiting === null ? '…' : waiting}</Text>
+                      {!!waiting && <View style={styles.hotDot} />}
+                    </View>
+                    <Text style={styles.statLabel}>à valider</Text>
+                  </Pressable>
+                </>
+              )}
+            </View>
+          )}
+
+          {e.review && (e.status === 'rejected' || e.status === 'changes_requested') && (
+            <View style={styles.reviewBox}>
+              <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.dangerText} />
+              <Text style={styles.reviewText}>{e.review.message}</Text>
+            </View>
+          )}
+          {e.status === 'pending_review' && (
+            <View style={styles.infoBox}>
+              <Ionicons name="hourglass-outline" size={18} color={colors.primary} />
+              <Text style={styles.infoText}>L’équipe UGB Connect vérifie ton événement. Tu seras notifié de sa décision.</Text>
+            </View>
+          )}
+
+          {/* The door, one tap each. */}
+          {actions.length > 0 && (
+            <View style={styles.quick}>
+              {actions.map((a) => (
+                <Pressable
+                  key={a.label}
+                  style={({ pressed }) => [styles.quickItem, pressed && { transform: [{ scale: 0.94 }] }]}
+                  onPress={() => {
+                    haptics.select();
+                    a.onPress();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={a.label}>
+                  <View style={[styles.quickIcon, shadow.card, { backgroundColor: a.tone }]}>
+                    <Ionicons name={a.icon} size={22} color="#fff" />
+                  </View>
+                  <Text style={styles.quickLabel} numberOfLines={1}>
+                    {a.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </View>
+
+        {/* Pinned under the top bar while scrolling. */}
+        {published && (
+          <Animated.View style={[styles.tabsWrap, tabsStyle]} onLayout={(ev) => tabsY.set(ev.nativeEvent.layout.y)}>
+            <Segmented<Tab>
+              value={tab}
+              onChange={(t) => pick(t)}
+              options={[
+                { value: 'billetterie', label: 'Billetterie' },
+                { value: 'demandes', label: 'Demandes', badge: waiting },
+                { value: 'visibilite', label: 'Visibilité' },
+              ]}
+            />
+          </Animated.View>
         )}
 
-        {published && tab === 'demandes' && (
-          <RequestsCard
-            load={async () =>
-              (await src.requests(e.id)).items.map((r) => ({
-                id: r.id, name: r.student?.name ?? 'Étudiant', phone: r.student?.phone ?? null, total: r.total, expiresAt: r.expiresAt,
-                lines: [r.tickets.map((x) => `${x.qty} × ${x.name}`).join(' · ')],
-                units: (r.units ?? []).map((u, i) => ({ id: u.id, label: `Billet ${i + 1} · ${u.name}`, price: u.price })),
-              }))
-            }
-            validate={src.validate}
-            refuse={src.refuse}
-            onChanged={refresh}
-          />
-        )}
+        <Animated.View key={published ? tab : 'state'} entering={FadeIn.duration(220)} style={styles.tabBody}>
+          {(!published || tab === 'billetterie') && (
+            <>
+              {(published || e.status === 'completed') && (
+                <View style={[styles.card, shadow.card, { gap: 14 }]}>
+                  <View style={styles.row}>
+                    <Text style={[styles.cardTitle, { flex: 1 }]}>Ventes par billet</Text>
+                    {collected > 0 && (
+                      <View style={styles.cashPill}>
+                        <Ionicons name="cash-outline" size={13} color={colors.successText} />
+                        <Text style={styles.cashPillText}>{formatFcfa(collected)} encaissés</Text>
+                      </View>
+                    )}
+                  </View>
+                  {e.ticketTypes.map((t) => (
+                    <View key={t.typeId} style={{ gap: 6 }}>
+                      <View style={styles.row}>
+                        <Text style={[styles.label, { flex: 1 }]} numberOfLines={1}>
+                          {t.name} · {t.price ? formatFcfa(t.price) : 'Gratuit'}
+                        </Text>
+                        <Text style={styles.muted}>
+                          {t.sold}/{t.capacity}
+                        </Text>
+                      </View>
+                      <View style={styles.bar}>
+                        <View style={[styles.barFill, { width: `${t.capacity ? Math.min(100, (t.sold / t.capacity) * 100) : 0}%` }, t.sold >= t.capacity && { backgroundColor: colors.success }]} />
+                      </View>
+                    </View>
+                  ))}
+                  <View style={styles.metaLine}>
+                    <Ionicons name="eye-outline" size={14} color={colors.muted2} />
+                    <Text style={[styles.muted, { flex: 1 }]}>Visible par : {audienceLabel(e.audience)}</Text>
+                  </View>
+                </View>
+              )}
+              <History log={e.reviewLog} />
+              {published && <TextButton label="Annuler l’événement" onPress={cancel} style={{ alignSelf: 'center' }} tone="danger" />}
+            </>
+          )}
 
-        {published && tab === 'visibilite' && (
-          <>
-            {banner === undefined && <ActivityIndicator color={colors.primary} />}
-            {banner && <BannerCard banner={banner} />}
-            {banner === null && <PromoteCard onPress={() => router.push({ pathname: '/publicite', params: { eventId: e.id } })} />}
-            {photos.editable ? (
-              <Photos images={photos.images} setImages={photos.setImages} uploading={false} setUploading={() => undefined} fixedCover={photos.fixedCover} setFixedCover={photos.setFixedCover} canAdd={false} />
-            ) : (
-              <Text style={styles.muted}>Une seule photo : c’est la couverture de ton événement et de sa bannière.</Text>
-            )}
-          </>
-        )}
-      </ScrollView>
+          {published && tab === 'demandes' && (
+            <RequestsCard
+              load={async () =>
+                (await src.requests(e.id)).items.map((r) => ({
+                  id: r.id, name: r.student?.name ?? 'Étudiant', phone: r.student?.phone ?? null, total: r.total, expiresAt: r.expiresAt,
+                  lines: [r.tickets.map((x) => `${x.qty} × ${x.name}`).join(' · ')],
+                  units: (r.units ?? []).map((u, i) => ({ id: u.id, label: `Billet ${i + 1} · ${u.name}`, price: u.price, code: u.code })),
+                  createdAt: r.createdAt,
+                  code: r.code,
+                }))
+              }
+              validate={src.validate}
+              refuse={src.refuse}
+              onChanged={refresh}
+            />
+          )}
+
+          {published && tab === 'visibilite' && (
+            <>
+              {banner === undefined && <ActivityIndicator color={colors.primary} />}
+              {banner && <BannerCard banner={banner} />}
+              {banner === null && <PromoteCard onPress={() => router.push({ pathname: '/publicite', params: { eventId: e.id } })} />}
+              {photos.editable ? (
+                <Photos images={photos.images} setImages={photos.setImages} uploading={false} setUploading={() => undefined} fixedCover={photos.fixedCover} setFixedCover={photos.setFixedCover} canAdd={false} />
+              ) : (
+                <Text style={styles.muted}>Une seule photo : c’est la couverture de ton événement et de sa bannière.</Text>
+              )}
+            </>
+          )}
+        </Animated.View>
+      </Animated.ScrollView>
+
+      {/* The top bar: only the back button over the picture; its title and background once the picture is gone. */}
+      <View style={[styles.topBar, { height: barH, paddingTop: insets.top }]} pointerEvents="box-none">
+        <Animated.View style={[StyleSheet.absoluteFill, styles.topBarBg, barStyle]} pointerEvents="none" />
+        <Pressable onPress={onBack} hitSlop={8} accessibilityRole="button" accessibilityLabel="Retour">
+          <Animated.View style={[styles.floatBack, backStyle]}>
+            <Ionicons name="chevron-back" size={22} color={colors.navy} />
+            <Animated.View style={[StyleSheet.absoluteFill, styles.center, whiteIcon]}>
+              <Ionicons name="chevron-back" size={22} color="#fff" />
+            </Animated.View>
+          </Animated.View>
+        </Pressable>
+        <Animated.Text style={[styles.topTitle, barStyle]} numberOfLines={1}>
+          {e.title}
+        </Animated.Text>
+        <Animated.Text style={[styles.topKind, barStyle]}>{title}</Animated.Text>
+      </View>
+
       {/* Pinned, as on every form: usable once a photo changed. */}
       {photos.editable && published && tab === 'visibilite' && (
         <StickyFooter>
           <PrimaryButton label="Enregistrer les photos" disabled={!photos.dirty} loading={photos.saving} onPress={photos.save} />
         </StickyFooter>
       )}
-    </>
-  );
-}
-
-/** The cover, with the status, the title and when / where written over it. */
-function Hero({ image, event: e }: { image: string | undefined; event: OrgEventDto }) {
-  const s = EVENT_STATUS[e.status];
-  return (
-    <View style={styles.hero}>
-      <Image source={{ uri: image }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} />
-      <LinearGradient colors={['rgba(10,16,40,0)', 'rgba(10,16,40,0.85)']} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0.25 }} end={{ x: 0, y: 1 }} />
-      <View style={styles.heroText}>
-        <StatusChip label={s.label} tone={s.tone} />
-        <Text style={styles.heroTitle} numberOfLines={2}>
-          {e.title}
-        </Text>
-        <Text style={styles.heroMeta} numberOfLines={1}>
-          {eventWhen(e.startsAt)} · {e.venue.name}
-        </Text>
-      </View>
     </View>
-  );
-}
-
-/** One number of the dashboard; `hot`: someone is waiting (orange), and the tile opens their tab. */
-function Stat({ value, of, label, hot, onPress }: { value: string; of?: string; label: string; hot?: boolean; onPress?: () => void }) {
-  return (
-    <Pressable style={[styles.stat, shadow.card, hot && styles.statHot]} onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={`${value}${of ?? ''} ${label}`}>
-      <Text style={[styles.statValue, hot && { color: '#fff' }]}>
-        {value}
-        {!!of && <Text style={[styles.statOf, hot && { color: 'rgba(255,255,255,0.8)' }]}>{of}</Text>}
-      </Text>
-      <Text style={[styles.statLabel, hot && { color: 'rgba(255,255,255,0.9)' }]}>{label}</Text>
-    </Pressable>
   );
 }
 
@@ -991,6 +1157,35 @@ const styles = StyleSheet.create({
   title: { ...typo.h2, color: colors.navy },
   muted: { ...typo.caption, color: colors.muted2, lineHeight: 17 },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14 },
+  dash: { flex: 1, backgroundColor: colors.bg },
+  hero2: { overflow: 'hidden', backgroundColor: colors.navy, justifyContent: 'flex-end' },
+  hero2Text: { padding: 20, paddingBottom: 48, gap: 6 },
+  chips: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
+  countChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radii.pill, backgroundColor: 'rgba(255,255,255,0.2)' },
+  countText: { ...typo.captionStrong, color: '#fff' },
+  heroLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  sheet: { paddingHorizontal: 20, marginTop: -32, gap: 16 },
+  statsCard: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 8, borderRadius: radii.lg, backgroundColor: colors.card },
+  statCol: { flex: 1, alignItems: 'center', gap: 2 },
+  statSep: { width: StyleSheet.hairlineWidth, alignSelf: 'stretch', backgroundColor: colors.border },
+  statHotRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 3 },
+  hotDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent, marginTop: 4 },
+  miniBar: { width: '70%', height: 4, borderRadius: 2, backgroundColor: colors.primarySoft, overflow: 'hidden', marginTop: 4 },
+  miniFill: { height: 4, borderRadius: 2, backgroundColor: colors.primary },
+  quick: { flexDirection: 'row', justifyContent: 'space-between' },
+  quickItem: { flex: 1, alignItems: 'center', gap: 6 },
+  quickIcon: { width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center' },
+  quickLabel: { ...typo.captionStrong, color: colors.navy },
+  tabsWrap: { zIndex: 10, paddingHorizontal: 20, paddingVertical: 10, marginTop: 8, backgroundColor: colors.bg, shadowColor: '#000', shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+  tabBody: { paddingHorizontal: 20, paddingTop: 6, gap: 14 },
+  cashPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 3, borderRadius: radii.pill, backgroundColor: colors.successBg },
+  cashPillText: { ...typo.captionStrong, color: colors.successText },
+  topBar: { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16 },
+  topBarBg: { backgroundColor: colors.card, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  floatBack: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  center: { alignItems: 'center', justifyContent: 'center' },
+  topTitle: { ...typo.bodyStrong, color: colors.navy, flex: 1 },
+  topKind: { ...typo.caption, color: colors.muted2 },
   hero: { height: 200, borderRadius: radii.lg, overflow: 'hidden', backgroundColor: colors.navy, justifyContent: 'flex-end' },
   heroText: { padding: 14, gap: 6, alignItems: 'flex-start' },
   heroTitle: { ...typo.h2, color: '#fff' },

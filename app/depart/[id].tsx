@@ -190,7 +190,9 @@ export default function Manifest() {
               (await caravansApi.requests(organizer.orgId, c.id)).items.map((r) => ({
                 id: r.id, name: r.student?.name ?? 'Étudiant', phone: r.student?.phone ?? null, total: r.total, expiresAt: r.expiresAt,
                 lines: r.seats.map((x) => `Place ${x.seat}${x.passenger ? ` · ${x.passenger}` : ''} · ${x.pickup} → ${x.dropoff}`),
-                units: r.seats.flatMap((x) => (x.id ? [{ id: x.id, label: `Place ${x.seat}${x.passenger ? ` · ${x.passenger.split(' ')[0]}` : ''}`, price: x.price ?? r.total / r.seats.length }] : [])),
+                units: r.seats.flatMap((x) => (x.id ? [{ id: x.id, label: `Place ${x.seat}${x.passenger ? ` · ${x.passenger.split(' ')[0]}` : ''}`, price: x.price ?? r.total / r.seats.length, sub: `${x.pickup} → ${x.dropoff}`, code: x.code }] : [])),
+                createdAt: r.createdAt,
+                code: r.code,
               }))
             }
             kind="caravan"

@@ -345,7 +345,8 @@ export function Segmented<T extends string>({
   value,
   onChange,
 }: {
-  options: { value: T; label: string }[];
+  /** `badge`: a count shown next to the label (orange: something is waiting); hidden at 0. */
+  options: { value: T; label: string; badge?: number | null }[];
   value: T | null;
   onChange: (v: T) => void;
 }) {
@@ -378,10 +379,18 @@ export function Segmented<T extends string>({
             }}
             style={styles.segBtn}
             accessibilityRole="tab"
-            accessibilityState={{ selected: on }}>
-            <Text style={[styles.segText, on && styles.segTextOn]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
-              {o.label}
-            </Text>
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={o.badge ? `${o.label}, ${o.badge} en attente` : o.label}>
+            <View style={styles.segInner}>
+              <Text style={[styles.segText, on && styles.segTextOn]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+                {o.label}
+              </Text>
+              {!!o.badge && (
+                <View style={[styles.segBadge, on && styles.segBadgeOn]}>
+                  <Text style={styles.segBadgeText}>{o.badge > 99 ? '99+' : o.badge}</Text>
+                </View>
+              )}
+            </View>
           </Pressable>
         );
       })}
@@ -586,10 +595,14 @@ const styles = StyleSheet.create({
   screenTitle: { ...typo.h1, color: colors.navy },
   screenSub: { color: colors.muted2, marginTop: 2 },
   segment: { backgroundColor: colors.primarySoft, borderRadius: radii.pill, flexDirection: 'row', padding: 4 },
-  segBtn: { flex: 1, minHeight: 40, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center' },
+  segBtn: { flex: 1, minHeight: 38, borderRadius: radii.pill, alignItems: 'center', justifyContent: 'center' },
   segPill: { position: 'absolute', top: 4, bottom: 4, left: 4, borderRadius: radii.pill, backgroundColor: colors.primary },
-  segText: { fontWeight: '700', color: colors.muted2 },
+  segText: { ...typo.smallStrong, color: colors.muted2 },
   segTextOn: { color: '#fff' },
+  segInner: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 6, maxWidth: '100%' },
+  segBadge: { minWidth: 18, height: 18, paddingHorizontal: 5, borderRadius: 9, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  segBadgeOn: { borderWidth: 1.5, borderColor: '#fff' },
+  segBadgeText: { fontSize: 11, fontWeight: '800', color: '#fff', fontVariant: ['tabular-nums'] },
   filters: { gap: 8, paddingHorizontal: 20 },
   filter: {
     paddingHorizontal: 14,

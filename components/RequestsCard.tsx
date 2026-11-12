@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated';
 
 import { Field } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
@@ -11,6 +12,7 @@ import { haptics } from '@/lib/haptics';
 import { noticeValidated } from '@/features/payments/validated';
 import { confirmAction, notice } from '@/lib/notice';
 import { toast } from '@/lib/toast';
+import { useNow } from '@/lib/useNow';
 
 /** One request, as the organizer sees it. */
 export type RequestRow = {
@@ -21,8 +23,12 @@ export type RequestRow = {
   lines: string[];
   total: number;
   expiresAt: string;
-  /** Each ticket (or seat) waiting: validated one by one when only some are paid. */
-  units?: { id: string; label: string; price: number }[];
+  /** Each ticket (or seat) waiting: validated one by one when only some are paid. `sub`: its stops (a seat). */
+  units?: { id: string; label: string; price: number; sub?: string; code?: string | null }[];
+  /** The whole request's code (« Tout payer »), as on the student's QR. */
+  code?: string | null;
+  /** When it was asked: « Demandée il y a 2 h ». */
+  createdAt?: string;
 };
 
 type Props = {
@@ -35,6 +41,26 @@ type Props = {
   onChanged?: () => void;
   /** Tickets of an event, or seats of a caravan: how the « Paiement validé » card speaks. */
   kind?: 'event' | 'caravan';
+};
+
+/** « il y a 5 min », « il y a 2 h », « hier ». */
+const ago = (iso: string) => {
+  const min = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+  if (min < 1) return 'à l’instant';
+  if (min < 60) return `il y a ${min} min`;
+  const h = Math.round(min / 60);
+  return h < 24 ? `il y a ${h} h` : 'hier';
+};
+const initials = (name: string) =>
+  name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join('');
+const intl = (phone: string) => {
+  const d = phone.replace(/\D/g, '');
+  return d.startsWith('221') ? d : `221${d}`;
 };
 
 const left = (iso: string) => {
@@ -55,6 +81,10 @@ export function RequestsCard({ title = 'Demandes à valider', load, validate, re
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  // Ticks every minute: the time left and « il y a … » stay current.
+  const now = useNow();
+  // The request unfolded (the first one until another is tapped; '' : all folded).
+  const [opened, setOpen] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     load().then(
@@ -123,6 +153,7 @@ export function RequestsCard({ title = 'Demandes à valider', load, validate, re
 
   const q = query.trim().toLowerCase().replace(/\s/g, '');
   const shown = (items ?? []).filter((r) => !q || r.name.toLowerCase().replace(/\s/g, '').includes(q) || (r.phone ?? '').replace(/\D/g, '').includes(q.replace(/\D/g, '') || '§'));
+  const openId = opened ?? shown[0]?.id ?? '';
 
   return (
     <View style={[styles.card, shadow.card]}>
@@ -144,42 +175,137 @@ export function RequestsCard({ title = 'Demandes à valider', load, validate, re
       )}
       {items?.length === 0 && <Text style={styles.empty}>Aucune demande en attente.</Text>}
       {(items?.length ?? 0) > 3 && <Field icon="search-outline" placeholder="Nom ou numéro" value={query} onChangeText={setQuery} autoCorrect={false} />}
-      {shown.map((r) => (
-        <View key={r.id} style={styles.row}>
-          <View style={{ flex: 1, gap: 2 }}>
-            <Text style={styles.name} numberOfLines={1}>
-              {r.name}
-            </Text>
-            {r.lines.map((l, i) => (
-              <Text key={i} style={styles.muted} numberOfLines={1}>
-                {l}
-              </Text>
-            ))}
-            <View style={styles.meta}>
-              <Text style={styles.total}>{formatFcfa(r.total)}</Text>
-              <Text style={styles.muted}> · expire dans {left(r.expiresAt)}</Text>
+      {shown.map((r) => {
+        const units = r.units ?? [];
+        const urgent = Date.parse(r.expiresAt) - now < 2 * 3_600_000;
+        const isOpen = r.id === openId;
+        const count = units.length || r.lines.length;
+        return (
+          <Animated.View key={r.id} layout={LinearTransition.duration(220)} style={[styles.req, isOpen && styles.reqOpen]}>
+            {/* The row: who, what in a word, how long left. A tap unfolds it (and folds the others). */}
+            <Pressable
+              style={styles.who}
+              onPress={() => {
+                haptics.select();
+                setOpen(isOpen ? '' : r.id);
+              }}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: isOpen }}
+              accessibilityLabel={`${r.name}, ${formatFcfa(r.total)}, expire dans ${left(r.expiresAt)}`}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{initials(r.name) || '?'}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.name} numberOfLines={1}>
+                  {r.name}
+                </Text>
+                <Text style={styles.summary} numberOfLines={1}>
+                  {units.length ? `${count} ${kind === 'caravan' ? `place${count > 1 ? 's' : ''}` : `billet${count > 1 ? 's' : ''}`} · ` : ''}
+                  {formatFcfa(r.total)}
+                </Text>
+                {/* The request's code in full (as on the student's QR), to match at a glance; else each ticket's own. */}
+                {(r.code || units.some((u) => u.code)) && (
+                  <View style={styles.summaryCodes}>
+                    {(r.code ? [r.code] : units.flatMap((u) => (u.code ? [u.code] : []))).map((c) => (
+                      <View key={c} style={styles.codeFull}>
+                        <Ionicons name="qr-code-outline" size={12} color={colors.primary} />
+                        <Text style={styles.codeChipText} selectable>
+                          {c}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+              <View style={[styles.timer, urgent && styles.timerUrgent]}>
+                <Ionicons name="time-outline" size={12} color={urgent ? colors.warningText : colors.primary} />
+                <Text style={[styles.timerText, urgent && { color: colors.warningText }]}>{left(r.expiresAt)}</Text>
+              </View>
+              <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={18} color={colors.muted2} />
+            </Pressable>
+
+            {isOpen && (
+              <Animated.View entering={FadeIn.duration(200)} style={{ gap: 12 }}>
               {!!r.phone && (
-                <Pressable onPress={() => Linking.openURL(`tel:${r.phone!.replace(/\s/g, '')}`)} hitSlop={8} accessibilityLabel={`Appeler ${r.name}`}>
-                  <Ionicons name="call-outline" size={15} color={colors.primary} style={{ marginLeft: 8 }} />
-                </Pressable>
+                <View style={styles.contact}>
+                  <Pressable style={styles.contactBtn} onPress={() => Linking.openURL(`tel:+${intl(r.phone!)}`)} accessibilityRole="button" accessibilityLabel={`Appeler ${r.name}`}>
+                    <Ionicons name="call-outline" size={14} color={colors.primary} />
+                    <Text style={styles.contactText}>Appeler</Text>
+                  </Pressable>
+                  <Pressable style={styles.contactBtn} onPress={() => Linking.openURL(`https://wa.me/${intl(r.phone!)}`)} accessibilityRole="button" accessibilityLabel={`Écrire à ${r.name} sur WhatsApp`}>
+                    <Ionicons name="logo-whatsapp" size={14} color="#1DA851" />
+                    <Text style={styles.contactText}>WhatsApp</Text>
+                  </Pressable>
+                </View>
               )}
-            </View>
-          </View>
-          {busy === r.id ? (
-            <ActivityIndicator color={colors.primary} />
-          ) : (
-            <View style={{ gap: 6 }}>
-              <Pressable style={styles.ok} onPress={() => onValidate(r)} accessibilityRole="button" accessibilityLabel={`Valider la demande de ${r.name}`}>
-                <Ionicons name="checkmark" size={16} color="#fff" />
-                <Text style={styles.okText}>Payé</Text>
-              </Pressable>
-              <Pressable style={styles.no} onPress={() => onRefuse(r)} accessibilityRole="button" accessibilityLabel={`Refuser la demande de ${r.name}`}>
-                <Text style={styles.noText}>Refuser</Text>
-              </Pressable>
-            </View>
-          )}
-        </View>
-      ))}
+
+              {/* What: each ticket (or seat), its own code (as on the student's QR) and its price. */}
+              <View style={styles.items}>
+                {!!r.code && (
+                  <View style={styles.reqCode}>
+                    <Text style={styles.reqCodeLabel}>{units.length > 1 ? 'Code de la demande (tout payer)' : 'Code de la demande'}</Text>
+                    <Text style={styles.codeChipText} selectable>
+                      {r.code}
+                    </Text>
+                  </View>
+                )}
+                {units.length
+                  ? units.map((u) => (
+                      <View key={u.id} style={styles.item}>
+                        <Ionicons name="ticket-outline" size={16} color={colors.primary} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.itemLabel} numberOfLines={1}>
+                            {u.label}
+                          </Text>
+                          {!!u.sub && (
+                            <Text style={styles.muted} numberOfLines={1}>
+                              {u.sub}
+                            </Text>
+                          )}
+                          {!!u.code && (
+                            <View style={styles.codeChip}>
+                              <Ionicons name="qr-code-outline" size={11} color={colors.primary} />
+                              <Text style={styles.codeChipText} selectable>
+                                {u.code}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={styles.itemPrice}>{formatFcfa(u.price)}</Text>
+                      </View>
+                    ))
+                  : r.lines.map((l, i) => (
+                      <View key={i} style={styles.item}>
+                        <Ionicons name="ticket-outline" size={16} color={colors.primary} />
+                        <Text style={[styles.itemLabel, { flex: 1 }]}>{l}</Text>
+                      </View>
+                    ))}
+              </View>
+
+              {/* How much, and the answer. */}
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>À encaisser</Text>
+                <Text style={styles.total}>{formatFcfa(r.total)}</Text>
+              </View>
+              {busy === r.id ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : (
+                <View style={styles.answer}>
+                  <Pressable style={({ pressed }) => [styles.ok, pressed && { opacity: 0.85 }]} onPress={() => onValidate(r)} accessibilityRole="button" accessibilityLabel={`Valider la demande de ${r.name}`}>
+                    <Ionicons name="checkmark" size={16} color="#fff" />
+                    <Text style={styles.okText}>Payé · {formatFcfa(r.total)}</Text>
+                  </Pressable>
+                  <Pressable style={({ pressed }) => [styles.no, pressed && { backgroundColor: colors.dangerBg }]} onPress={() => onRefuse(r)} accessibilityRole="button" accessibilityLabel={`Refuser la demande de ${r.name}`}>
+                    <Text style={styles.noText}>Refuser</Text>
+                  </Pressable>
+                </View>
+              )}
+              {!!r.createdAt && <Text style={[styles.muted, { textAlign: 'center' }]}>Demandée {ago(r.createdAt)}</Text>}
+              </Animated.View>
+            )}
+          </Animated.View>
+        );
+      })}
     </View>
   );
 }
@@ -193,12 +319,37 @@ const styles = StyleSheet.create({
   muted: { ...typo.caption, color: colors.muted2 },
   empty: { ...typo.small, color: colors.muted2, textAlign: 'center', paddingVertical: 6 },
   retry: { ...typo.smallStrong, color: colors.primary, textAlign: 'center' },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  // One request: a card of its own (who, what, how much, the answer).
+  req: { gap: 12, padding: 12, borderRadius: radii.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.bg, overflow: 'hidden' },
+  reqOpen: { borderColor: colors.primary, backgroundColor: colors.card },
+  summary: { ...typo.caption, color: colors.muted2, marginTop: 1 },
+  // Never cut: its own line under the name, wrapping if there are several.
+  summaryCodes: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 5 },
+  codeFull: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.sm, backgroundColor: colors.primarySoft },
+  who: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { ...typo.bodyStrong, color: colors.primary },
   name: { ...typo.bodyStrong, color: colors.navy },
-  meta: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
-  total: { ...typo.smallStrong, color: colors.navy },
-  ok: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, minHeight: 34, borderRadius: radii.pill, backgroundColor: colors.successText },
+  timer: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 4, borderRadius: radii.pill, backgroundColor: colors.primarySoft },
+  timerUrgent: { backgroundColor: colors.warningBg },
+  timerText: { ...typo.captionStrong, color: colors.primary },
+  contact: { flexDirection: 'row', gap: 8 },
+  contactBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, minHeight: 34, borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
+  contactText: { ...typo.captionStrong, color: colors.navy },
+  items: { gap: 8, padding: 10, borderRadius: radii.sm, backgroundColor: colors.card },
+  item: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  itemLabel: { ...typo.smallStrong, color: colors.navy },
+  reqCode: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  reqCodeLabel: { ...typo.caption, color: colors.muted2, flex: 1 },
+  codeChip: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', marginTop: 3, paddingHorizontal: 7, paddingVertical: 2, borderRadius: radii.sm, backgroundColor: colors.primarySoft },
+  codeChipText: { ...typo.captionStrong, color: colors.primary, letterSpacing: 1.5, fontVariant: ['tabular-nums'] },
+  itemPrice: { ...typo.smallStrong, color: colors.navy, fontVariant: ['tabular-nums'] },
+  totalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  totalLabel: { ...typo.small, color: colors.muted2 },
+  total: { ...typo.title, color: colors.navy },
+  answer: { flexDirection: 'row', gap: 10 },
+  ok: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, minHeight: 40, borderRadius: radii.pill, backgroundColor: colors.successText },
   okText: { ...typo.smallStrong, color: '#fff' },
-  no: { alignItems: 'center', justifyContent: 'center', minHeight: 30 },
-  noText: { ...typo.smallStrong, color: colors.dangerText },
+  no: { alignItems: 'center', justifyContent: 'center', minHeight: 40, paddingHorizontal: 16, borderRadius: radii.pill, borderWidth: 1.5, borderColor: colors.dangerText },
+  noText: { ...typo.captionStrong, color: colors.dangerText },
 });

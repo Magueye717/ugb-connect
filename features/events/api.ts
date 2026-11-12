@@ -59,6 +59,8 @@ export type TicketRequestDto = {
   units?: RequestUnit[];
   /** Tickets of this request validated already. */
   validated?: number;
+  /** The whole request's code (« Tout payer »). */
+  code?: string | null;
   /** Found by one ticket's own code: that ticket. */
   matched?: string | null;
 };
