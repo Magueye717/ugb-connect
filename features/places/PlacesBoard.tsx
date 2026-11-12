@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -35,6 +35,8 @@ export function PlacesBoard() {
   const [view, setView] = useState<View_>('list');
   const [filter, setFilter] = useState<Filter>('Tout');
   const [query, setQuery] = useState('');
+  // From the home's « Où se trouve… ? »: the search opens ready to type (again at each tap: `n` changes).
+  const { chercher, n } = useLocalSearchParams<{ chercher?: string; n?: string }>();
   const [layers, setLayers] = useState<Layer[]>(['place', 'restaurant', 'shop']);
   const [businesses, setBusinesses] = useState<ListedBusiness[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -78,6 +80,8 @@ export function PlacesBoard() {
     <View style={styles.search}>
       <View style={{ flex: 1 }}>
         <Field
+          key={chercher ? `search-${n ?? ''}` : 'search'}
+          autoFocus={!!chercher}
           icon="search"
           placeholder="BU, Rectorat, Village E…"
           value={query}

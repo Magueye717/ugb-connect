@@ -5,7 +5,7 @@ import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView,
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackButton, FilterChips, SheetHeader, Toggle } from '@/components/ui';
-import { EmptyState, ErrorState } from '@/components/states';
+import { EmptyState, ErrorState, SkeletonCard } from '@/components/states';
 import { notificationFilters } from '@/constants/data';
 import { colors, shadow, radii, typo } from '@/constants/theme';
 import { useNotifications } from '@/context/NotificationsContext';
@@ -105,7 +105,7 @@ export default function NotificationsScreen() {
         contentContainerStyle={styles.body}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={false} onRefresh={load} />}>
-        {loading && <ActivityIndicator color={colors.primary} />}
+        {loading && (<><SkeletonCard /><SkeletonCard /></>)}
         {!loading && error && items.length === 0 && <ErrorState text={error} onRetry={load} />}
         {groups.map((g) => {
           const list = items.filter((n) => groupOf(Date.parse(n.createdAt), now) === g);

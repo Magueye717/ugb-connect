@@ -48,7 +48,7 @@ export default function StaffTabLayout() {
           tabBarInactiveTintColor: colors.muted2,
           tabBarStyle: [styles.bar, { height: 62 + bottom, paddingBottom: bottom }],
           tabBarLabel: ({ focused, color }) => (
-            <Text style={[styles.label, { color: String(color), fontWeight: focused ? '700' : '500' }]} maxFontSizeMultiplier={1.3} numberOfLines={1}>
+            <Text style={[styles.label, { color: String(color), fontWeight: focused ? '700' : '500' }]} maxFontSizeMultiplier={1.3} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
               {titleOf(route.name)}
             </Text>
           ),

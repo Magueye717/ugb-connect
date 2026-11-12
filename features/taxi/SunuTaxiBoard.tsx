@@ -46,6 +46,12 @@ export function formatDeparture(at: number, now: number) {
   return `Aujourd’hui ${d.getHours()}h${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+/** « 17h30 ». */
+const clock = (at: number) => {
+  const d = new Date(at);
+  return `${d.getHours()}h${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
 const leaveLabel = (m: number) => (m < 60 ? `${m} min` : `${m / 60} h`);
 
 // Sunu Taxi: a student proposes a trip, others pay their seat to join.
@@ -61,7 +67,8 @@ export function SunuTaxiBoard() {
   // From the server: open trips, plus my departed ones while their chat is still open.
   const upcoming = trips.filter((t) => t.status !== 'cancelled');
 
-  const { join, resumePayment, leave, cancel, busy, depart, claim, current, suspended } = useTaxiActions();
+  const { join, leave, cancel, busy, depart, current, suspended } = useTaxiActions();
+  const [rulesOpen, setRulesOpen] = useState(false);
 
   if (taxi.loading) {
     return (
@@ -73,29 +80,64 @@ export function SunuTaxiBoard() {
   }
   if (taxi.error && trips.length === 0) return <ErrorState text={taxi.error} onRetry={taxi.refresh} />;
 
+  // Mine first, on its own (it's the one I check: who's in, the chat, « Je suis là »); the others by when they leave.
+  const mine = upcoming.filter((t) => t.passengers.includes(me));
+  const others = upcoming.filter((t) => !t.passengers.includes(me) && !t.departed && t.departureAt > now).sort((x, y) => x.departureAt - y.departureAt);
+  const soon = others.filter((t) => t.departureAt - now < 30 * 60_000);
+  const later = others.filter((t) => t.departureAt - now >= 30 * 60_000);
+  // Only the soonest trip with room hops: motion means « look here », not everywhere.
+  const hopId = others.find((t) => t.status === 'open' && t.seatsTaken < t.seats && !t.departed)?.id;
+
+  const card = (t: TaxiTrip) => {
+    const c = (
+      <TripCard
+        key={t.id}
+        trip={t}
+        me={me}
+        now={now}
+        suspended={suspended}
+        busy={!!current && current.id !== t.id}
+        onBusy={busy}
+        onJoin={() => join(t)}
+        onLeave={(locked) => leave(t, locked)}
+        onCancel={(locked) => cancel(t, locked)}
+        onCheckIn={() => taxi.checkIn(t.id).catch((err) => Alert.alert('Pointage impossible', err instanceof ApiError ? err.message : 'Vérifie ta connexion et réessaie.'))}
+        onDepart={() => depart(t)}
+        messageCount={taxi.unreadFor(t.id)}
+        onChat={() => router.push(`/trajet/${t.id}`)}
+        compact
+        onOpen={() => router.push(`/taxi/${t.id}`)}
+      />
+    );
+    return t.id === hopId ? <Hop key={t.id}>{c}</Hop> : <View key={t.id}>{c}</View>;
+  };
+
   return (
     <>
-
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} refreshControl={pull}>
+        {/* The one thing to do here, then how it works (folded: read once, not on every visit). */}
         <View style={styles.hero}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.heroTitle}>Tu pars quelque part ?</Text>
-            <Text style={styles.heroSub}>
-              {taxi.onlinePayment ? 'Propose un trajet, d’autres étudiants paient leur place et vous partagez le prix.' : 'Propose un trajet, d’autres étudiants réservent une place et vous partagez le prix.'}
-            </Text>
-          </View>
-          <Pressable
-            style={[styles.heroBtn, suspended && { opacity: 0.5 }]}
+          <Text style={styles.heroTitle}>Tu pars quelque part ?</Text>
+          <Text style={styles.heroSub}>Propose un trajet : d’autres étudiants réservent une place, vous partagez le prix du taxi.</Text>
+          <PrimaryButton
+            size="sm"
+            icon="add"
+            label="Proposer un trajet"
             disabled={suspended}
-            onPress={() => (current ? busy() : setCreating(true))}>
-            <Ionicons name="add" size={16} color={colors.primary} />
-            <Text style={styles.heroBtnText}>Proposer</Text>
-          </Pressable>
+            onPress={() => (current ? busy() : setCreating(true))}
+            style={styles.heroCta}
+          />
         </View>
-
-        <View style={[styles.rules, shadow.card]}>
-          <TaxiRules payOnline={taxi.onlinePayment} />
-        </View>
+        <Pressable style={styles.howTo} onPress={() => setRulesOpen((o) => !o)} accessibilityRole="button" accessibilityState={{ expanded: rulesOpen }}>
+          <Ionicons name="information-circle-outline" size={16} color={colors.primary} />
+          <Text style={styles.howToText}>Comment ça marche ?</Text>
+          <Ionicons name={rulesOpen ? 'chevron-up' : 'chevron-down'} size={14} color={colors.primary} />
+        </Pressable>
+        {rulesOpen && (
+          <View style={[styles.rules, shadow.card]}>
+            <TaxiRules />
+          </View>
+        )}
 
         {strikes > 0 && (
           <View style={[styles.strikes, suspended && { backgroundColor: colors.dangerBg }]}>
@@ -108,43 +150,40 @@ export function SunuTaxiBoard() {
           </View>
         )}
 
-        <Text style={styles.section}>Trajets ouverts</Text>
-        {upcoming.length === 0 && (
-          <EmptyState
-            icon="car-outline"
-            title="Aucun trajet pour le moment"
-            text="Propose le premier : d’autres étudiants te rejoindront."
-            action={suspended ? undefined : { label: 'Proposer un trajet', onPress: () => setCreating(true) }}
-          />
+        {mine.length > 0 && (
+          <>
+            <Text style={styles.section}>Mon trajet</Text>
+            {mine.map((t) => (
+              <View key={t.id}>{card(t)}</View>
+            ))}
+          </>
         )}
 
-        {upcoming.map((t) => {
-          // Open and not mine: it hops (seats to take), as on the home screen.
-          const joinable = t.status === 'open' && !t.passengers.includes(me) && t.seatsTaken < t.seats;
-          const card = (
-          <TripCard
-            key={t.id}
-            trip={t}
-            me={me}
-            now={now}
-            suspended={suspended}
-            busy={!!current && current.id !== t.id}
-            onBusy={busy}
-            onJoin={() => join(t)}
-            onPay={() => resumePayment(t)}
-            onLeave={(locked) => leave(t, locked)}
-            onCancel={(locked) => cancel(t, locked)}
-            onCheckIn={() => taxi.checkIn(t.id).catch((err) => Alert.alert('Pointage impossible', err instanceof ApiError ? err.message : 'Vérifie ta connexion et réessaie.'))}
-            onDepart={() => depart(t)}
-            onClaim={() => claim(t)}
-            messageCount={taxi.unreadFor(t.id)}
-            onChat={() => router.push(`/trajet/${t.id}`)}
-            compact
-            onOpen={() => router.push(`/taxi/${t.id}`)}
-          />
-          );
-          return joinable ? <Hop key={t.id}>{card}</Hop> : <View key={t.id}>{card}</View>;
-        })}
+        {others.length === 0 ? (
+          mine.length === 0 && (
+            <EmptyState
+              icon="car-outline"
+              title="Aucun trajet pour le moment"
+              text="Propose le premier : d’autres étudiants te rejoindront."
+              action={suspended ? undefined : { label: 'Proposer un trajet', onPress: () => setCreating(true) }}
+            />
+          )
+        ) : (
+          <>
+            {soon.length > 0 && (
+              <>
+                <Text style={styles.section}>Dans moins de 30 min</Text>
+                {soon.map(card)}
+              </>
+            )}
+            {later.length > 0 && (
+              <>
+                <Text style={styles.section}>{soon.length ? 'Plus tard' : 'Trajets ouverts'}</Text>
+                {later.map(card)}
+              </>
+            )}
+          </>
+        )}
       </ScrollView>
 
       <NewTripSheet
@@ -170,12 +209,10 @@ export function TripCard({
   busy,
   onBusy,
   onJoin,
-  onPay,
   onLeave,
   onCancel,
   onCheckIn,
   onDepart,
-  onClaim,
   messageCount,
   onChat,
 }: {
@@ -187,30 +224,25 @@ export function TripCard({
   busy: boolean;
   onBusy: () => void;
   onJoin: () => void;
-  /** Back to the payment page for a seat taken but not paid yet. */
-  onPay: () => void;
   onLeave: (locked: boolean) => void;
   onCancel: (locked: boolean) => void;
   onCheckIn: () => void;
   onDepart: () => void;
-  /** Organizer, after departure: collect the paid seats. */
-  onClaim: () => void;
   messageCount: number;
   onChat: () => void;
   compact?: boolean;
   onOpen?: () => void;
 }) {
+  // Gone at its time, without waiting for the server (it marks it departed then too).
+  const gone = t.departed || now >= t.departureAt;
   const isOrganizer = t.passengers[0] === me;
   const isIn = t.passengers.includes(me);
-  const paying = t.myStatus === 'pending_payment';
   const full = t.seatsTaken >= t.seats;
   const locked = now >= t.lockAt;
   const here = t.checkedIn.includes(me);
-  const lockIn = Math.max(0, Math.ceil((t.lockAt - now) / 60_000));
   // Seats paid by someone who left after the lock, or held while someone pays: taken, but nobody to show.
   const reserved = Math.max(0, t.seatsTaken - t.passengers.length);
   const { trips, lateCancels } = t.organizer;
-  const claimed = !!t.claim?.payout;
 
   return (
     <Pressable
@@ -235,7 +267,13 @@ export function TripCard({
             )}
           </View>
         </View>
-        <Text style={styles.departure}>{formatDeparture(t.departureAt, now)}</Text>
+        {/* When, first: the time in large, how soon under it (orange when it's imminent). */}
+        <View style={styles.when}>
+          <Text style={styles.whenTime}>{clock(t.departureAt)}</Text>
+          <Text style={[styles.whenSoon, t.departureAt - now < 15 * 60_000 && !gone && { color: colors.orangeText }]}>
+            {gone ? 'Parti' : t.departureAt - now < 15 * 60_000 ? 'Départ imminent' : formatDeparture(t.departureAt, now).replace(/^Aujourd’hui .*/, 'Aujourd’hui')}
+          </Text>
+        </View>
       </View>
 
       <View style={styles.route}>
@@ -291,7 +329,7 @@ export function TripCard({
         </View>
       )}
 
-      {compact ? null : t.departed ? (
+      {compact ? null : gone ? (
         <View style={[styles.lock, styles.lockGo]}>
           <Ionicons name="car" size={13} color={colors.successText} />
           <Text style={[styles.lockText, { color: colors.successText }]}>En route · bon trajet !</Text>
@@ -300,13 +338,7 @@ export function TripCard({
         <View style={[styles.lock, locked && styles.lockOn]}>
           <Ionicons name={locked ? 'lock-closed' : 'lock-open-outline'} size={13} color={locked ? colors.warningText : colors.muted2} />
           <Text style={[styles.lockText, locked && { color: colors.warningText }]}>
-            {t.payOnline
-              ? locked
-                ? 'Places verrouillées · quitter n’est plus remboursé'
-                : `Verrouillage dans ${lockIn} min · quitter est remboursé`
-              : locked
-                ? 'Au rendez-vous · ta part se règle dans le taxi'
-                : `Ta part : ${formatFcfa(t.seatPrice)}, à régler dans le taxi`}
+            {locked ? 'Au rendez-vous · ta part se règle dans le taxi' : `Ta part : ${formatFcfa(t.seatPrice)}, à régler dans le taxi`}
           </Text>
         </View>
       )}
@@ -327,7 +359,7 @@ export function TripCard({
       {compact && isIn ? (
         <View style={styles.actions}>
           {/* At the meeting point: check in straight from the list, no need to open the trip. */}
-          {!t.departed && !isOrganizer && locked ? (
+          {!gone && !isOrganizer && locked ? (
             <Pressable
               style={[styles.action, { flex: 1 }, here && styles.actionDone]}
               disabled={here}
@@ -341,42 +373,16 @@ export function TripCard({
             </Pressable>
           ) : (
             <Pressable style={[styles.action, styles.actionOutline, { flex: 1 }]} onPress={onOpen} accessibilityRole="button">
-              <Ionicons name={t.departed ? 'car' : 'checkmark-circle'} size={16} color={colors.successText} />
+              <Ionicons name={gone ? 'car' : 'checkmark-circle'} size={16} color={colors.successText} />
               <Text style={[styles.actionText, { color: colors.successText }]} numberOfLines={1}>
-                {t.departed ? 'En route · voir le trajet' : isOrganizer ? 'Ton trajet · gérer' : t.payOnline ? 'Place payée · voir le trajet' : 'Place réservée · voir le trajet'}
+                {gone ? 'En route · voir le trajet' : isOrganizer ? 'Ton trajet · gérer' : 'Place réservée · voir le trajet'}
               </Text>
             </Pressable>
           )}
           {/* One tap to the chat: it's what you need most once you're in. Gone when the chat closes. */}
           {now < t.chatClosesAt && <ChatButton count={messageCount} onPress={onChat} />}
         </View>
-      ) : t.departed ? (
-        isOrganizer && (t.claim?.amount ?? 0) > 0 ? (
-          <Pressable
-            style={[styles.action, claimed && styles.actionDone]}
-            disabled={claimed}
-            onPress={onClaim}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: claimed }}>
-            <Ionicons name={claimed ? 'checkmark-circle' : 'wallet-outline'} size={16} color={claimed ? colors.successText : '#fff'} />
-            <Text style={[styles.actionText, claimed && { color: colors.successText }]}>
-              {claimed ? `${formatFcfa(t.claim!.payout!.amount)} demandés` : `Récupérer ${formatFcfa(t.claim!.amount)}`}
-            </Text>
-          </Pressable>
-        ) : null
-      ) : paying ? (
-        <View style={styles.actions}>
-          <Pressable style={[styles.action, { flex: 1 }]} onPress={onPay} accessibilityRole="button">
-            <Ionicons name="wallet-outline" size={16} color="#fff" />
-            <Text style={styles.actionText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
-              Payer · {formatFcfa(t.seatPrice)}
-            </Text>
-          </Pressable>
-          <Pressable style={[styles.action, styles.actionOutline, styles.actionSmall]} onPress={() => onLeave(false)}>
-            <Text style={[styles.actionText, { color: colors.muted2 }]}>Libérer</Text>
-          </Pressable>
-        </View>
-      ) : isOrganizer ? (
+      ) : gone ? null : isOrganizer ? (
         locked ? (
           <View style={styles.actions}>
             <Pressable style={[styles.action, { flex: 1 }]} onPress={onDepart}>
@@ -412,7 +418,7 @@ export function TripCard({
         ) : (
           <Pressable style={[styles.action, styles.actionOutline]} onPress={() => onLeave(false)}>
             <Ionicons name="checkmark-circle" size={16} color={colors.successText} />
-            <Text style={[styles.actionText, { color: colors.successText }]}>{t.payOnline ? 'Place payée · Quitter' : 'Place réservée · Annuler'}</Text>
+            <Text style={[styles.actionText, { color: colors.successText }]}>Place réservée · Annuler</Text>
           </Pressable>
         )
       ) : (
@@ -421,7 +427,7 @@ export function TripCard({
           disabled={full || suspended}
           onPress={busy ? onBusy : onJoin}>
           <Text style={styles.actionText}>
-            {full ? 'Complet' : suspended ? 'Suspendu' : busy ? 'Déjà dans un trajet' : t.payOnline ? `Rejoindre · ${formatFcfa(t.seatPrice)}` : `Réserver · ${formatFcfa(t.seatPrice)}`}
+            {full ? 'Complet' : suspended ? 'Suspendu' : busy ? 'Déjà dans un trajet' : `Réserver · ${formatFcfa(t.seatPrice)}`}
           </Text>
         </Pressable>
       )}
@@ -454,19 +460,11 @@ export function ChatButton({ count, onPress }: { count: number; onPress: () => v
 }
 
 /**
- * Sunu Taxi's rules, the same in the list and on a trip: a reservation (nothing paid in the app, the share given in
- * the taxi), or seats paid in the app (lock, refunds). `price`: a trip's share, when shown on that trip.
+ * Sunu Taxi's rules, the same in the list and on a trip: a reservation, nothing paid in the app, the share given in
+ * the taxi. `price`: a trip's share, when shown on that trip.
  */
-export function TaxiRules({ payOnline, price }: { payOnline: boolean; price?: number }) {
+export function TaxiRules({ price }: { price?: number }) {
   const share = price ? formatFcfa(price) : null;
-  if (payOnline)
-    return (
-      <>
-        <Rule icon="wallet-outline" text="Tu paies ta place en rejoignant : prix fixe, connu d’avance." />
-        <Rule icon="lock-closed-outline" text={`Places verrouillées ${TAXI_LOCK_MIN} min avant (à mi-chemin pour un départ proche) : quitter n’est plus remboursé.`} />
-        <Rule icon="shield-checkmark-outline" text="Trajet annulé par l’organisateur : remboursé à 100 %." />
-      </>
-    );
   return (
     <>
       <Rule icon="bookmark-outline" text="Tu réserves ta place en un geste : rien à payer dans l’app." />
@@ -629,9 +627,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderRadius: radii.lg,
     padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
   },
   heroTitle: { ...typo.title, color: '#fff' },
   heroSub: { ...typo.caption, color: 'rgba(255,255,255,0.85)', marginTop: 4, lineHeight: 17 },
@@ -652,6 +647,12 @@ const styles = StyleSheet.create({
   organizerName: { ...typo.bodyStrong, color: colors.navy },
   organizerRole: { fontSize: 11, color: colors.muted2 },
   departure: { ...typo.captionStrong, color: colors.primary },
+  when: { alignItems: 'flex-end' },
+  whenTime: { ...typo.title, color: colors.navy, fontVariant: ['tabular-nums'] },
+  whenSoon: { ...typo.label, color: colors.primary },
+  heroCta: { alignSelf: 'flex-start', marginTop: 6 },
+  howTo: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 2 },
+  howToText: { ...typo.smallStrong, color: colors.primary },
   route: { flexDirection: 'row', gap: 10 },
   routeLine: { alignItems: 'center', paddingTop: 4, width: 14 },
   routeFrom: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: colors.primary },

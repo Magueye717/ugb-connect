@@ -12,13 +12,15 @@ import { OrganizerLine } from '@/components/caravan';
 import { eventWhen } from '@/components/home';
 import { NudgeRight } from '@/components/motion';
 import { RequestPass } from '@/components/RequestPass';
-import { BackButton, TextButton } from '@/components/ui';
+import { BackButton, PrimaryButton, TextButton } from '@/components/ui';
 import { formatDateTime, formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCaravans } from '@/context/CaravansContext';
 import { toOrganizer } from '@/features/caravans/api';
 import { eventsApi, type EventBookingDto, type EventDto } from '@/features/events/api';
 import { ApiError } from '@/lib/api';
+import { useNow } from '@/lib/useNow';
+import { countdown } from '@/features/events/countdown';
 import { confirmAction, notice } from '@/lib/notice';
 import { haptics } from '@/lib/haptics';
 
@@ -26,7 +28,7 @@ const price = (n: number) => (n === 0 ? 'Gratuit' : formatFcfa(n));
 
 /**
  * An event promoted on the home carousel: its pictures (slide), what, when, where, who organizes it, and its
- * tickets. Paid with Wave or Orange Money (a free event is booked at once); each ticket gets a QR code.
+ * tickets. A request paid in cash to the organizer, who validates it (a free event is booked at once); each ticket gets a QR code.
  */
 export default function Evenement() {
   // `acheter`: opened from "Acheter un ticket": one ticket preselected, the page scrolled to the tickets.
@@ -52,6 +54,7 @@ export default function Evenement() {
   // For a friend: their phone (they paid the organizer in cash: the tickets are theirs at once).
   const [friendPhone, setFriendPhone] = useState('');
   const [paying, setPaying] = useState(false);
+  const now = useNow();
   const insets = useSafeAreaInsets();
 
   const load = useCallback(() => {
@@ -176,8 +179,15 @@ export default function Evenement() {
         <Slider images={cover && e.images.includes(cover) ? [cover, ...e.images.filter((u) => u !== cover)] : e.images} top={insets.top} onBack={back} />
 
         <View style={styles.body} onLayout={(ev) => toTickets('body', ev.nativeEvent.layout.y)}>
-          <View style={styles.chip}>
-            <Text style={styles.chipText}>{e.categoryLabel.toUpperCase()}</Text>
+          <View style={styles.chipsRow}>
+            <View style={styles.chip}>
+              <Text style={styles.chipText}>{e.categoryLabel.toUpperCase()}</Text>
+            </View>
+            {/* How soon: « Dans 3 j », « Aujourd’hui · 20h00 », « En cours ». */}
+            <View style={styles.soon}>
+              <Ionicons name="time-outline" size={12} color={colors.orangeText} />
+              <Text style={styles.soonText}>{countdown(e.startsAt, e.endsAt, now)}</Text>
+            </View>
           </View>
           <Text style={styles.title}>{e.title}</Text>
           {/* An entity (association, company) by its name; a student organizing on their own: no name shown. */}
@@ -292,9 +302,13 @@ export default function Evenement() {
             <Text style={styles.muted}>{count ? `${count} billet${count > 1 ? 's' : ''}${forFriends ? ' pour ton ami' : ''}` : `Dès ${price(e.minPrice)}`}</Text>
             <Text style={styles.total}>{count ? price(total) : forFriends ? 'Combien pour ton ami ?' : 'Choisis tes billets'}</Text>
           </View>
-          <Pressable style={[styles.buy, (!count || paying || (forFriends && !phoneOk(friendDigits))) && styles.buyOff]} disabled={!count || paying || (forFriends && !phoneOk(friendDigits))} onPress={buy} accessibilityRole="button">
-            <Text style={styles.buyText}>{paying ? 'Un instant…' : forFriends ? 'Envoyer à mon ami' : total > 0 ? 'Envoyer ma demande' : 'Réserver'}</Text>
-          </Pressable>
+          <PrimaryButton
+            label={forFriends ? 'Envoyer à mon ami' : total > 0 ? 'Envoyer ma demande' : 'Réserver'}
+            loading={paying}
+            disabled={!count || paying || (forFriends && !phoneOk(friendDigits))}
+            onPress={buy}
+            style={{ paddingHorizontal: 22 }}
+          />
         </View>
       )}
     </View>
@@ -434,6 +448,9 @@ const styles = StyleSheet.create({
   head: { paddingHorizontal: 20, paddingTop: 8 },
   body: { padding: 20, gap: 14 },
   chip: { alignSelf: 'flex-start', backgroundColor: colors.primarySoft, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4 },
+  chipsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  soon: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radii.pill, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: colors.accentSoft },
+  soonText: { ...typo.captionStrong, color: colors.orangeText },
   chipText: { ...typo.label, color: colors.primary, letterSpacing: 0.4 },
   title: { ...typo.h2, color: colors.navy },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14 },

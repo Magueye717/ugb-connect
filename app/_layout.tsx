@@ -73,6 +73,8 @@ function Screens() {
         {/* The bell: every account gets its own notifications (a shop its orders, a student their tickets…). */}
         <Stack.Screen name="notifications" />
         <Stack.Screen name="aide" />
+        {/* « Y aller »: the walk on the UGB map, from any space (a place, a restaurant, a shop, a lost item). */}
+        <Stack.Screen name="itineraire" />
       </Stack.Protected>
       <Stack.Protected guard={space === 'student'} redirectTo={home}>
         <Stack.Screen name="(tabs)" />
@@ -82,6 +84,7 @@ function Screens() {
         <Stack.Screen name="ma-carte" />
         <Stack.Screen name="infos" />
         <Stack.Screen name="mes-billets" />
+        <Stack.Screen name="mes-commandes" />
         <Stack.Screen name="mes-objets" />
         <Stack.Screen name="ma-boutique" />
         <Stack.Screen name="evenement/[id]" />

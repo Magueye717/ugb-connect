@@ -22,7 +22,7 @@ import { toast } from '@/lib/toast';
 
 // The providers' logos (constants/data) for the online methods a business accepts.
 
-/** The basket: one business, delivery or pickup, paid now with Wave or Orange Money; then the order's tracking. */
+/** The basket: one business, delivery or pickup, paid in cash at the handover; then the order's tracking. */
 export default function Panier() {
   const cart = useCart();
   const { upsert } = useOrders();
@@ -52,7 +52,7 @@ export default function Panier() {
   // Remembered once the basket empties (it then has no business): a shop's basket leads back to the shops.
   const [lastKind, setLastKind] = useState<'restaurant' | 'shop' | null>(null);
   if (b?.kind && b.kind !== lastKind) setLastKind(b.kind as 'restaurant' | 'shop');
-  const continueTo = lastKind === 'shop' ? { pathname: '/(tabs)/lieux' as const, params: { vue: 'boutiques' } } : { pathname: '/(tabs)/resto' as const };
+  const continueTo = lastKind === 'shop' ? { pathname: '/(tabs)/resto' as const, params: { vue: 'boutiques' } } : { pathname: '/(tabs)/resto' as const };
   // Back to where the student was (the shop, the article); with no history, to the shops or the restaurants.
   const back = () => (router.canGoBack() ? router.back() : router.replace(continueTo));
 
@@ -66,7 +66,7 @@ export default function Panier() {
           </View>
           <Text style={styles.emptyTitle}>Ton panier est vide</Text>
           <Text style={styles.emptyText}>{lastKind === 'shop' ? 'Retourne au marché et ajoute des articles.' : lastKind === 'restaurant' ? 'Retourne au restaurant et ajoute des plats.' : 'Choisis un restaurant ou une boutique et ajoute des articles.'}</Text>
-          <PrimaryButton label={lastKind ? 'Continuer mes achats' : 'Voir les boutiques'} onPress={lastKind ? back : () => router.dismissTo({ pathname: '/(tabs)/lieux', params: { vue: 'boutiques' } })} style={{ alignSelf: 'stretch' }} />
+          <PrimaryButton label={lastKind ? 'Continuer mes achats' : 'Voir les boutiques'} onPress={lastKind ? back : () => router.dismissTo({ pathname: '/(tabs)/resto', params: { vue: 'boutiques' } })} style={{ alignSelf: 'stretch' }} />
         </View>
       </SafeAreaView>
     );

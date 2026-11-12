@@ -96,7 +96,7 @@ function MyShop({ orgId, spaceKey }: { orgId: string; spaceKey: string }) {
                     <Ionicons name="receipt-outline" size={16} color="#fff" />
                     <Text style={styles.actionText}>Mes commandes</Text>
                   </Pressable>
-                  <Pressable style={({ pressed }) => [styles.action, styles.actionSoft, pressed && { opacity: 0.8 }]} onPress={() => router.push({ pathname: '/(tabs)/lieux', params: { vue: 'boutiques', boutique: b.id } })} accessibilityRole="button">
+                  <Pressable style={({ pressed }) => [styles.action, styles.actionSoft, pressed && { opacity: 0.8 }]} onPress={() => router.push({ pathname: '/(tabs)/resto', params: { vue: 'boutiques', boutique: b.id } })} accessibilityRole="button">
                     <Ionicons name="eye-outline" size={16} color={colors.primary} />
                     <Text style={[styles.actionText, { color: colors.primary }]}>Voir comme un client</Text>
                   </Pressable>
@@ -176,7 +176,7 @@ function OpenShop() {
       <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={[styles.intro, shadow.card]}>
             <Ionicons name="storefront-outline" size={22} color={colors.primary} />
-            <Text style={styles.introText}>Tes produits ou tes services (tresses, cours, snacks…) dans la rubrique Boutiques. Les étudiants commandent dans l’app et te paient en espèces à la remise ; Wave et Orange Money s’ouvrent une fois ta boutique vérifiée.</Text>
+            <Text style={styles.introText}>Tes produits ou tes services (tresses, cours, snacks…) dans la rubrique Boutiques. Les étudiants commandent dans l’app et te paient en espèces à la remise.</Text>
           </View>
           <Pressable style={styles.cover} onPress={pick} accessibilityRole="button" accessibilityLabel="Ajouter ton image de marque">
             {photo ? <Image source={{ uri: photo.url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name="image-outline" size={28} color={colors.primary} />}

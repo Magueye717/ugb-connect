@@ -11,6 +11,7 @@ import { EmptyState, ErrorState, SkeletonCard } from '@/components/states';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCart } from '@/context/CartContext';
+import { useOrders } from '@/context/OrdersContext';
 import { matches } from '@/lib/search';
 import { commerceApi, type BusinessDto, type ListedBusiness, type MarketItem } from './api';
 import { distanceLabel, metres, useMyPosition } from './distance';
@@ -60,6 +61,7 @@ export function RestaurantList() {
   const [sort, setSort] = useState<RestoSort>('open');
   const [sorting, setSorting] = useState(false);
   const me = useMyPosition();
+  const [showClosed, setShowClosed] = useState(false);
 
   const load = useCallback(() => {
     setLoadFailed(false);
@@ -81,6 +83,10 @@ export function RestaurantList() {
     .sort((a, b) =>
       sort === 'near' ? (distance(a) ?? Infinity) - (distance(b) ?? Infinity) : sort === 'price' ? (a.minPrice ?? Infinity) - (b.minPrice ?? Infinity) : Number(b.open) - Number(a.open),
     );
+
+  const open = shown.filter((b) => b.open);
+  // Searching or filtering « Ouvert »: nothing hidden away.
+  const closed = shown.filter((b) => !b.open);
 
   return (
     <View style={{ gap: 14 }}>
@@ -111,9 +117,24 @@ export function RestaurantList() {
           action={query || filter !== 'all' ? { label: 'Tout afficher', onPress: () => (setQuery(''), setFilter('all')) } : undefined}
         />
       )}
-      {shown.map((b) => (
+      {/* My places, one tap away: most students order from the same two or three. */}
+      {!query && filter === 'all' && <Again />}
+
+      {open.map((b) => (
         <RestaurantCard key={b.id} b={b} distance={distance(b)} />
       ))}
+      {/* Closed for now: at the bottom, folded, each with when it opens. */}
+      {closed.length > 0 && (
+        <Pressable style={styles.closedHead} onPress={() => setShowClosed((v) => !v)} accessibilityRole="button" accessibilityState={{ expanded: showClosed }}>
+          <Ionicons name="moon-outline" size={15} color={colors.muted2} />
+          <Text style={styles.closedHeadText}>Fermés pour le moment · {closed.length}</Text>
+          <Ionicons name={showClosed ? 'chevron-up' : 'chevron-down'} size={15} color={colors.muted2} />
+        </Pressable>
+      )}
+      {(showClosed || !!query) &&
+        closed.map((b) => (
+          <RestaurantCard key={b.id} b={b} distance={distance(b)} />
+        ))}
 
       <SortSheet visible={sorting} options={RESTO_SORTS.filter((o) => o.key !== 'near' || !!me)} value={sort} onChange={setSort} onClose={() => setSorting(false)} />
     </View>
@@ -130,53 +151,63 @@ export function PrivateRestosBoard() {
   );
 }
 
+/**
+ * A restaurant: its photo wide (that's what makes you hungry), with when it closes or opens and how far, on it; then
+ * its name, what it serves, its price from, its rating and how you get the food (delivered or to collect).
+ */
 function RestaurantCard({ b, distance }: { b: ListedBusiness; distance: number | null }) {
-  // In the corner: open now (a closed one shows it on its photo).
-  const tag = b.open ? 'Ouvert' : null;
-  const serves = [b.specialty, ...b.highlights.map((h) => h.name)].filter(Boolean).slice(0, 3).join(' • ');
+  // Open: today's dishes still available (the plats du jour); closed, or nothing on today's menu: what it's known for.
+  const today = b.open ? b.highlights.map((h) => h.name).slice(0, 3) : [];
+  const delivery = b.deliveryFee === null ? 'Retrait sur place' : b.deliveryFee ? `Livraison ${b.deliveryFee} F` : 'Livraison gratuite';
   return (
     <Pressable
-      style={({ pressed }) => [styles.card, shadow.card, pressed && { transform: [{ scale: 0.99 }] }, !b.open && { opacity: 0.75 }]}
+      style={({ pressed }) => [styles.rCard, shadow.card, pressed && { transform: [{ scale: 0.99 }] }]}
       onPress={() => router.push(`/resto/${b.id}`)}
       accessibilityRole="button"
       accessibilityLabel={`${b.name}, ${b.statusLabel}${b.minPrice !== null ? `, dès ${formatFcfa(b.minPrice)}` : ''}`}>
-      <View style={styles.tile}>
+      <View style={styles.rPhoto}>
         {b.photo ? <Image source={{ uri: b.photo }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} /> : <Ionicons name="restaurant" size={34} color={colors.primary} />}
-        {!b.open && (
-          <View style={styles.closedVeil}>
-            <Text style={styles.closedText}>Fermé</Text>
+        {!b.open && <View style={styles.rDim} />}
+        <View style={[styles.rStatus, { backgroundColor: b.open ? 'rgba(22,128,61,0.92)' : 'rgba(31,42,68,0.85)' }]}>
+          <Ionicons name={b.open ? 'time-outline' : 'moon-outline'} size={12} color="#fff" />
+          <Text style={styles.rStatusText}>{shortStatus(b)}</Text>
+        </View>
+        {distance !== null && (
+          <View style={styles.rDistance}>
+            <Ionicons name="location" size={11} color={colors.navy} />
+            <Text style={styles.rDistanceText}>{distanceLabel(distance)}</Text>
           </View>
         )}
       </View>
-      <View style={styles.info}>
-        <View style={styles.titleRow}>
-          <Text style={styles.name} numberOfLines={1}>
+      <View style={styles.rBody}>
+        <View style={styles.rTop}>
+          <Text style={styles.rName} numberOfLines={1}>
             {b.name}
           </Text>
-          {tag && (
-            <View style={styles.tag}>
-              <Text style={styles.tagText}>{tag}</Text>
+          {b.rating !== null && (
+            <View style={styles.rRating}>
+              <Ionicons name="star" size={12} color="#F5A524" />
+              <Text style={styles.rRatingText}>{b.rating.toFixed(1)}</Text>
             </View>
           )}
         </View>
-        {b.minPrice !== null ? (
-          <Text style={styles.big} numberOfLines={1}>
-            <Text style={styles.from}>dès </Text>
-            {String(b.minPrice).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')}
-            <Text style={styles.currency}> FCFA</Text>
+        {today.length > 0 ? (
+          <Text style={styles.rServes} numberOfLines={1}>
+            <Text style={styles.rToday}>Aujourd’hui : </Text>
+            {today.join(' • ')}
           </Text>
         ) : (
-          <Text style={[styles.from, { marginVertical: 6 }]}>Menu bientôt en ligne</Text>
+          !!b.specialty && (
+            <Text style={styles.rServes} numberOfLines={1}>
+              {b.specialty}
+            </Text>
+          )
         )}
-        <Text style={styles.serves} numberOfLines={1}>
-          {serves}
-        </Text>
-        <View style={styles.factsRow}>
-          <View style={styles.facts}>
-            {b.rating !== null && <Fact icon="star" text={b.rating.toFixed(1)} fixed />}
-            <Fact icon="time-outline" text={shortStatus(b)} fixed />
-            <Fact icon={b.deliveryFee !== null ? 'bicycle-outline' : 'walk-outline'} text={b.deliveryFee === null ? 'Retrait' : b.deliveryFee ? `${b.deliveryFee} F` : 'Gratuite'} fixed />
-            <Fact icon="location-outline" text={distance !== null ? distanceLabel(distance) : (b.campusLabel ?? 'Campus')} />
+        <View style={styles.rBottom}>
+          <Text style={styles.rPrice}>{b.minPrice !== null ? `dès ${formatFcfa(b.minPrice)}` : 'Menu bientôt en ligne'}</Text>
+          <View style={styles.rDelivery}>
+            <Ionicons name={b.deliveryFee !== null ? 'bicycle-outline' : 'walk-outline'} size={13} color={colors.primary} />
+            <Text style={styles.rDeliveryText}>{delivery}</Text>
           </View>
         </View>
       </View>
@@ -184,19 +215,34 @@ function RestaurantCard({ b, distance }: { b: ListedBusiness; distance: number |
   );
 }
 
-/** `fixed`: never shrinks (hours, delivery); the last one (where) gives way. */
-function Fact({ icon, text, fixed }: { icon: keyof typeof Ionicons.glyphMap; text: string; fixed?: boolean }) {
+/** « Commander à nouveau »: the restaurants I ordered from, the latest first; one tap back to them. */
+function Again() {
+  const { orders } = useOrders();
+  const seen = new Set<string>();
+  const places = [...orders]
+    .filter((o) => o.business.kind === 'restaurant' && o.status === 'completed')
+    .sort((x, y) => Date.parse(y.createdAt) - Date.parse(x.createdAt))
+    .filter((o) => (seen.has(o.business.id) ? false : (seen.add(o.business.id), true)))
+    .slice(0, 6);
+  if (!places.length) return null;
   return (
-    <View style={[styles.fact, fixed && { flexShrink: 0 }]}>
-      <Ionicons name={icon} size={11} color={colors.navy} />
-      <Text style={styles.factText} numberOfLines={1}>
-        {text}
-      </Text>
+    <View style={{ gap: 8 }}>
+      <Text style={styles.againTitle}>Commander à nouveau</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
+        {places.map((o) => (
+          <Pressable key={o.business.id} style={styles.againItem} onPress={() => router.push(`/resto/${o.business.id}`)} accessibilityRole="button" accessibilityLabel={`Commander à nouveau chez ${o.business.name}`}>
+            <View style={styles.againPhoto}>
+              {o.business.photo ? <Image source={{ uri: o.business.photo }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name="restaurant" size={22} color={colors.primary} />}
+            </View>
+            <Text style={styles.againName} numberOfLines={1}>
+              {o.business.name}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
     </View>
   );
 }
-
-// ---- The market (shops) -----------------------------------------------------------------------------------------
 
 type MarketSort = 'newest' | 'relevance' | 'priceUp' | 'priceDown';
 /** Who sells: every shop, the students' own, or the established shops. */
@@ -556,6 +602,30 @@ function SortSheet<K extends string>({
 }
 
 const styles = StyleSheet.create({
+  rCard: { borderRadius: 20, backgroundColor: colors.card, overflow: 'hidden', borderWidth: 1, borderColor: '#EEF0F4' },
+  rPhoto: { height: 128, backgroundColor: TILE, alignItems: 'center', justifyContent: 'center' },
+  rDim: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(255,255,255,0.45)' },
+  rStatus: { position: 'absolute', left: 10, top: 10, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 4, borderRadius: radii.pill },
+  rStatusText: { ...typo.label, color: '#fff' },
+  rDistance: { position: 'absolute', right: 10, top: 10, flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radii.pill, backgroundColor: 'rgba(255,255,255,0.92)' },
+  rDistanceText: { ...typo.label, color: colors.navy },
+  rBody: { padding: 12, gap: 4 },
+  rTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rName: { ...typo.title, color: colors.navy, flex: 1 },
+  rRating: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  rRatingText: { ...typo.captionStrong, color: colors.navy },
+  rServes: { ...typo.caption, color: colors.muted2 },
+  rToday: { ...typo.captionStrong, color: colors.successText },
+  rBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 4 },
+  rPrice: { ...typo.smallStrong, color: colors.successText },
+  rDelivery: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 4, borderRadius: radii.pill, backgroundColor: colors.primarySoft },
+  rDeliveryText: { ...typo.label, color: colors.primary },
+  closedHead: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 6 },
+  closedHeadText: { ...typo.smallStrong, color: colors.muted2 },
+  againTitle: { ...typo.smallStrong, color: colors.navy },
+  againItem: { width: 72, alignItems: 'center', gap: 6 },
+  againPhoto: { width: 60, height: 60, borderRadius: 30, overflow: 'hidden', backgroundColor: TILE, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.accentSoft },
+  againName: { ...typo.label, color: colors.navy, textAlign: 'center' },
   more: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16 },
   sheetSection: { ...typo.smallStrong, color: colors.navy, marginTop: 12, marginBottom: 8, paddingHorizontal: 4 },
   sellers: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 4 },

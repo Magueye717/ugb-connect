@@ -2,19 +2,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { usePullRefresh } from '@/components/PullRefresh';
-import { LogoutButton } from '@/components/LogoutButton';
-import { ProfileHero } from '@/components/ProfileHero';
 import { SpacesList } from '@/components/SpacesList';
 import { ErrorState } from '@/components/states';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { isOwner, useAuth } from '@/context/AuthContext';
 import { commerceApi, type BusinessDto } from '@/features/commerce/api';
 import { BusinessProfileForm } from '@/features/commerce/BusinessProfileForm';
+import { confirmAction } from '@/lib/notice';
 import { useCommerceReference } from '@/features/commerce/useCommerceReference';
 
 
@@ -23,7 +22,7 @@ import { useCommerceReference } from '@/features/commerce/useCommerceReference';
  * number, its hours and delivery prices. Only the owner edits it; everyone sees it, the account and the spaces.
  */
 export default function Commerce() {
-  const { business, logout } = useAuth();
+  const { business, user, logout } = useAuth();
   const [b, setB] = useState<BusinessDto | null>(null);
   // Couldn't be loaded (no network…): an error with « Réessayer » instead of an endless spinner.
   const [failed, setFailed] = useState(false);
@@ -39,11 +38,15 @@ export default function Commerce() {
 
   if (!business) return null;
   const confirmLogout = () =>
-    Alert.alert('Se déconnecter ?', 'Tu ne recevras plus les nouvelles commandes sur ce téléphone.', [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Se déconnecter', style: 'destructive', onPress: logout },
-    ]);
+    confirmAction({
+      title: 'Se déconnecter ?',
+      bullets: ['Tu ne recevras plus les nouvelles commandes sur ce téléphone', 'Tu pourras te reconnecter à tout moment avec ton numéro'],
+      confirm: 'Se déconnecter',
+      keep: 'Rester connecté',
+      onConfirm: logout,
+    });
   const canEdit = isOwner(business.roles);
+  const role = business.roles.includes('owner') ? 'Propriétaire' : business.roles.includes('manager') ? 'Gérant' : 'Employé';
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -71,11 +74,16 @@ export default function Commerce() {
             <ProfileView b={b} />
           )}
 
-          <Text style={styles.section}>Compte</Text>
-          {/* The same card as on the student profile: only the chips say which business and role. */}
-          <ProfileHero chips={[business.name, business.roles.includes('owner') ? 'Propriétaire' : business.roles.includes('manager') ? 'Gérant' : 'Employé']} />
+          {/* Who is signed in on this phone, and as what (a shop's phone is often shared): one line. */}
+          <View style={[styles.who, shadow.card]}>
+            <View style={styles.whoAvatar}>
+              {user?.avatarUrl ? <Image source={{ uri: user.avatarUrl }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Text style={styles.whoInitials}>{user?.initials ?? '?'}</Text>}
+            </View>
+            <Text style={styles.whoText} numberOfLines={1}>
+              Connecté : <Text style={styles.whoName}>{user ? `${user.firstName} ${user.lastName}` : '—'}</Text> · {role}
+            </Text>
+          </View>
           <SpacesList />
-          <LogoutButton note="Tu ne recevras plus les nouvelles commandes sur ce téléphone." />
         </KeyboardAwareScrollView>
     </SafeAreaView>
   );
@@ -111,4 +119,9 @@ const styles = StyleSheet.create({
   headLogout: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 36, paddingHorizontal: 12, borderRadius: radii.pill, backgroundColor: colors.dangerBg },
   headLogoutText: { ...typo.smallStrong, color: colors.dangerText },
   lock: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  who: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10, padding: 10, borderRadius: radii.md, backgroundColor: colors.card },
+  whoAvatar: { width: 32, height: 32, borderRadius: 16, overflow: 'hidden', backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  whoInitials: { ...typo.captionStrong, color: colors.primary },
+  whoText: { ...typo.small, color: colors.muted2, flex: 1 },
+  whoName: { ...typo.smallStrong, color: colors.navy },
 });

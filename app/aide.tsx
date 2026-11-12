@@ -11,8 +11,11 @@ import { profileApi, type Support } from '@/features/profile/api';
 
 /** The questions students ask most: answered here before they call. */
 const FAQ: { q: string; a: string }[] = [
-  { q: 'J’ai payé mais je n’ai pas mon billet', a: 'Ouvre « Mes billets » : le billet apparaît dès que Wave ou Orange Money confirme (souvent en quelques secondes). Sinon, le paiement est remboursé automatiquement.' },
-  { q: 'Comment être remboursé d’une commande ?', a: 'Une commande refusée par le commerce, ou annulée avant qu’il l’accepte, est remboursée sur ton numéro de paiement.' },
+  { q: 'Comment je paie ?', a: 'En espèces, en main propre : au resto ou à la boutique quand tu récupères ta commande (ou au livreur), à l’organisateur pour un billet ou une place de caravane, dans le taxi pour Sunu Taxi. Rien n’est payé dans l’app.' },
+  { q: 'J’ai payé mais je n’ai pas mon billet', a: 'Ta demande attend que l’organisateur la valide : montre-lui le QR code de ta demande (dans « Mes billets », en haut) quand tu lui donnes l’argent. Une fois validé, ton billet apparaît avec son propre QR code.' },
+  { q: 'Combien de temps ma demande est-elle gardée ?', a: '24 heures (moins si l’événement ou le départ est plus proche). Sans validation de l’organisateur avant l’heure limite, elle est annulée et les places reviennent aux autres.' },
+  { q: 'Je veux annuler une commande', a: 'Ouvre « Mes commandes » dans ton profil : tu peux annuler tant que le commerce ne l’a pas acceptée. Rien n’a été payé, rien à rembourser.' },
+  { q: 'Comment marche Sunu Taxi ?', a: 'Un étudiant propose un trajet, les autres réservent leur place en un geste. Rien ne se paie dans l’app : chacun donne sa part à l’organisateur dans le taxi. Un empêchement ? Annule au plus tôt pour rendre la place.' },
   { q: 'J’ai perdu ma carte étudiant', a: 'Déclare-la dans Campus › Objets perdus. Si quelqu’un la scanne, tu es prévenu tout de suite.' },
   { q: 'Je n’arrive pas à me connecter', a: 'Utilise « Mot de passe oublié » sur l’écran de connexion : un code est envoyé par SMS à ton numéro.' },
 ];

@@ -21,6 +21,7 @@ import { methodsOffLine, useMethodsOff } from '@/features/payments/methods';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { bannerLastDay, bannersApi, holdsSlot, type BannerDto } from '@/features/banners/api';
+import { countdown } from '@/features/events/countdown';
 import { eventsSource, EventsSourceProvider, useEventsSource } from '@/features/events/source';
 import { CATEGORIES, EVENT_STATUS, eventsApi, EVERYONE, type EventAudience, type EventCategory, type EventInput, type OrgEventDto } from '@/features/events/api';
 import { payInBrowser, type PaymentMethod } from '@/features/payments/checkout';
@@ -162,21 +163,6 @@ type Tab = 'billetterie' | 'demandes' | 'visibilite';
 const HERO_H = 300;
 const BAR_H = 52;
 
-/** « Dans 3 j », « Demain · 20h00 », « Aujourd’hui · 20h00 », « En cours », « Terminé ». */
-function countdown(startsAt: string, endsAt: string, now: number) {
-  const start = Date.parse(startsAt);
-  const end = Date.parse(endsAt);
-  if (now >= end) return 'Terminé';
-  if (now >= start) return 'En cours';
-  const hour = new Date(start).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }).replace(':', 'h');
-  const day = (t: number) => {
-    const d = new Date(t);
-    d.setHours(0, 0, 0, 0);
-    return d.getTime();
-  };
-  const days = Math.round((day(start) - day(now)) / 86_400_000);
-  return days === 0 ? `Aujourd’hui · ${hour}` : days === 1 ? `Demain · ${hour}` : `Dans ${days} j`;
-}
 
 /**
  * Once submitted. A dashboard under the event's cover: the cover full width behind the status bar (it drifts slower

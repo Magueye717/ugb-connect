@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { SkeletonCard } from '@/components/states';
 import { Field, Segmented } from '@/components/ui';
 import { lostCategory } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
@@ -116,7 +117,7 @@ export function LostBoard({ only }: { only?: 'mine' } = {}) {
           </Text>
         )}
 
-        {!loaded && <ActivityIndicator color={colors.primary} style={{ marginTop: 20 }} />}
+        {!loaded && (<><SkeletonCard /><SkeletonCard /></>)}
         {loaded && list.length === 0 && (
           <View style={styles.emptyBox}>
             <Text style={styles.empty}>

@@ -57,8 +57,15 @@ const hLabel = (m: number) => `${pad(Math.floor((m % 1440) / 60))}h${pad(m % 60)
  * before is the next morning only on a night trip (22h → 2h); otherwise it's out of order (12h then 11h) and flagged
  * on that row. `plan` is null while a time is missing or out of order.
  */
-function schedule(day: Date | null, rows: StopRow[], names: string[]) {
+function schedule(day: Date | null, rows: StopRow[], names: string[], now: number) {
   let offset = 0;
+  // Today, a first time already gone but coming tonight (21h now, 02h chosen): that night, the day after (within 12 h).
+  const first = minutesOf(rows[0]?.time ?? '');
+  if (day && first !== null && sameDay(day, new Date(now))) {
+    const at = new Date(day);
+    at.setMinutes(first);
+    if (at.getTime() <= now && at.getTime() + DAY - now <= OVERNIGHT_MAX * 60_000) offset = 1;
+  }
   let prev: { abs: number; name: string } | null = null;
   const errors: (string | null)[] = rows.map(() => null);
   const out: { at: Date; nextDay: boolean }[] = [];
@@ -252,7 +259,7 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
 
   const vehicle = vehicles.find((v) => v.id === vehicleId) ?? null;
   const seats = vehicle ? vehicle.capacity - vehicle.blockedSeats.length : null;
-  const timed = useMemo(() => schedule(day, [...pickups, ...dropoffs], [...pickups.map((_, i) => `montée ${i + 1}`), ...dropoffs.map((_, i) => `arrêt ${i + 1}`)]), [day, pickups, dropoffs]);
+  const timed = useMemo(() => schedule(day, [...pickups, ...dropoffs], [...pickups.map((_, i) => `montée ${i + 1}`), ...dropoffs.map((_, i) => `arrêt ${i + 1}`)], now), [day, pickups, dropoffs, now]);
   const plan = timed.plan;
   const departureAt = timed.partial[0]?.at ?? null;
   const inPast = !!departureAt && departureAt.getTime() <= now;

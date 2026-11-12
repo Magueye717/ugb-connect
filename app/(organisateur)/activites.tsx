@@ -2,13 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { eventWhen } from '@/components/home';
-import { EmptyState, ErrorState } from '@/components/states';
+import { EmptyState, ErrorState, SkeletonCard } from '@/components/states';
 import { FillBar, OrganizerLine } from '@/components/caravan';
-import { StatusChip } from '@/components/ui';
+import { PrimaryButton, StatusChip } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { EVENT_STATUS, type OrgEventDto } from '@/features/events/api';
@@ -49,18 +49,8 @@ export default function Activites() {
             <OrganizerLine organizer={organizer} />
             {canCreate && (
               <View style={styles.createRow}>
-                {caravans && (
-                  <Pressable style={styles.create} onPress={() => router.push('/depart/edition/nouveau')} accessibilityRole="button">
-                    <Ionicons name="add" size={18} color="#fff" />
-                    <Text style={styles.createText}>Nouveau départ</Text>
-                  </Pressable>
-                )}
-                {events && (
-                  <Pressable style={[styles.create, caravans && styles.createAlt]} onPress={newEvent} accessibilityRole="button">
-                    <Ionicons name="sparkles" size={16} color="#fff" />
-                    <Text style={styles.createText}>Nouvel événement</Text>
-                  </Pressable>
-                )}
+                {caravans && <PrimaryButton size="sm" icon="add" label="Nouveau départ" onPress={() => router.push('/depart/edition/nouveau')} style={{ flex: 1 }} />}
+                {events && <PrimaryButton size="sm" icon="sparkles" tone={caravans ? 'primary' : 'accent'} label="Nouvel événement" onPress={newEvent} style={{ flex: 1 }} />}
               </View>
             )}
           </View>
@@ -90,7 +80,7 @@ type DeparturesProps = { items: ReturnType<typeof useOrgDepartures>['items']; lo
 function Departures({ items: mine, loading, error, refresh, canCreate, now }: DeparturesProps) {
   return (
     <>
-        {loading && <ActivityIndicator color={colors.primary} />}
+        {loading && (<><SkeletonCard /><SkeletonCard /></>)}
         {!loading && error && mine.length === 0 && <ErrorState text={error} onRetry={refresh} />}
         {!loading && !error && mine.length === 0 && (
           <EmptyState
@@ -164,7 +154,7 @@ function EventsSection({ org, state, canCreate }: { org: string; state: ReturnTy
   return (
     <>
       <Text style={styles.section}>Événements</Text>
-      {!list && !failed && <ActivityIndicator color={colors.primary} />}
+      {!list && !failed && (<><SkeletonCard /><SkeletonCard /></>)}
       {!list && failed && <ErrorState onRetry={load} />}
       {list?.length === 0 && (
         <EmptyState

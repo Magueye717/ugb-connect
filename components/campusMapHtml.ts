@@ -7,7 +7,8 @@
 export const MAPLIBRE_VERSION = '4.7.1';
 const IONICONS_VERSION = '7.4.0';
 
-export const DARK_STYLE = 'https://tiles.openfreemap.org/styles/dark';
+// Light and readable (buildings, paths, roads): the dark style turned the sparse campus into an almost black map.
+export const DARK_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
 const SATELLITE_TILES = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 
 /** Messages the page sends back. */
@@ -36,6 +37,10 @@ export const campusMapHtml = (colors: { ink: string; sand: string }) => `<!docty
   .spot.on { width: 12px; height: 12px; border: 2px solid #fff; }
   .me { width: 14px; height: 14px; border-radius: 50%; background: #3B82F6; border: 2px solid #fff; box-shadow: 0 0 0 6px rgba(59,130,246,.25); }
   .maplibregl-ctrl-attrib { display: none; }
+  /* On the light plan: dark names on a white halo (the white ones are for the satellite pictures). */
+  .plan .name { color: #1F2A44; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff; }
+  .plan .zone { color: #8A5A00; text-shadow: 0 0 3px #fff, 0 0 3px #fff; }
+  .plan .zone.on { color: #1F2A44; }
 </style>
 </head><body><div id="map"></div>
 <script>
@@ -45,11 +50,15 @@ export const campusMapHtml = (colors: { ink: string; sand: string }) => `<!docty
   var map = new maplibregl.Map({ container: 'map', style: '${DARK_STYLE}', center: [-16.423, 16.063], zoom: 15, minZoom: 14, maxZoom: 19,
     attributionControl: false, dragRotate: false, pitchWithRotate: false, touchPitch: false });
   map.touchZoomRotate.disableRotation();
+  // The student moving the map (not the camera following them): following waits a moment.
+  ['dragstart', 'zoomstart'].forEach(function (ev) { map.on(ev, function (e) { if (e.originalEvent) state.movedAt = Date.now(); }); });
 
-  var state = { pins: [], selected: null, satellite: false, named: false };
+  // routing: a walk is shown (the campus no longer holds or moves the camera); movedAt: the student moved the map.
+  var state = { pins: [], selected: null, satellite: false, named: false, routing: false, movedAt: 0 };
   var markers = {};
   var me = null;
   var NAMES_FROM = 16.6; // names show once zoomed in enough to read them
+  var WALK_ZOOM = 17; // following a walk: close enough to see the next turns
 
   // The whole world minus the campus: everything outside it is dimmed. Then its dashed outline.
   var WORLD = [[-17.5, 17], [-15.5, 17], [-15.5, 15], [-17.5, 15], [-17.5, 17]];
@@ -138,6 +147,8 @@ export const campusMapHtml = (colors: { ink: string; sand: string }) => `<!docty
       var f = frame(c.outline || []);
       map.getSource('mask').setData({ type: 'FeatureCollection', features: c.outline && c.outline.length > 2 ? [f.mask] : [] });
       map.getSource('outline').setData({ type: 'FeatureCollection', features: c.outline && c.outline.length > 2 ? [f.line] : [] });
+      // A walk on screen: the camera stays on it (the outline may arrive after it was framed).
+      if (state.routing) return;
       var b = c.box, m = 0.004;
       map.setMaxBounds([[b.west - m, b.south - m], [b.east + m, b.north + m]]);
       if (c.start) map.jumpTo({ center: [c.start.lng, c.start.lat], zoom: Math.log2(360 / c.start.delta) });
@@ -148,11 +159,40 @@ export const campusMapHtml = (colors: { ink: string; sand: string }) => `<!docty
       state.satellite = on;
       map.setLayoutProperty('sat', 'visibility', on ? 'visible' : 'none');
       planLayers.forEach(function (id) { map.setLayoutProperty(id, 'visibility', on ? 'none' : 'visible'); });
-      map.setPaintProperty('mask', 'fill-opacity', on ? 0.55 : 0.78);
+      // Outside the campus: dimmed dark over the pictures, faded light over the plan.
+      map.setPaintProperty('mask', 'fill-color', on ? 'rgb(8,11,16)' : '#EEF1F5');
+      map.setPaintProperty('mask', 'fill-opacity', on ? 0.55 : 0.7);
+      map.setPaintProperty('outline', 'line-color', on ? '${colors.sand}' : '#B7791F');
+      document.body.classList.toggle('plan', !on);
     },
     padding: function (top) { map.setPadding({ top: top, right: 0, bottom: 0, left: 0 }); },
     fly: function (lat, lng, zoom) { map.flyTo({ center: [lng, lat], zoom: zoom, duration: 400 }); },
     fit: function (b, pad) { map.fitBounds([[b.west, b.south], [b.east, b.north]], { padding: pad, duration: 500 }); },
+    // A walk to show: the line (orange on a white casing; dashed when it's only as the crow flies), framed whole. The
+    // campus box no longer holds the camera: the walk may start off campus.
+    route: function (coords, pad, dashed, fit) {
+      var data = { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords || [] } };
+      if (!map.getSource('route')) {
+        map.addSource('route', { type: 'geojson', data: data });
+        map.addLayer({ id: 'route-casing', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 9, 'line-opacity': 0.85 } });
+        map.addLayer({ id: 'route-line', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#FF7A1A', 'line-width': 5 } });
+      } else map.getSource('route').setData(data);
+      map.setPaintProperty('route-line', 'line-dasharray', dashed ? [1.2, 1.6] : [1, 0]);
+      map.setPaintProperty('route-casing', 'line-opacity', dashed ? 0 : 0.85);
+      if (!coords || coords.length < 2) return;
+      state.routing = true;
+      if (!fit) {
+        // On the way: the camera follows the student (the line's start), unless they just moved the map themselves.
+        // At street level (the paths and buildings around): the whole walk was shown when it was found.
+        if (Date.now() - state.movedAt > 8000) map.easeTo({ center: coords[0], zoom: Math.max(map.getZoom(), WALK_ZOOM), duration: 600 });
+        return;
+      }
+      map.setMaxBounds(null);
+      map.setMinZoom(8);
+      var w = coords[0][0], e = coords[0][0], s = coords[0][1], n = coords[0][1];
+      coords.forEach(function (c) { w = Math.min(w, c[0]); e = Math.max(e, c[0]); s = Math.min(s, c[1]); n = Math.max(n, c[1]); });
+      map.fitBounds([[w, s], [e, n]], { padding: pad, duration: 600, maxZoom: 18 });
+    },
     me: function (p) {
       if (!p) { if (me) { me.remove(); me = null; } return; }
       if (!me) { var el = document.createElement('div'); el.className = 'me'; me = new maplibregl.Marker({ element: el }).setLngLat([p.lng, p.lat]).addTo(map); }

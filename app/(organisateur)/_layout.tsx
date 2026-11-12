@@ -78,7 +78,7 @@ export default function OrganizerTabLayout() {
 function Label(title: string, focused: boolean, color: string) {
   // Grows with the system text size, up to 130 %: the bar has a fixed height.
   return (
-    <Text style={[styles.label, { color, fontWeight: focused ? '700' : '500' }]} maxFontSizeMultiplier={1.3} numberOfLines={1}>
+    <Text style={[styles.label, { color, fontWeight: focused ? '700' : '500' }]} maxFontSizeMultiplier={1.3} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
       {title}
     </Text>
   );

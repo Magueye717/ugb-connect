@@ -15,9 +15,10 @@ import { useNotifications } from '@/context/NotificationsContext';
 /** `todo`: something to fill in ("À compléter"). */
 /** Each section's icon colours, a soft tile and a darker icon (≥ 4.5:1): the list is scanned by colour. */
 type Tone = { bg: string; fg: string };
-const TONES: Record<'account' | 'activity' | 'prefs' | 'help', Tone> = {
+const TONES: Record<'account' | 'activity' | 'publish' | 'prefs' | 'help', Tone> = {
   account: { bg: colors.primarySoft, fg: colors.primary },
   activity: { bg: colors.accentSoft, fg: colors.orangeText },
+  publish: { bg: colors.successBg, fg: colors.successText },
   prefs: { bg: '#EEEBFE', fg: colors.purpleText },
   help: { bg: colors.input, fg: colors.muted2 },
 };
@@ -52,15 +53,25 @@ export default function ProfilScreen() {
       ],
     },
     {
-      title: 'Mes activités',
+      // What I bought or booked…
+      title: 'Mes réservations et achats',
       tone: TONES.activity,
       rows: [
         { icon: 'ticket-outline', label: 'Mes billets', href: '/mes-billets' },
-        { icon: 'cube-outline', label: 'Mes objets perdus', href: '/mes-objets' },
+        // `as Href`: the route types are regenerated on the next `expo start` (new screen).
+        { icon: 'receipt-outline', label: 'Mes commandes', href: '/mes-commandes' as Href },
         { icon: 'bag-handle-outline', label: 'Mon panier', href: '/panier' },
+      ],
+    },
+    {
+      // …and what I put out there myself.
+      title: 'Je publie',
+      tone: TONES.publish,
+      rows: [
         { icon: 'sparkles-outline', label: 'Mes événements', href: '/mes-evenements' },
-        { icon: 'megaphone-outline', label: 'Mes publicités', href: '/mes-publicites' },
         { icon: 'storefront-outline', label: myShop ? 'Ma boutique' : 'Vendre sur le campus', href: '/ma-boutique' },
+        { icon: 'megaphone-outline', label: 'Mes publicités', href: '/mes-publicites' },
+        { icon: 'cube-outline', label: 'Mes objets perdus', href: '/mes-objets' },
       ],
     },
     {

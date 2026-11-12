@@ -5,7 +5,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { EmptyState } from '@/components/states';
+import { EmptyState, SkeletonCard } from '@/components/states';
 import { Segmented, StatusChip, Toggle } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
@@ -141,7 +141,7 @@ export default function Commandes() {
           }}
         />
 
-        {!orders && <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />}
+        {!orders && (<><SkeletonCard /><SkeletonCard /></>)}
         {orders?.length === 0 && (
           <EmptyState
             icon={scope === 'active' ? 'receipt-outline' : 'time-outline'}

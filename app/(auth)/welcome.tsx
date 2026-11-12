@@ -35,7 +35,7 @@ const slides: Slide[] = [
     key: 'temps',
     title: 'Moins de queue,',
     highlight: 'plus de temps.',
-    text: 'Commande au resto, réserve ta place pour Dakar et partage ton taxi : tu paies avec Wave ou Orange Money, en 30 secondes.',
+    text: 'Commande au resto, réserve ta place pour Dakar, partage ton taxi : tu demandes en quelques secondes, tu paies en espèces sur place.',
   },
   {
     key: 'confiance',

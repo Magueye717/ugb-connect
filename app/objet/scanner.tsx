@@ -14,7 +14,6 @@ import { CardCamera } from '@/features/lost/CardCamera';
 import { unreadable, type ScanAttempt } from '@/features/lost/useAutoScan';
 import { CardVisual } from '@/features/lost/CardVisual';
 import { PlacePicker } from '@/features/lost/PlacePicker';
-import { STUDENT_ID_RE } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
 import { CAMERA_CLOSE_MS, scanFeel } from '@/lib/haptics';
 import { sounds } from '@/lib/sounds';
@@ -22,7 +21,8 @@ import { sounds } from '@/lib/sounds';
 type HandOver = 'office' | 'finder';
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
 // The same rule as the sign-up (P then digits, 12 characters at most).
-const STUDENT_NUMBER = STUDENT_ID_RE;
+// Read off a card's photo: the strict shape of a printed number (P then 6 to 11 digits), so stray text isn't taken for one.
+const STUDENT_NUMBER = /^P\d{6,11}$/;
 const YOUR: Record<CardType, string> = { student: 'sa carte étudiant', national_id: 'sa carte d’identité', driving_licence: 'son permis', bank: 'sa carte bancaire' };
 const isCardType = (v: string | undefined): v is CardType => CARD_TYPES.some((t) => t.value === v);
 

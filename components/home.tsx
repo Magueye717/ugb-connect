@@ -16,18 +16,20 @@ import {
   type ScrollViewInstance,
 } from 'react-native';
 
-import { formatFcfa, schedule, weekDays } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useCampus } from '@/context/CampusContext';
 import { useCaravans } from '@/context/CaravansContext';
 import { AlertSheet } from '@/components/AlertSheet';
-import { FillBar, OrganizerLine, shortPlace } from '@/components/caravan';
+import { Segmented } from '@/components/ui';
 import { Hop, LivePulse, SearchingDots } from '@/components/motion';
+import { formatFcfa } from '@/constants/data';
+import { FillBar, OrganizerLine, shortPlace } from '@/components/caravan';
 import { type LiveBannerDto } from '@/features/banners/api';
 import { methodLabel } from '@/features/payments/checkout';
 import { useMethodsOff } from '@/features/payments/methods';
-import { currentMeal, type AlertDto, type DishStatus } from '@/features/restos/api';
+import { currentMeal, hmLabel, MEAL_LABEL, type AlertDto, type DishStatus } from '@/features/restos/api';
+import { openDirections } from '@/lib/maps';
 import { useTaxi } from '@/context/TaxiContext';
 import { documentMeta } from '@/lib/fileSize';
 
@@ -270,324 +272,6 @@ const CAMPUS = 'UGB';
 const FEW_SEATS = 5;
 const DAY_MS = 24 * 3600 * 1000;
 
-/**
- * The next caravan to book. Usually the next departure from the campus; a student who already has a ticket out sees
- * their way back instead (the next return to campus from that city, after their trip), and when nothing leaves the
- * campus, the next return. Price, where to get on, stops on the way, organizer and whether the trip is confirmed: what
- * a student checks before booking.
- */
-export function CaravanCard() {
-  const now = useNow();
-  const { caravans } = useCaravans();
-  const bookable = caravans.filter((c) => c.seats > 0 && c.bookingOpen && c.departureAt > now && !c.myTicketId).sort((a, b) => a.departureAt - b.departureAt);
-  const outbound = bookable.filter((c) => c.from === CAMPUS);
-  const returns = bookable.filter((c) => c.to === CAMPUS);
-  // My trip out (the latest one booked): its way back comes first.
-  const myTrip = caravans.filter((c) => c.from === CAMPUS && c.myTicketId && c.departureAt > now - WEEK_MS).sort((a, b) => b.departureAt - a.departureAt)[0];
-  const myReturns = myTrip ? returns.filter((c) => c.from === myTrip.to && c.departureAt > myTrip.departureAt) : [];
-  const list = myReturns.length ? myReturns : outbound.length ? outbound : returns;
-  const next = list[0];
-  const label = myReturns.length ? 'TON RETOUR AU CAMPUS' : next?.to === CAMPUS ? 'RETOUR AU CAMPUS' : 'PROCHAINE CARAVANE';
-
-  if (!next) {
-    return (
-      <Pressable style={[styles.infoCard, shadow.card]} onPress={() => router.push({ pathname: '/(tabs)/caravanes', params: { vue: 'caravanes' } })}>
-        <View style={styles.rowBetween}>
-          <View style={styles.label}>
-            <Ionicons name="bus-outline" size={12} color={colors.primary} />
-            <Text style={styles.labelText}>CARAVANES</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={14} color={colors.muted} />
-        </View>
-        <Text style={styles.detail}>Aucun départ prévu pour le moment</Text>
-      </Pressable>
-    );
-  }
-
-  // Orange only on the last day: when everything is urgent, nothing is.
-  const soon = next.departureAt - now < DAY_MS;
-  const first = next.pickups[0];
-  const open = (id: string) => router.push(`/caravane/${id}`);
-  const othersThisWeek = list.slice(1).filter((c) => c.departureAt - now < WEEK_MS).length;
-
-  return (
-    <Pressable
-      style={[styles.infoCard, shadow.card, { gap: 10 }]}
-      onPress={() => open(next.id)}
-      accessibilityRole="button"
-      accessibilityLabel={`${label.toLowerCase()} : ${next.from} vers ${next.to}, ${next.date} à ${next.time}, ${formatFcfa(next.price)}, ${next.organizer.name}`}>
-      <View style={styles.rowBetween}>
-        <View style={styles.label}>
-          <Ionicons name="bus-outline" size={12} color={colors.primary} />
-          <Text style={styles.labelText}>{label}</Text>
-        </View>
-        <Text style={[styles.timeLeft, soon && { color: colors.orangeText }]}>{formatTimeLeft(next.departureAt - now)}</Text>
-      </View>
-
-      {/* Where to, first: what a student scans for. The price on the same line. */}
-      <View style={[styles.rowBetween, { alignItems: 'flex-end' }]}>
-        <View style={styles.cvRoute}>
-          <Text style={styles.cvCity} numberOfLines={1}>
-            {next.from}
-          </Text>
-          <View style={styles.cvTrack}>
-            <View style={styles.cvLine} />
-            <Ionicons name="bus" size={14} color={colors.primary} />
-            <View style={styles.cvLine} />
-          </View>
-          <Text style={[styles.cvCity, { flexShrink: 1 }]} numberOfLines={1}>
-            {next.to}
-          </Text>
-        </View>
-        <Text style={styles.cvPrice}>{formatFcfa(next.price)}</Text>
-      </View>
-      <Text style={styles.detail} numberOfLines={1}>
-        {next.date} · {next.time}
-        {first ? ` · ${shortPlace(first.place, next.from)}${next.pickups.length > 1 ? ` +${next.pickups.length - 1}` : ''}` : ''}
-      </Text>
-
-      {/* One message: how many bookings it still needs, confirmed, or nearly full. */}
-      <FillBar caravan={next} count={false} few={FEW_SEATS} />
-
-      {/* Who runs it, right where the student decides. */}
-      <View style={[styles.rowBetween, styles.cvFoot]}>
-        <View style={{ flex: 1 }}>
-          <OrganizerLine organizer={next.organizer} wrap />
-        </View>
-        <Pressable style={styles.cta} onPress={() => open(next.id)} hitSlop={6} accessibilityRole="button">
-          <Text style={styles.ctaText}>Réserver</Text>
-        </Pressable>
-      </View>
-
-      {othersThisWeek > 0 && (
-        <Pressable style={styles.more} onPress={() => router.push({ pathname: '/(tabs)/caravanes', params: { vue: 'caravanes' } })}>
-          <Text style={styles.moreText}>
-            {othersThisWeek} autre{othersThisWeek > 1 ? 's' : ''} départ{othersThisWeek > 1 ? 's' : ''} cette semaine
-          </Text>
-          <Ionicons name="chevron-forward" size={14} color={colors.primary} />
-        </Pressable>
-      )}
-
-    </Pressable>
-  );
-}
-
-const toMinutes = (hhmm: string) => {
-  const [h, m] = hhmm.split(':').map(Number);
-  return h * 60 + m;
-};
-
-const dayName = (short: string) => short.charAt(0) + short.slice(1).toLowerCase() + '.';
-
-/**
- * Events on the home screen, like the caravans: the next one for this student (the organizer chose who sees it: UFR,
- * campus, village, region), one tap to book, and the others.
- */
-export function EventCard() {
-  const now = useNow();
-  const { events } = useCampus();
-  const upcoming = events.filter((e) => e.salesOpen && Date.parse(e.endsAt) > now);
-  const next = upcoming[0];
-  if (!next) return null;
-  const startsIn = Date.parse(next.startsAt) - now;
-  const others = upcoming.length - 1;
-
-  return (
-    <View style={[styles.infoCard, shadow.card]}>
-      <View style={styles.rowBetween}>
-        <View style={styles.label}>
-          <Ionicons name="sparkles-outline" size={12} color={colors.primary} />
-          <Text style={styles.labelText}>PROCHAIN ÉVÉNEMENT</Text>
-        </View>
-        <Text style={[styles.timeLeft, startsIn > 0 && startsIn < URGENT_MS && { color: colors.orangeText }]}>{startsIn > 0 ? formatTimeLeft(startsIn) : 'En cours'}</Text>
-      </View>
-
-      <Pressable style={styles.eventRow} onPress={() => router.push(`/evenement/${next.id}`)} accessibilityRole="button">
-        <Image source={{ uri: next.images[0] }} style={styles.eventThumb} contentFit="cover" />
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text style={styles.eventTitle} numberOfLines={1}>
-            {next.title}
-          </Text>
-          <Text style={styles.detail} numberOfLines={1}>
-            {eventWhen(next.startsAt)} · {next.venue.name}
-          </Text>
-          <Text style={styles.seats}>{next.minPrice ? `Dès ${formatFcfa(next.minPrice)}` : 'Gratuit'}</Text>
-        </View>
-        <View style={styles.cta}>
-          <Text style={styles.ctaText}>Réserver</Text>
-        </View>
-      </Pressable>
-
-      {others > 0 && (
-        <Pressable style={styles.more} onPress={() => router.push('/evenements')}>
-          <Text style={styles.moreText}>
-            {others} autre{others > 1 ? 's' : ''} événement{others > 1 ? 's' : ''} pour toi
-          </Text>
-          <Ionicons name="chevron-forward" size={14} color={colors.primary} />
-        </Pressable>
-      )}
-    </View>
-  );
-}
-
-// First course that hasn't ended today, otherwise the first course of the next school day.
-function findNextCourse(now: number) {
-  const d = new Date(now);
-  const today = d.getDay() - 1; // weekDays starts on Monday; Sunday gives -1
-  const mins = d.getHours() * 60 + d.getMinutes();
-  for (let offset = 0; offset < 7; offset++) {
-    const i = today + offset;
-    if (i < 0 || i >= weekDays.length) continue;
-    const list = schedule[weekDays[i].id] ?? [];
-    const course = offset === 0 ? list.find((c) => toMinutes(c.end) > mins) : list[0];
-    if (!course) continue;
-    if (offset === 0) {
-      const startsIn = toMinutes(course.start) - mins;
-      if (startsIn <= 0) return { course, status: `En cours · fin ${course.end}`, tone: colors.successText };
-      const h = Math.floor(startsIn / 60);
-      return { course, status: h ? `Dans ${h} h ${startsIn % 60} min` : `Dans ${startsIn} min`, tone: colors.orangeText };
-    }
-    const when = offset === 1 ? 'Demain' : dayName(weekDays[i].short);
-    return { course, status: `${when} ${course.start}`, tone: colors.muted2 };
-  }
-  return null;
-}
-
-/** Sunu Taxi on the home screen: the next open shared ride, one tap to join. */
-export function TaxiCard() {
-  const now = useNow();
-  const { trips, me, activeTrip } = useTaxi();
-  // My trip (proposed or joined), still waiting for its passengers: shown first, « searching ».
-  const mine = activeTrip();
-  const open = trips
-    .filter((t) => !t.departed && t.status === 'open' && t.departureAt > now && !t.passengers.includes(me) && t.seatsTaken < t.seats)
-    .sort((a, b) => a.departureAt - b.departureAt);
-  const next = open[0];
-  const go = () => router.push({ pathname: '/(tabs)/caravanes', params: { vue: 'taxi' } });
-
-  const card = (
-    <View style={[styles.infoCard, shadow.card]}>
-      <View style={styles.rowBetween}>
-        <View style={styles.label}>
-          <Ionicons name="car-outline" size={12} color={colors.primary} />
-          <Text style={styles.labelText}>SUNU TAXI</Text>
-        </View>
-        {mine ? <Text style={styles.timeLeft}>Mon trajet</Text> : next && <Text style={styles.timeLeft}>{formatTimeLeft(next.departureAt - now)}</Text>}
-      </View>
-
-      {mine && !mine.departed ? (
-        <Pressable onPress={() => router.push(`/taxi/${mine.id}`)} style={styles.mineRow} accessibilityRole="button" accessibilityLabel={`Mon trajet vers ${mine.to}, ${mine.seatsTaken} places sur ${mine.seats}`}>
-          <View style={styles.searchIcon}>
-            {mine.seatsTaken < mine.seats && <LivePulse color={colors.primary} size={40} />}
-            <Ionicons name="car" size={20} color="#fff" />
-          </View>
-          <View style={{ flex: 1, gap: 2 }}>
-            <Text style={styles.city} numberOfLines={1}>
-              {mine.from.split(' · ').pop()} → {mine.to.split(' · ').pop()}
-            </Text>
-            {mine.seatsTaken < mine.seats ? (
-              <View style={styles.searching}>
-                <Text style={styles.searchingText}>Recherche de passagers</Text>
-                <SearchingDots color={colors.primary} />
-              </View>
-            ) : (
-              <Text style={styles.seats}>Complet · c’est parti à l’heure</Text>
-            )}
-            <Text style={styles.detail}>
-              {mine.seatsTaken}/{mine.seats} places · départ dans {formatTimeLeft(mine.departureAt - now)}
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={colors.primary} />
-        </Pressable>
-      ) : next ? (
-        <>
-          <View style={styles.route}>
-            <View style={styles.searchIconSmall}>
-              <LivePulse color={colors.primary} size={28} />
-              <Ionicons name="car" size={15} color="#fff" />
-            </View>
-            <Text style={styles.city} numberOfLines={1}>
-              {next.from.split(' · ').pop()}
-            </Text>
-            <View style={styles.link}>
-              <Ionicons name="arrow-forward" size={12} color={colors.primary} />
-            </View>
-            <Text style={[styles.city, { flexShrink: 1 }]} numberOfLines={1}>
-              {next.to.split(' · ').pop()}
-            </Text>
-          </View>
-          <View style={styles.rowBetween}>
-            <View style={{ gap: 2, flexShrink: 1 }}>
-              <Text style={styles.detail}>{formatFcfa(next.seatPrice)} / place</Text>
-              <Text style={styles.seats}>
-                {next.seats - next.seatsTaken} place{next.seats - next.seatsTaken > 1 ? 's' : ''} libre
-                {next.seats - next.seatsTaken > 1 ? 's' : ''}
-              </Text>
-            </View>
-            <Pressable style={styles.cta} onPress={go} accessibilityRole="button">
-              <Text style={styles.ctaText}>Rejoindre</Text>
-            </Pressable>
-          </View>
-        </>
-      ) : (
-        <View style={styles.rowBetween}>
-          <Text style={[styles.detail, { flexShrink: 1 }]}>Aucun trajet ouvert. Partage le prix d’un taxi avec d’autres étudiants.</Text>
-          <Pressable style={styles.cta} onPress={go} accessibilityRole="button">
-            <Text style={styles.ctaText}>Proposer</Text>
-          </Pressable>
-        </View>
-      )}
-
-      {!mine && open.length > 1 && (
-        <Pressable style={styles.more} onPress={go}>
-          <Text style={styles.moreText}>
-            {open.length - 1} autre{open.length > 2 ? 's' : ''} trajet{open.length > 2 ? 's' : ''} ouvert{open.length > 2 ? 's' : ''}
-          </Text>
-          <Ionicons name="chevron-forward" size={14} color={colors.primary} />
-        </Pressable>
-      )}
-    </View>
-  );
-  // An open trip (mine waiting for passengers, or one to join): the card hops, for every student.
-  return mine || next ? <Hop>{card}</Hop> : card;
-}
-
-export function CourseCard() {
-  const next = findNextCourse(useNow());
-
-  return (
-    <Pressable style={[styles.infoCard, shadow.card]} onPress={() => router.push('/services/cours')}>
-      <View style={styles.rowBetween}>
-        <View style={styles.label}>
-          <Ionicons name="calendar" size={12} color={colors.purple} />
-          <Text style={styles.labelText}>PROCHAIN COURS</Text>
-        </View>
-        {next && <Text style={[styles.mealStatus, { color: next.tone }]}>{next.status}</Text>}
-      </View>
-
-      {next ? (
-        <>
-          <View style={styles.courseTitleRow}>
-            <Text style={styles.courseTitle} numberOfLines={1}>
-              {next.course.title}
-            </Text>
-            <View style={[styles.kind, next.course.movedFrom && styles.kindMoved]}>
-              <Text style={[styles.kindText, next.course.movedFrom && { color: colors.warningText }]}>
-                {next.course.movedFrom ? 'Déplacé' : next.course.kind}
-              </Text>
-            </View>
-          </View>
-          <Text style={styles.detail}>
-            {next.course.start} – {next.course.end} · {next.course.room} · {next.course.teacher}
-          </Text>
-        </>
-      ) : (
-        <Text style={styles.detail}>Aucun cours prévu cette semaine</Text>
-      )}
-    </Pressable>
-  );
-}
-
 const DAYS = ['Dim.', 'Lun.', 'Mar.', 'Mer.', 'Jeu.', 'Ven.', 'Sam.'];
 const startOfDay = (t: number) => new Date(new Date(t).setHours(0, 0, 0, 0)).getTime();
 
@@ -715,60 +399,400 @@ export function Headlines() {
   );
 }
 
-const dishDot: Record<DishStatus, string> = {
-  available: colors.success,
-  low: colors.warning,
-  out: colors.muted,
-};
 
 /** The public restaurants' current meal, one line per restaurant; a sold-out dish is struck through. */
-export function RestoCard() {
-  const { restos: day } = useCampus();
-  const meal = currentMeal(useNow(), day?.restos ?? []);
-  const openMenus = () => router.push({ pathname: '/(tabs)/resto', params: { vue: 'publics' } });
+/**
+ * The next caravan to book. Usually the next departure from the campus; a student who already has a ticket out sees
+ * their way back instead (the next return to campus from that city, after their trip), and when nothing leaves the
+ * campus, the next return. Price, where to get on, stops on the way, organizer and whether the trip is confirmed: what
+ * a student checks before booking.
+ */
+export function CaravanCard() {
+  const now = useNow();
+  const { caravans } = useCaravans();
+  const bookable = caravans.filter((c) => c.seats > 0 && c.bookingOpen && c.departureAt > now && !c.myTicketId).sort((a, b) => a.departureAt - b.departureAt);
+  const outbound = bookable.filter((c) => c.from === CAMPUS);
+  const returns = bookable.filter((c) => c.to === CAMPUS);
+  // My trip out (the latest one booked): its way back comes first.
+  const myTrip = caravans.filter((c) => c.from === CAMPUS && c.myTicketId && c.departureAt > now - WEEK_MS).sort((a, b) => b.departureAt - a.departureAt)[0];
+  const myReturns = myTrip ? returns.filter((c) => c.from === myTrip.to && c.departureAt > myTrip.departureAt) : [];
+  const list = myReturns.length ? myReturns : outbound.length ? outbound : returns;
+  const next = list[0];
+  const label = myReturns.length ? 'TON RETOUR AU CAMPUS' : next?.to === CAMPUS ? 'RETOUR AU CAMPUS' : 'PROCHAINE CARAVANE';
+
+  if (!next) {
+    return (
+      <Pressable style={[styles.infoCard, shadow.card]} onPress={() => router.push({ pathname: '/(tabs)/caravanes', params: { vue: 'caravanes' } })}>
+        <View style={styles.rowBetween}>
+          <View style={styles.label}>
+            <Ionicons name="bus-outline" size={12} color={colors.primary} />
+            <Text style={styles.labelText}>CARAVANES</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={14} color={colors.muted} />
+        </View>
+        <Text style={styles.detail}>Aucun départ prévu pour le moment</Text>
+      </Pressable>
+    );
+  }
+
+  // Orange only on the last day: when everything is urgent, nothing is.
+  const soon = next.departureAt - now < DAY_MS;
+  const first = next.pickups[0];
+  const open = (id: string) => router.push(`/caravane/${id}`);
+  const othersThisWeek = list.slice(1).filter((c) => c.departureAt - now < WEEK_MS).length;
+
+  return (
+    <Pressable
+      style={[styles.infoCard, shadow.card, { gap: 10 }]}
+      onPress={() => open(next.id)}
+      accessibilityRole="button"
+      accessibilityLabel={`${label.toLowerCase()} : ${next.from} vers ${next.to}, ${next.date} à ${next.time}, ${formatFcfa(next.price)}, ${next.organizer.name}`}>
+      <View style={styles.rowBetween}>
+        <View style={styles.label}>
+          <Ionicons name="bus-outline" size={12} color={colors.primary} />
+          <Text style={styles.labelText}>{label}</Text>
+        </View>
+        <Text style={[styles.timeLeft, soon && { color: colors.orangeText }]}>{formatTimeLeft(next.departureAt - now)}</Text>
+      </View>
+
+      {/* Where to, first: what a student scans for. The price on the same line. */}
+      <View style={[styles.rowBetween, { alignItems: 'flex-end' }]}>
+        <View style={styles.cvRoute}>
+          <Text style={styles.cvCity} numberOfLines={1}>
+            {next.from}
+          </Text>
+          <View style={styles.cvTrack}>
+            <View style={styles.cvLine} />
+            <Ionicons name="bus" size={14} color={colors.primary} />
+            <View style={styles.cvLine} />
+          </View>
+          <Text style={[styles.cvCity, { flexShrink: 1 }]} numberOfLines={1}>
+            {next.to}
+          </Text>
+        </View>
+        <Text style={styles.cvPrice}>{formatFcfa(next.price)}</Text>
+      </View>
+      <Text style={styles.detail} numberOfLines={1}>
+        {next.date} · {next.time}
+        {first ? ` · ${shortPlace(first.place, next.from)}${next.pickups.length > 1 ? ` +${next.pickups.length - 1}` : ''}` : ''}
+      </Text>
+
+      {/* One message: how many bookings it still needs, confirmed, or nearly full. */}
+      <FillBar caravan={next} count={false} few={FEW_SEATS} />
+
+      {/* Who runs it, right where the student decides. */}
+      <View style={[styles.rowBetween, styles.cvFoot]}>
+        <View style={{ flex: 1 }}>
+          <OrganizerLine organizer={next.organizer} wrap />
+        </View>
+        <Pressable style={styles.cta} onPress={() => open(next.id)} hitSlop={6} accessibilityRole="button">
+          <Text style={styles.ctaText}>Réserver</Text>
+        </Pressable>
+      </View>
+
+      {othersThisWeek > 0 && (
+        <Pressable style={styles.more} onPress={() => router.push({ pathname: '/(tabs)/caravanes', params: { vue: 'caravanes' } })}>
+          <Text style={styles.moreText}>
+            {othersThisWeek} autre{othersThisWeek > 1 ? 's' : ''} départ{othersThisWeek > 1 ? 's' : ''} cette semaine
+          </Text>
+          <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+        </Pressable>
+      )}
+
+    </Pressable>
+  );
+}
+
+/**
+ * Events on the home screen, like the caravans: the next one for this student (the organizer chose who sees it: UFR,
+ * campus, village, region), one tap to book, and the others.
+ */
+export function EventCard() {
+  const now = useNow();
+  const { events } = useCampus();
+  const upcoming = events.filter((e) => e.salesOpen && Date.parse(e.endsAt) > now);
+  const next = upcoming[0];
+  if (!next) return null;
+  const startsIn = Date.parse(next.startsAt) - now;
+  const others = upcoming.length - 1;
 
   return (
     <View style={[styles.infoCard, shadow.card]}>
-      <Pressable style={styles.rowBetween} onPress={openMenus} accessibilityRole="link">
+      <View style={styles.rowBetween}>
+        <View style={styles.label}>
+          <Ionicons name="sparkles-outline" size={12} color={colors.primary} />
+          <Text style={styles.labelText}>PROCHAIN ÉVÉNEMENT</Text>
+        </View>
+        <Text style={[styles.timeLeft, startsIn > 0 && startsIn < URGENT_MS && { color: colors.orangeText }]}>{startsIn > 0 ? formatTimeLeft(startsIn) : 'En cours'}</Text>
+      </View>
+
+      <Pressable style={styles.eventRow} onPress={() => router.push(`/evenement/${next.id}`)} accessibilityRole="button">
+        <Image source={{ uri: next.images[0] }} style={styles.eventThumb} contentFit="cover" />
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={styles.eventTitle} numberOfLines={1}>
+            {next.title}
+          </Text>
+          <Text style={styles.detail} numberOfLines={1}>
+            {eventWhen(next.startsAt)} · {next.venue.name}
+          </Text>
+          <Text style={styles.seats}>{next.minPrice ? `Dès ${formatFcfa(next.minPrice)}` : 'Gratuit'}</Text>
+        </View>
+        <View style={styles.cta}>
+          <Text style={styles.ctaText}>Réserver</Text>
+        </View>
+      </Pressable>
+
+      {others > 0 && (
+        <Pressable style={styles.more} onPress={() => router.push('/evenements')}>
+          <Text style={styles.moreText}>
+            {others} autre{others > 1 ? 's' : ''} événement{others > 1 ? 's' : ''} pour toi
+          </Text>
+          <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+// First course that hasn't ended today, otherwise the first course of the next school day.
+
+/** Sunu Taxi on the home screen: the next open shared ride, one tap to join. */
+export function TaxiCard() {
+  const now = useNow();
+  const { trips, me, activeTrip } = useTaxi();
+  // My trip (proposed or joined), still waiting for its passengers: shown first, « searching ».
+  const mine = activeTrip();
+  const open = trips
+    .filter((t) => !t.departed && t.status === 'open' && t.departureAt > now && !t.passengers.includes(me) && t.seatsTaken < t.seats)
+    .sort((a, b) => a.departureAt - b.departureAt);
+  const next = open[0];
+  const go = () => router.push({ pathname: '/(tabs)/caravanes', params: { vue: 'taxi' } });
+
+  const card = (
+    <View style={[styles.infoCard, shadow.card]}>
+      <View style={styles.rowBetween}>
+        <View style={styles.label}>
+          <Ionicons name="car-outline" size={12} color={colors.primary} />
+          <Text style={styles.labelText}>SUNU TAXI</Text>
+        </View>
+        {mine ? <Text style={styles.timeLeft}>Mon trajet</Text> : next && <Text style={styles.timeLeft}>{formatTimeLeft(next.departureAt - now)}</Text>}
+      </View>
+
+      {mine && !mine.departed ? (
+        <Pressable onPress={() => router.push(`/taxi/${mine.id}`)} style={styles.mineRow} accessibilityRole="button" accessibilityLabel={`Mon trajet vers ${mine.to}, ${mine.seatsTaken} places sur ${mine.seats}`}>
+          <View style={styles.searchIcon}>
+            {mine.seatsTaken < mine.seats && <LivePulse color={colors.primary} size={40} />}
+            <Ionicons name="car" size={20} color="#fff" />
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={styles.city} numberOfLines={1}>
+              {mine.from.split(' · ').pop()} → {mine.to.split(' · ').pop()}
+            </Text>
+            {mine.seatsTaken < mine.seats ? (
+              <View style={styles.searching}>
+                <Text style={styles.searchingText}>Recherche de passagers</Text>
+                <SearchingDots color={colors.primary} />
+              </View>
+            ) : (
+              <Text style={styles.seats}>Complet · c’est parti à l’heure</Text>
+            )}
+            <Text style={styles.detail}>
+              {mine.seatsTaken}/{mine.seats} places · départ dans {formatTimeLeft(mine.departureAt - now)}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+        </Pressable>
+      ) : next ? (
+        <>
+          <View style={styles.route}>
+            <View style={styles.searchIconSmall}>
+              <LivePulse color={colors.primary} size={28} />
+              <Ionicons name="car" size={15} color="#fff" />
+            </View>
+            <Text style={styles.city} numberOfLines={1}>
+              {next.from.split(' · ').pop()}
+            </Text>
+            <View style={styles.link}>
+              <Ionicons name="arrow-forward" size={12} color={colors.primary} />
+            </View>
+            <Text style={[styles.city, { flexShrink: 1 }]} numberOfLines={1}>
+              {next.to.split(' · ').pop()}
+            </Text>
+          </View>
+          <View style={styles.rowBetween}>
+            <View style={{ gap: 2, flexShrink: 1 }}>
+              <Text style={styles.detail}>{formatFcfa(next.seatPrice)} / place</Text>
+              <Text style={styles.seats}>
+                {next.seats - next.seatsTaken} place{next.seats - next.seatsTaken > 1 ? 's' : ''} libre
+                {next.seats - next.seatsTaken > 1 ? 's' : ''}
+              </Text>
+            </View>
+            <Pressable style={styles.cta} onPress={go} accessibilityRole="button">
+              <Text style={styles.ctaText}>Rejoindre</Text>
+            </Pressable>
+          </View>
+        </>
+      ) : (
+        <View style={styles.rowBetween}>
+          <Text style={[styles.detail, { flexShrink: 1 }]}>Aucun trajet ouvert. Partage le prix d’un taxi avec d’autres étudiants.</Text>
+          <Pressable style={styles.cta} onPress={go} accessibilityRole="button">
+            <Text style={styles.ctaText}>Proposer</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {!mine && open.length > 1 && (
+        <Pressable style={styles.more} onPress={go}>
+          <Text style={styles.moreText}>
+            {open.length - 1} autre{open.length > 2 ? 's' : ''} trajet{open.length > 2 ? 's' : ''} ouvert{open.length > 2 ? 's' : ''}
+          </Text>
+          <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+        </Pressable>
+      )}
+    </View>
+  );
+  // An open trip (mine waiting for passengers, or one to join): the card hops, for every student.
+  return mine || next ? <Hop>{card}</Hop> : card;
+}
+
+export type HomeCard = 'caravan' | 'event' | 'taxi';
+
+/**
+ * How urgent each live card is, to order the home: what happens soonest or is about to run out goes up. Urgent: my
+ * taxi still searching or one leaving within 2 h; a caravan within 24 h or with few seats; an event today or tomorrow
+ * or nearly sold out. The urgent ones first (soonest first), then the others in their usual order; the first urgent
+ * one is the accent.
+ */
+export function useHomeOrder(): { order: HomeCard[]; accent: HomeCard | null } {
+  const now = useNow();
+  const { caravans } = useCaravans();
+  const { events } = useCampus();
+  const { trips, me, activeTrip } = useTaxi();
+  const score: Partial<Record<HomeCard, number>> = {};
+
+  const caravan = caravans.filter((c) => c.seats > 0 && c.bookingOpen && c.departureAt > now && !c.myTicketId).sort((x, y) => x.departureAt - y.departureAt)[0];
+  if (caravan && (caravan.departureAt - now < DAY_MS || caravan.seats <= FEW_SEATS)) score.caravan = caravan.departureAt - now;
+
+  const event = events.filter((e) => e.salesOpen && Date.parse(e.endsAt) > now).sort((x, y) => Date.parse(x.startsAt) - Date.parse(y.startsAt))[0];
+  if (event) {
+    const left = event.ticketTypes.reduce((n, t) => n + t.remaining, 0);
+    if (Date.parse(event.startsAt) - now < 2 * DAY_MS || left <= 10) score.event = Math.max(0, Date.parse(event.startsAt) - now);
+  }
+
+  const mine = activeTrip();
+  if (mine && !mine.departed && mine.status === 'open' && mine.seatsTaken < mine.seats) score.taxi = 0;
+  else {
+    const taxi = trips.filter((t) => !t.departed && t.status === 'open' && t.departureAt > now && !t.passengers.includes(me) && t.seatsTaken < t.seats).sort((x, y) => x.departureAt - y.departureAt)[0];
+    if (taxi && taxi.departureAt - now < URGENT_MS) score.taxi = taxi.departureAt - now;
+  }
+
+  const base: HomeCard[] = ['caravan', 'event', 'taxi'];
+  const urgent = base.filter((k) => score[k] !== undefined).sort((x, y) => score[x]! - score[y]!);
+  return { order: [...urgent, ...base.filter((k) => !urgent.includes(k))], accent: urgent[0] ?? null };
+}
+
+/** A dot per dish: green available, amber nearly gone, grey sold out (and struck through). */
+const DISH: Record<DishStatus, { label: string | null; color: string }> = {
+  available: { label: null, color: colors.success },
+  low: { label: 'Bientôt fini', color: colors.warning },
+  out: { label: 'Rupture', color: colors.muted2 },
+};
+
+/**
+ * The university restaurants, all on the home screen (no other screen for them): lunch or dinner (the current meal
+ * first, live or when it opens), then each restaurant — where, its hours, the way there — and every dish with what's
+ * left.
+ */
+/** Dishes shown per restaurant before « Voir tout le menu ». */
+const DISHES_SHOWN = 4;
+
+export function RestoCard() {
+  const { restos: day } = useCampus();
+  const meal = currentMeal(useNow(), day?.restos ?? []);
+  const [picked, setPicked] = useState<'lunch' | 'dinner' | null>(null);
+  const shown = picked ?? meal.key;
+  // Short by default (the home stays scannable): 4 dishes a restaurant, the rest on demand.
+  const [all, setAll] = useState(false);
+  const hidden = (day?.restos ?? []).reduce((n, r) => n + Math.max(0, (r.menus[shown]?.dishes.length ?? 0) - DISHES_SHOWN), 0);
+
+  return (
+    <View style={[styles.infoCard, shadow.card, { gap: 12 }]}>
+      <View style={styles.rowBetween}>
         <View style={styles.label}>
           <Ionicons name="restaurant-outline" size={12} color={colors.primary} />
-          <Text style={styles.labelText}>RESTOS PUBLICS · {meal.label.toUpperCase()}</Text>
+          <Text style={styles.labelText}>RESTOS PUBLICS</Text>
         </View>
-        <Text style={[styles.mealStatus, { color: meal.live ? colors.successText : colors.muted2 }]}>{meal.status}</Text>
-      </Pressable>
+        <View style={[styles.mealNow, meal.live && { backgroundColor: colors.successBg }]}>
+          <View style={[styles.liveDot, { backgroundColor: meal.live ? colors.success : colors.muted }]} />
+          <Text style={[styles.mealStatus, { color: meal.live ? colors.successText : colors.muted2 }]} numberOfLines={1}>
+            {meal.label} · {meal.status}
+          </Text>
+        </View>
+      </View>
+      <Segmented options={(['lunch', 'dinner'] as const).map((k) => ({ value: k, label: MEAL_LABEL[k] }))} value={shown} onChange={setPicked} />
 
       {!day && <Text style={styles.dishLine}>Chargement des menus…</Text>}
       {day?.restos.length === 0 && <Text style={styles.dishLine}>Aucun restaurant pour l’instant.</Text>}
       {day?.restos.map((r) => {
-        const dishes = r.menus[meal.key]?.dishes ?? [];
+        const service = r.services[shown];
+        const dishes = r.menus[shown]?.dishes ?? [];
         return (
-          <Pressable key={r.id} style={styles.restoRow} onPress={openMenus}>
-            <Text style={styles.restoName}>{r.name}</Text>
-            {/* One line per restaurant: the text shrinks a little rather than wrapping. */}
-            <Text style={styles.dishLine} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
-              {dishes.length
-                ? dishes.map((d, i) => (
-                    <Text key={d.id}>
-                      {i > 0 ? '   ' : ''}
-                      <Text style={[styles.dishDot, { color: dishDot[d.status] }]}>●</Text>{' '}
-                      <Text style={d.status === 'out' ? styles.dishOut : undefined}>{d.name}</Text>
-                    </Text>
-                  ))
-                : 'Menu pas encore publié'}
-            </Text>
-          </Pressable>
+          <View key={r.id} style={styles.resto}>
+            <View style={styles.restoHead}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.restoName}>{r.name}</Text>
+                <Text style={styles.restoMeta} numberOfLines={1}>
+                  {[r.location, `${hmLabel(service.start)}-${hmLabel(service.end)}`].filter(Boolean).join(' · ')}
+                </Text>
+              </View>
+              {r.coords && (
+                <Pressable style={styles.restoGo} onPress={() => openDirections(r.coords!, r.name)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Itinéraire vers ${r.name}`}>
+                  <Ionicons name="navigate" size={14} color={colors.primary} />
+                </Pressable>
+              )}
+            </View>
+            {dishes.length === 0 ? (
+              <Text style={styles.dishLine}>Menu pas encore publié.</Text>
+            ) : (
+              (all ? dishes : dishes.slice(0, DISHES_SHOWN)).map((d) => (
+                <View key={d.id} style={styles.dishRow}>
+                  <View style={[styles.dishDotView, { backgroundColor: DISH[d.status].color }]} />
+                  <Text style={[styles.dishName, d.status === 'out' && styles.dishOut]} numberOfLines={1}>
+                    {d.name}
+                    {!!d.detail && <Text style={styles.dishDetail}> · {d.detail}</Text>}
+                  </Text>
+                  {DISH[d.status].label && <Text style={[styles.dishTag, { color: d.status === 'low' ? colors.warningText : colors.muted2 }]}>{DISH[d.status].label}</Text>}
+                </View>
+              ))
+            )}
+          </View>
         );
       })}
-
-      <Pressable style={styles.more} onPress={() => router.push('/(tabs)/resto')}>
-        <Text style={styles.moreText}>Voir les restos privés</Text>
-        <Ionicons name="chevron-forward" size={14} color={colors.primary} />
-      </Pressable>
+      {hidden > 0 && (
+        <Pressable style={styles.more} onPress={() => setAll((v) => !v)} accessibilityRole="button" accessibilityState={{ expanded: all }}>
+          <Text style={styles.moreText}>{all ? 'Réduire' : `Voir tout le menu (${hidden} plat${hidden > 1 ? 's' : ''} de plus)`}</Text>
+          <Ionicons name={all ? 'chevron-up' : 'chevron-down'} size={14} color={colors.primary} />
+        </Pressable>
+      )}
+      {!!day?.restos.length && <Text style={[styles.dishLine, { textAlign: 'center' }]}>Au ticket, sur présentation de la carte étudiant.</Text>}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  mealNow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radii.pill, backgroundColor: colors.bg, flexShrink: 1 },
+  liveDot: { width: 7, height: 7, borderRadius: 4 },
+  resto: { gap: 6, padding: 10, borderRadius: radii.md, backgroundColor: colors.bg },
+  restoHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  restoMeta: { ...typo.caption, color: colors.muted2, marginTop: 1 },
+  restoGo: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  dishRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 28 },
+  dishDotView: { width: 8, height: 8, borderRadius: 4 },
+  dishName: { ...typo.small, flex: 1, fontWeight: '600', color: colors.text },
+  dishDetail: { ...typo.caption, fontWeight: '400', color: colors.muted2 },
+  dishTag: { ...typo.label },
+  shortLabel: { ...typo.captionStrong, color: colors.navy, marginTop: 2 },
+  shortHint: { fontSize: 11, color: colors.muted2 },
   alert: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -796,7 +820,7 @@ const styles = StyleSheet.create({
   newsPeekTitle: { ...typo.smallStrong, color: colors.navy },
   newsPeekSub: { ...typo.caption, color: colors.muted2 },
   newsPdf: { width: 30, height: 36, borderRadius: 5, backgroundColor: colors.dangerBg, alignItems: 'center', justifyContent: 'center' },
-  newsPdfText: { fontSize: 9, fontWeight: '800', color: colors.dangerText },
+  newsPdfText: { fontSize: 11, fontWeight: '800', color: colors.dangerText },
   newsThumbs: { flexDirection: 'row' },
   newsThumb: { width: 36, height: 36, borderRadius: 8, borderWidth: 2, borderColor: colors.card, backgroundColor: colors.border },
   newsMore: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, minHeight: 32, borderRadius: radii.pill, backgroundColor: colors.primarySoft },

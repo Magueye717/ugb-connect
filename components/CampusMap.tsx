@@ -43,7 +43,25 @@ const CREDIT = '© OpenFreeMap © OpenMapTiles © OpenStreetMap';
  * tiles (campusMapHtml.ts): no Google Maps key, and it works on phones without Google services. Native only (see
  * CampusMap.web.tsx).
  */
-export function CampusMap({ pins, campus, onOpen, style, insetTop = 0 }: { pins: MapPin[]; campus?: Campus | null; onOpen: (pin: MapPin) => void; style?: object; insetTop?: number }) {
+export function CampusMap({
+  pins,
+  campus,
+  onOpen,
+  style,
+  insetTop = 0,
+  route,
+  insetBottom = 0,
+}: {
+  pins: MapPin[];
+  campus?: Campus | null;
+  onOpen: (pin: MapPin) => void;
+  style?: object;
+  insetTop?: number;
+  /** A walk to draw ([lng, lat] points), framed whole; `dashed`: only as the crow flies. No place card meanwhile. */
+  route?: { coords: [number, number][]; dashed?: boolean; fit?: boolean } | null;
+  /** Room kept at the bottom (a card over the map) when framing the route. */
+  insetBottom?: number;
+}) {
   const web = useRef<ComponentRef<typeof WebView>>(null);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -75,11 +93,17 @@ export function CampusMap({ pins, campus, onOpen, style, insetTop = 0 }: { pins:
 
   // A search with one result: zoom on it. Filters and layers don't move the camera.
   useEffect(() => {
-    if (ready && pins.length === 1) call('fly', pins[0]!.lat, pins[0]!.lng, 17.5);
+    // (Not during a walk: the route frames the camera.)
+    if (ready && pins.length === 1 && !route) call('fly', pins[0]!.lat, pins[0]!.lng, 17.5);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the ids on purpose
   }, [ready, ids]);
 
-  const shown = selected && pins.find((p) => p.id === selected.id);
+  // Showing a walk: the places don't open their card (it would only offer « Y aller » again).
+  const shown = !route && selected ? pins.find((p) => p.id === selected.id) : undefined;
+  useEffect(() => {
+    // Framed when asked (a new route), not at each step: the camera doesn't jump while walking.
+    if (ready && route) call('route', route.coords, { top: PADDING.top + insetTop, right: 40, bottom: 40 + insetBottom, left: 40 }, !!route.dashed, !!route.fit);
+  }, [ready, route, insetTop, insetBottom]);
   useEffect(() => {
     if (ready) call('select', shown?.id ?? null);
      

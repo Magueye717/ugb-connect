@@ -1,15 +1,15 @@
 import { TabScreen } from '@/components/TabScreen';
-import { PrivateRestosBoard } from '@/features/commerce/BusinessBoard';
-import { RestoUBoard } from '@/features/food/RestoUBoard';
+import { MarketBoard, PrivateRestosBoard } from '@/features/commerce/BusinessBoard';
 
-// Manger: the private restaurants first (order online), then the university restaurants' menus.
-export default function MangerScreen() {
+// Commander: everything ordered on campus, in one place (one basket): the private restaurants first, then the shops.
+// The university restaurants' menus are on the home screen. Links open a section with ?vue=.
+export default function CommanderScreen() {
   return (
     <TabScreen
-      title="Manger"
+      title="Commander"
       views={[
-        { key: 'prives', label: 'Restos privés', icon: 'fast-food-outline', subtitle: 'Commande en ligne · à emporter ou livré', render: () => <PrivateRestosBoard /> },
-        { key: 'publics', label: 'Restos publics', icon: 'restaurant-outline', subtitle: 'Menus des restaurants universitaires', render: () => <RestoUBoard /> },
+        { key: 'prives', label: 'Restaurants', icon: 'fast-food-outline', subtitle: 'Commande en ligne · à emporter ou livré', render: () => <PrivateRestosBoard /> },
+        { key: 'boutiques', label: 'Boutiques', icon: 'storefront-outline', subtitle: 'Le marché des boutiques du campus', render: () => <MarketBoard /> },
       ]}
     />
   );

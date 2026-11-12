@@ -57,6 +57,9 @@ export function PrimaryButton({
   disabled,
   accent,
   style,
+  size = 'md',
+  icon,
+  tone = 'accent',
 }: {
   label: string;
   onPress: () => void;
@@ -65,8 +68,14 @@ export function PrimaryButton({
   /** Orange button of the welcome screen, for the sign-up / sign-in flow. */
   accent?: boolean;
   style?: StyleProp<ViewStyle>;
+  /** `sm`: inside a card or a row (40 px, a pill); `md`: a screen's main action (54 px). */
+  size?: 'md' | 'sm';
+  icon?: keyof typeof Ionicons.glyphMap;
+  /** `primary`: the second action of a pair (blue), next to the main one (orange). */
+  tone?: 'accent' | 'primary';
 }) {
   const busy = useVisibleLoading(!!loading);
+  const sm = size === 'sm';
   return (
     <Pressable
       onPress={onPress}
@@ -75,12 +84,23 @@ export function PrimaryButton({
       accessibilityState={{ disabled: disabled || busy, busy }}
       style={({ pressed }) => [
         styles.primary,
+        sm && styles.primarySm,
+        tone === 'primary' && { backgroundColor: colors.primary },
         accent && styles.accent,
         pressed && styles.pressed,
         disabled && !busy && styles.disabled,
         style,
       ]}>
-      {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryLabel}>{label}</Text>}
+      {busy ? (
+        <ActivityIndicator color="#fff" />
+      ) : (
+        <View style={styles.primaryRow}>
+          {!!icon && <Ionicons name={icon} size={sm ? 16 : 18} color="#fff" />}
+          <Text style={[styles.primaryLabel, sm && styles.primaryLabelSm]} numberOfLines={1}>
+            {label}
+          </Text>
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -524,6 +544,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   primaryLabel: { ...typo.title, color: '#fff' },
+  primaryRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  primarySm: { minHeight: 40, borderRadius: radii.pill, paddingHorizontal: 16 },
+  primaryLabelSm: { ...typo.smallStrong },
   accent: {
     minHeight: 56,
     borderRadius: radii.md,

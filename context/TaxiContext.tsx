@@ -188,7 +188,8 @@ export function TaxiProvider({ children }: { children: ReactNode }) {
     const remind = (t: TaxiTrip | undefined) => t && scheduleTaxiReminder({ id: t.id, from: t.from, departureAt: t.departureAt, lockAt: t.lockAt });
     // Trips stay "active" up to 15 min after their time, like the list.
     const activeTrip = () =>
-      trips.find((t) => !t.departed && (t.myStatus === 'joined' || t.myStatus === 'pending_payment') && t.departureAt > Date.now() - 15 * 60_000);
+      // Over at its time: the trip leaves then (the server marks it departed), and I'm free for another.
+      trips.find((t) => !t.departed && (t.myStatus === 'joined' || t.myStatus === 'pending_payment') && t.departureAt > Date.now());
 
     const pay = async (id: string, payment: Pick<PaymentDto, 'reference' | 'checkoutUrl'>): Promise<JoinOutcome> => {
       const final = await payInBrowser(payment);

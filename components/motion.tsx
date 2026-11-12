@@ -98,7 +98,8 @@ function Dot({ index, color, size }: { index: number; color: ColorValue; size: n
 /**
  * A small hop every few seconds, to say « this is open, join it » (an open taxi trip). Still with reduced motion.
  */
-export function Hop({ children, height = 5, everyMs = 2600 }: { children: ReactNode; height?: number; everyMs?: number }) {
+// Gentle: a small hop now and then, enough to be noticed, not to distract.
+export function Hop({ children, height = 3, everyMs = 4000 }: { children: ReactNode; height?: number; everyMs?: number }) {
   const reduced = useReducedMotion();
   const y = useSharedValue(0);
   useEffect(() => {

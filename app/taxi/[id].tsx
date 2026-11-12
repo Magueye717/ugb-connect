@@ -46,12 +46,10 @@ export default function TaxiTripScreen() {
             busy={!!actions.current && actions.current.id !== t.id}
             onBusy={actions.busy}
             onJoin={() => actions.join(t)}
-            onPay={() => actions.resumePayment(t)}
             onLeave={(locked) => actions.leave(t, locked)}
             onCancel={(locked) => actions.cancel(t, locked)}
             onCheckIn={() => taxi.checkIn(t.id).catch((err) => Alert.alert('Pointage impossible', err instanceof ApiError ? err.message : 'Vérifie ta connexion et réessaie.'))}
             onDepart={() => actions.depart(t)}
-            onClaim={() => actions.claim(t)}
             messageCount={taxi.unreadFor(t.id)}
             onChat={() => router.push(`/trajet/${t.id}`)}
           />
@@ -83,7 +81,7 @@ export default function TaxiTripScreen() {
 
           <Text style={styles.section}>Règles</Text>
           <View style={[styles.card, shadow.card, { gap: 10, paddingVertical: 14 }]}>
-            <TaxiRules payOnline={t.payOnline} price={t.seatPrice} />
+            <TaxiRules price={t.seatPrice} />
           </View>
         </ScrollView>
       )}

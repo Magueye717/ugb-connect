@@ -2,10 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { EmptyState, ErrorState } from '@/components/states';
+import { EmptyState, ErrorState, SkeletonCard } from '@/components/states';
 import { BackButton, StatusChip, TextButton } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
@@ -53,7 +53,7 @@ export default function MesPublicites() {
           <Ionicons name="chevron-forward" size={18} color={colors.muted} />
         </Pressable>
 
-        {!items && !loadFailed && <ActivityIndicator color={colors.primary} />}
+        {!items && !loadFailed && (<><SkeletonCard /><SkeletonCard /></>)}
         {!items && loadFailed && <ErrorState onRetry={load} />}
         {items?.length === 0 && <EmptyState icon="megaphone-outline" title="Aucune bannière" text="Elle passe par une validation de l’équipe UGB Connect avant de s’afficher." />}
         {items?.map((b) => {

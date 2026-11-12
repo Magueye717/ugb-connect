@@ -5,7 +5,7 @@ import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } 
 
 import { CaravanSummary, FillBar } from '@/components/caravan';
 import { EmptyState, ErrorState, SkeletonCard } from '@/components/states';
-import { Field, Segmented } from '@/components/ui';
+import { PrimaryButton, Field, Segmented } from '@/components/ui';
 import { SPACE_BUTTON_CLEARANCE } from '@/components/SpaceSwitcher';
 import { formatFcfa, type Caravan, type CaravanDirection } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
@@ -65,7 +65,7 @@ export function CaravanBoard() {
         <View style={styles.hero}>
           <View style={{ flex: 1 }}>
             <Text style={styles.heroTitle}>Réserve ton billet</Text>
-            <Text style={styles.heroSub}>Place assise garantie · remboursé si le départ est annulé · Wave ou Orange Money.</Text>
+            <Text style={styles.heroSub}>Place assise garantie · tu réserves ici, tu paies l’organisateur en espèces.</Text>
           </View>
           <View style={styles.heroIcon}>
             <Ionicons name="bus-outline" size={26} color="#fff" />
@@ -90,9 +90,7 @@ export function CaravanBoard() {
               </View>
             </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              <Pressable style={[styles.book, { flex: 1 }]} onPress={() => answer(x.id, true)} accessibilityRole="button">
-                <Text style={styles.bookText}>Accepter</Text>
-              </Pressable>
+              <PrimaryButton size="sm" label="Accepter" onPress={() => answer(x.id, true)} style={{ flex: 1 }} />
               <Pressable style={[styles.book, styles.bookMine, { flex: 1 }]} onPress={() => answer(x.id, false)} accessibilityRole="button">
                 <Text style={[styles.bookText, { color: colors.primary }]}>Refuser</Text>
               </Pressable>
@@ -194,14 +192,12 @@ export function CaravanBoard() {
                     <Text style={[styles.bookText, { color: colors.primary }]}>Mon billet</Text>
                   </Pressable>
                 ) : (
-                  <Pressable
-                    style={[styles.book, (closed || !c.mySeatsLeft) && !c.myBooking && styles.bookOff]}
+                  <PrimaryButton
+                    size="sm"
                     disabled={(closed || !c.mySeatsLeft) && !c.myBooking}
-                    onPress={() => router.push(`/caravane/${c.id}`)}>
-                    <Text style={styles.bookText}>
-                      {c.myBooking ? 'Payer' : !c.mySeatsLeft ? (c.purchasedHere ? 'Billet offert' : 'Limite atteinte') : c.seats ? (c.bookingOpen ? 'Réserver' : 'Fermé') : 'Complet'}
-                    </Text>
-                  </Pressable>
+                    onPress={() => router.push(`/caravane/${c.id}`)}
+                    label={c.myBooking ? 'Ma demande' : !c.mySeatsLeft ? (c.purchasedHere ? 'Billet offert' : 'Limite atteinte') : c.seats ? (c.bookingOpen ? 'Réserver' : 'Fermé') : 'Complet'}
+                  />
                 )}
               </View>
             </View>
@@ -247,13 +243,14 @@ const styles = StyleSheet.create({
   ticketIcon: { width: 40, height: 40, borderRadius: radii.sm, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   ticketRoute: { ...typo.title, color: colors.navy },
   ticketMeta: { ...typo.caption, color: colors.muted2, marginTop: 2 },
+  // The soft second action (« Mon billet », « Refuser »): the same pill as the main one.
   book: {
     backgroundColor: colors.accent,
-    paddingHorizontal: 22,
-    minHeight: 38,
-    borderRadius: radii.sm,
+    paddingHorizontal: 16,
+    minHeight: 40,
+    borderRadius: radii.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bookText: { color: '#fff', fontWeight: '700' },
+  bookText: { ...typo.smallStrong, color: '#fff' },
 });

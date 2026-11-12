@@ -2,11 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { eventWhen } from '@/components/home';
-import { EmptyState, ErrorState } from '@/components/states';
+import { EmptyState, ErrorState, SkeletonCard } from '@/components/states';
 import { BackButton, StatusChip } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { EVENT_STATUS, type OrgEventDto } from '@/features/events/api';
@@ -55,7 +55,7 @@ export default function MesEvenements() {
         {/* An event on sale: its door (scan at the entrance, cash validated) one tap away. */}
         {!!onSale && <DoorActions org={onSale.organizer.id} />}
 
-        {!items && !loadFailed && <ActivityIndicator color={colors.primary} />}
+        {!items && !loadFailed && (<>{/* Loading: the shape of what's coming. */}<SkeletonCard /><SkeletonCard /></>)}
         {!items && loadFailed && <ErrorState onRetry={load} />}
         {items?.length === 0 && <EmptyState icon="sparkles-outline" title="Aucun événement" text="Crée ton premier événement : il sera vérifié avant d’être publié." />}
         {items?.map((e) => {

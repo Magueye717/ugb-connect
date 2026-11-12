@@ -8,17 +8,17 @@ import { colors } from '@/constants/theme';
 
 const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
   index: 'home-outline',
-  resto: 'restaurant-outline',
+  resto: 'bag-handle-outline',
   caravanes: 'bus-outline',
   lieux: 'school-outline',
   profil: 'person-outline',
 };
 
-const TITLES: Record<string, string> = { index: 'Accueil', resto: 'Manger', caravanes: 'Trajets', lieux: 'Campus', profil: 'Profil' };
+const TITLES: Record<string, string> = { index: 'Accueil', resto: 'Commander', caravanes: 'Trajets', lieux: 'Campus', profil: 'Profil' };
 
 const activeIcons: Record<string, keyof typeof Ionicons.glyphMap> = {
   index: 'home',
-  resto: 'restaurant',
+  resto: 'bag-handle',
   caravanes: 'bus',
   lieux: 'school',
   profil: 'person',
@@ -54,7 +54,7 @@ export default function TabLayout() {
         })}>
         <Tabs.Screen name="index" options={{ title: 'Accueil' }} />
         {/* Route names stay the same so existing links keep working; labels follow the new structure. */}
-        <Tabs.Screen name="resto" options={{ title: 'Manger' }} />
+        <Tabs.Screen name="resto" options={{ title: 'Commander' }} />
         <Tabs.Screen name="caravanes" options={{ title: 'Trajets' }} />
         <Tabs.Screen name="lieux" options={{ title: 'Campus' }} />
         <Tabs.Screen name="profil" options={{ title: 'Profil' }} />
@@ -67,7 +67,8 @@ export default function TabLayout() {
 function Label(title: string, focused: boolean, color: string) {
   // Grows with the system text size, up to 130 %: the bar has a fixed height.
   return (
-    <Text style={[styles.label, { color, fontWeight: focused ? '700' : '500' }]} maxFontSizeMultiplier={1.3} numberOfLines={1}>
+    // A long name (« Commander », bold when chosen) shrinks a little to fit whole rather than being cut.
+    <Text style={[styles.label, { color, fontWeight: focused ? '700' : '500' }]} maxFontSizeMultiplier={1.3} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
       {title}
     </Text>
   );
@@ -84,7 +85,7 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     shadowOffset: { width: 0, height: -4 },
   },
-  label: { fontSize: 11, marginTop: 2 },
+  label: { fontSize: 11, marginTop: 2, textAlign: 'center', alignSelf: 'stretch' },
   iconWrap: {
     width: 42,
     height: 28,
