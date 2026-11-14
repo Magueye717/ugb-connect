@@ -187,6 +187,8 @@ export const eventsApi = {
   submit: (id: string) => api<OrgEventDto>('POST', `/me/events/${id}/submit`, auth),
   publishMine: (id: string, body: PublicationInput) =>
     api<{ event: OrgEventDto; payment: PaymentDto }>('POST', `/me/events/${id}/publish`, { ...auth, body: { ...body, returnUrl: paymentReturnUrl() } }),
+  /** Off my list: never published, deleted for good; over, hidden (tickets kept). On sale: refused (cancel first). */
+  removeMine: (id: string) => api<{ deleted: boolean }>('DELETE', `/me/events/${id}`, auth),
   cancelMine: (id: string, reason: string) => api<{ refunded: number }>('POST', `/me/events/${id}/cancel`, { ...auth, body: { reason } }),
   // Admins
   /** `live`: validated or on sale and not over yet, the soonest first (the admins' « En cours »). */

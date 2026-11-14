@@ -20,6 +20,8 @@ export type EventsSource = {
   /** Student: sent for review. Organization: published (or sent for review when it isn't verified for events). */
   submit: (id: string) => Promise<OrgEventDto>;
   cancel: (id: string, reason: string) => Promise<{ refunded: number }>;
+  /** Off the list (swipe): never published, deleted; over, hidden. */
+  remove: (id: string) => Promise<{ deleted: boolean }>;
   updatePhotos: (id: string, body: { imageIds: string[]; fixedCover: boolean }) => Promise<OrgEventDto>;
   requests: (id: string) => Promise<{ items: TicketRequestDto[] }>;
   /** `unitIds`: only those tickets (paid one by one); all waiting otherwise. */
@@ -37,6 +39,7 @@ export function eventsSource(org: string | null): EventsSource {
       update: eventsApi.update,
       submit: eventsApi.submit,
       cancel: eventsApi.cancelMine,
+      remove: eventsApi.removeMine,
       updatePhotos: eventsApi.updatePhotos,
       requests: eventsApi.myRequests,
       validate: eventsApi.validateMine,
@@ -51,6 +54,7 @@ export function eventsSource(org: string | null): EventsSource {
     update: (id, body) => api<OrgEventDto>('PUT', `${base}/${id}`, { ...auth, body }),
     submit: (id) => api<OrgEventDto>('POST', `${base}/${id}/publish`, auth),
     cancel: (id, reason) => api<{ refunded: number }>('POST', `${base}/${id}/cancel`, { ...auth, body: { reason } }),
+    remove: (id) => api<{ deleted: boolean }>('DELETE', `${base}/${id}`, auth),
     updatePhotos: (id, body) => api<OrgEventDto>('PUT', `${base}/${id}/photos`, { ...auth, body }),
     requests: (id) => eventsApi.orgRequests(org, id),
     validate: (bookingId, unitIds) => eventsApi.validateRequest(org, bookingId, unitIds),

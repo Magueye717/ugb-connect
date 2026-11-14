@@ -13,6 +13,7 @@ import { LostProvider } from '@/context/LostContext';
 import { NotificationsProvider } from '@/context/NotificationsContext';
 import { OrdersProvider } from '@/context/OrdersContext';
 import { OfflineBanner } from '@/components/states';
+import { CropHost } from '@/components/CropHost';
 import { NoticeHost } from '@/components/NoticeHost';
 import { Toaster } from '@/components/Toaster';
 import { TaxiProvider } from '@/context/TaxiContext';
@@ -56,9 +57,9 @@ function NotificationRouter() {
 // Each space only exists for accounts allowed in it: a student can't open the organizer screens,
 // even from a link. Client-side only: the backend must check the role too.
 function Screens() {
-  const { space } = useAuth();
+  const { space, user } = useAuth();
   // Where a blocked screen sends you: the other space when switching, sign-in when logged out.
-  const home = spaceHome(space);
+  const home = spaceHome(space, user?.roles);
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
       <Stack.Screen name="index" />
@@ -86,6 +87,9 @@ function Screens() {
         <Stack.Screen name="mes-billets" />
         <Stack.Screen name="mes-commandes" />
         <Stack.Screen name="mes-objets" />
+        <Stack.Screen name="logement/[id]" />
+        <Stack.Screen name="logement/publier" />
+        <Stack.Screen name="logement/discussion/[id]" />
         <Stack.Screen name="ma-boutique" />
         <Stack.Screen name="evenement/[id]" />
         <Stack.Screen name="evenements" />
@@ -168,6 +172,7 @@ export default function RootLayout() {
                       <Toaster />
                       {/* Messages worth a pause, with what comes next (notice()). */}
                       <NoticeHost />
+                      <CropHost />
                     </LostProvider>
                   </TaxiProvider>
                 </ChatsProvider>

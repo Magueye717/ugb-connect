@@ -22,7 +22,7 @@ export function spaceInfo(s: AppSpace): Info {
     case 'admin':
       return { icon: 'shield-checkmark-outline', title: 'Administration', text: 'Équipe UGB Connect, événements, entités' };
     case 'resto':
-      return { icon: 'restaurant-outline', title: 'Restos publics', text: 'Menus du déjeuner et du dîner, ruptures' };
+      return { icon: 'restaurant-outline', title: 'Menus du jour', text: 'Menus du déjeuner et du dîner, ruptures' };
     case 'alerts':
       return { icon: 'megaphone-outline', title: 'Communication', text: 'Alertes, « À la une », bannières' };
     case 'directory':

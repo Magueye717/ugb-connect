@@ -8,7 +8,7 @@ import { colors } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 
 // The work spaces of the app creator's team, one per job: Administration (the super admin's team and the students'
-// events), Restos publics (menus of the restaurants assigned), Communication (alerts, "À la une", paid banners),
+// events), Menus du jour (menus of the restaurants assigned), Communication (alerts, "À la une", paid banners),
 // Référencement (places, restaurants, shops, caravan organizers). Each space shows only its own tabs, then the account.
 const icons: Record<string, [keyof typeof Ionicons.glyphMap, keyof typeof Ionicons.glyphMap]> = {
   'equipe-plateforme': ['people-outline', 'people'],
@@ -46,7 +46,7 @@ export default function StaffTabLayout() {
           tabBarActiveTintColor: colors.primary,
           // Inactive labels must stay readable (11 px): muted2, 4.9:1.
           tabBarInactiveTintColor: colors.muted2,
-          tabBarStyle: [styles.bar, { height: 62 + bottom, paddingBottom: bottom }],
+          tabBarStyle: [styles.bar, { height: 56 + bottom, paddingBottom: bottom }],
           tabBarLabel: ({ focused, color }) => (
             <Text style={[styles.label, { color: String(color), fontWeight: focused ? '700' : '500' }]} maxFontSizeMultiplier={1.3} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
               {titleOf(route.name)}
@@ -58,8 +58,9 @@ export default function StaffTabLayout() {
             </View>
           ),
         })}>
-        <Tabs.Screen name="equipe-plateforme" options={{ title: TITLES['equipe-plateforme'], href: show(space === 'admin') }} />
-        <Tabs.Screen name="evenements" options={{ title: TITLES.evenements, href: show(space === 'admin') }} />
+        {/* The team and the payment switches are roles of their own: the super admin role doesn't include them. */}
+        <Tabs.Screen name="equipe-plateforme" options={{ title: TITLES['equipe-plateforme'], href: show(space === 'admin' && roles.includes('team_manager')) }} />
+        <Tabs.Screen name="evenements" options={{ title: TITLES.evenements, href: show(space === 'admin' && (roles.includes('admin') || roles.includes('event_moderator'))) }} />
         <Tabs.Screen name="menus" options={{ title: TITLES.menus, href: show(space === 'resto') }} />
         <Tabs.Screen name="alertes" options={{ title: TITLES.alertes, href: show(space === 'alerts') }} />
         <Tabs.Screen name="bannieres" options={{ title: TITLES.bannieres, href: show(space === 'alerts' && has('content_editor')) }} />
@@ -77,7 +78,7 @@ export default function StaffTabLayout() {
 
 const styles = StyleSheet.create({
   bar: {
-    paddingTop: 8,
+    paddingTop: 6,
     borderTopWidth: 0,
     backgroundColor: colors.card,
     elevation: 12,

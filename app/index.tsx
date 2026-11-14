@@ -18,7 +18,7 @@ export default function Index() {
     );
   }
   if (!user) return <Redirect href="/(auth)/welcome" />;
-  return <Redirect href={spaceHome(space)} />;
+  return <Redirect href={spaceHome(space, user.roles)} />;
 }
 
 const styles = StyleSheet.create({

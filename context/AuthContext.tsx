@@ -82,11 +82,11 @@ export type AccountBusiness = { orgId: string; name: string; kind: 'restaurant' 
 /** Only the owner of a space manages its team and edits its information. */
 export const isOwner = (roles: string[] | undefined) => !!roles?.includes('owner');
 
-/** The first screen of a space. */
-export function spaceHome(space: Space | null) {
+/** The first screen of a space. Administration: the team for its manager, else the events (super admin, event moderator). */
+export function spaceHome(space: Space | null, roles: string[] = []) {
   if (space === 'organizer') return '/activites' as const;
-  if (space === 'business') return '/commandes' as const;
-  if (space === 'admin') return '/equipe-plateforme' as const;
+  if (space === 'business') return '/catalogue' as const;
+  if (space === 'admin') return !roles.includes('team_manager') && (roles.includes('admin') || roles.includes('event_moderator')) ? ('/evenements' as const) : ('/equipe-plateforme' as const);
   if (space === 'resto') return '/menus' as const;
   if (space === 'alerts') return '/alertes' as const;
   if (space === 'directory') return '/referencement' as const;

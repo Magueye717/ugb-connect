@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useNetworkState } from 'expo-network';
-import { useEffect } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { Pressable, StyleSheet, Text, View, type DimensionValue } from 'react-native';
 import Animated, { FadeInUp, FadeOutUp, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, radii, typo } from '@/constants/theme';
+import { serverReachability } from '@/lib/api';
 
 type Icon = keyof typeof Ionicons.glyphMap;
 
@@ -71,8 +72,10 @@ export function SkeletonCard() {
 export function OfflineBanner() {
   const net = useNetworkState();
   const insets = useSafeAreaInsets();
-  // Unknown on first render: only warn once the phone says it's offline.
-  const offline = net.isConnected === false || net.isInternetReachable === false;
+  const reached = useSyncExternalStore(serverReachability.subscribe, serverReachability.get);
+  // No network at all: offline. « No internet » (the phone's own check, which can stay stale after the connection is
+  // back): offline unless the server has just answered, so a refresh that works makes the banner go away.
+  const offline = net.isConnected === false || (net.isInternetReachable === false && reached !== true) || (reached === false && net.isConnected !== true);
   if (!offline) return null;
   return (
     <Animated.View

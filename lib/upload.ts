@@ -14,9 +14,36 @@ type Purpose = 'banner' | 'event' | 'lost' | 'business' | 'place' | 'avatar' | '
  * expo-file-system's File (React Native's old `{ uri, name, type }` object isn't understood and fails the request).
  * The server reads the real format from the bytes, so the file name and type sent don't matter.
  */
-export function uploadImage(asset: { uri: string; file?: Blob }, purpose: Purpose): Promise<UploadedImage> {
+export async function uploadImage(asset: { uri: string; file?: Blob; width?: number; height?: number }, purpose: Purpose): Promise<UploadedImage> {
   // `file`: a picture picked as a file (the file picker): sent as it is, like a PDF.
-  return send<UploadedImage>('images', asset.file ?? asset.uri, purpose, undefined, 'Envoi de l’image impossible.');
+  if (asset.file) return send<UploadedImage>('images', asset.file, purpose, undefined, 'Envoi de l’image impossible.');
+  return send<UploadedImage>('images', await adapt(asset), purpose, undefined, 'Envoi de l’image impossible.');
+}
+
+/** Longest side sent: the server keeps 1600 px; a little more leaves it room to sharpen. */
+const SEND_SIDE = 2000;
+
+/**
+ * Any photo the phone has (a 48 MP shot, a HEIC, a PNG screenshot, a WhatsApp image) made easy to send: turned into a
+ * JPEG of at most 2000 px, a few hundred KB. Big or odd files were the ones refused (too heavy, unknown format) or
+ * slow on mobile data. If the phone can't (an old app build without the module), the original goes as it is.
+ */
+async function adapt(asset: { uri: string; width?: number; height?: number }): Promise<string> {
+  try {
+    const { ImageManipulator, SaveFormat } = await import('expo-image-manipulator');
+    const ctx = ImageManipulator.manipulate(asset.uri);
+    const w = asset.width ?? 0;
+    const h = asset.height ?? 0;
+    if (Math.max(w, h) > SEND_SIDE) ctx.resize(w >= h ? { width: SEND_SIDE } : { height: SEND_SIDE });
+    const image = await ctx.renderAsync();
+    // Size unknown beforehand (some pickers don't say): checked on the rendered image.
+    const big = !w && Math.max(image.width, image.height) > SEND_SIDE;
+    const final = big ? await ImageManipulator.manipulate(asset.uri).resize(image.width >= image.height ? { width: SEND_SIDE } : { height: SEND_SIDE }).renderAsync() : image;
+    const saved = await final.saveAsync({ format: SaveFormat.JPEG, compress: 0.82 });
+    return saved.uri;
+  } catch {
+    return asset.uri;
+  }
 }
 
 /**

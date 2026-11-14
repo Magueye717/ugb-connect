@@ -8,6 +8,7 @@ import { ActivityIndicator, Alert, Modal, Platform, Pressable, RefreshControl, S
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SpaceBar } from '@/components/SpaceBar';
 import { EmptyState, ErrorState } from '@/components/states';
 import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, Segmented, SheetHeader, Toggle } from '@/components/ui';
 import { formatDateTime } from '@/constants/data';
@@ -132,14 +133,13 @@ export default function Communication() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <SpaceBar>
+        <Pressable style={styles.newBtn} onPress={() => setEditing('new')} accessibilityRole="button">
+          <Ionicons name="add" size={18} color="#fff" />
+          <Text style={styles.newText}>Nouvelle</Text>
+        </Pressable>
+      </SpaceBar>
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={false} onRefresh={load} />}>
-        <View style={styles.headRow}>
-          <Text style={styles.h1}>Communication</Text>
-          <Pressable style={styles.newBtn} onPress={() => setEditing('new')} accessibilityRole="button">
-            <Ionicons name="add" size={18} color="#fff" />
-            <Text style={styles.newText}>Nouvelle</Text>
-          </Pressable>
-        </View>
         <Segmented
           options={[
             { value: 'headline', label: 'À la une' },
@@ -598,7 +598,6 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
   headRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  h1: { ...typo.h1, color: colors.navy },
   newBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.accent, borderRadius: radii.pill, paddingHorizontal: 14, minHeight: 40 },
   newText: { color: '#fff', fontWeight: '700' },
   hint: { ...typo.caption, color: colors.muted2, lineHeight: 17 },

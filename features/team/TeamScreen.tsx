@@ -5,6 +5,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SpaceBar } from '@/components/SpaceBar';
 import { usePullRefresh } from '@/components/PullRefresh';
 import { PhoneField, phoneOk } from '@/components/PhoneField';
 import { ErrorState } from '@/components/states';
@@ -149,8 +150,8 @@ export function TeamScreen({ orgId, name, intro, addHint }: { orgId: string; nam
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <SpaceBar />
       <KeyboardAwareScrollView refreshControl={pull} style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          <Text style={styles.h1}>Mon équipe</Text>
           <Text style={styles.sub}>{intro}</Text>
           {spaces.length > 1 && <Text style={styles.muted}>{`${name} : ${spaces.map((s) => s.label).join(', ')}. Une même personne peut avoir un rôle dans chaque espace.`}</Text>}
 
@@ -251,7 +252,6 @@ export function TeamScreen({ orgId, name, intro, addHint }: { orgId: string; nam
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 40 },
-  h1: { ...typo.h1, color: colors.navy },
   sub: { ...typo.small, color: colors.muted2, marginTop: -6 },
   section: { ...typo.section, color: colors.navy, marginTop: 8 },
   label: { ...typo.bodyStrong, color: colors.navy },

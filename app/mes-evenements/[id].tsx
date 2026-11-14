@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -10,6 +9,8 @@ import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import Animated, { Extrapolation, FadeIn, interpolate, interpolateColor, runOnJS, useAnimatedReaction, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { pickPhoto } from '@/lib/pickPhoto';
+import { FitImage } from '@/components/FitImage';
 import { DateField, TimeField } from '@/components/DatePicker';
 import { eventWhen } from '@/components/home';
 import { LivePulse, NudgeRight } from '@/components/motion';
@@ -269,7 +270,7 @@ function EventState({ event: e, onChanged, onBack, title }: { event: OrgEventDto
         {/* The cover, behind the status bar. */}
         <View style={[styles.hero2, { height: HERO_H + insets.top }]}>
           <Animated.View style={[StyleSheet.absoluteFill, coverStyle]}>
-            <Image source={{ uri: photos.editable ? photos.images[0]?.url : e.images[0] }} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
+            {(photos.editable ? photos.images[0]?.url : e.images[0]) ? <FitImage uri={(photos.editable ? photos.images[0]?.url : e.images[0])!} style={StyleSheet.absoluteFill} transition={250} /> : null}
           </Animated.View>
           <LinearGradient colors={['rgba(10,16,40,0.55)', 'rgba(10,16,40,0)', 'rgba(10,16,40,0.9)']} locations={[0, 0.35, 1]} style={StyleSheet.absoluteFill} />
           <Animated.View style={[styles.hero2Text, heroTextStyle]}>
@@ -657,11 +658,12 @@ function Photos({ images, setImages, uploading, setUploading, fixedCover, setFix
     setFixedCover(true);
   };
   const pick = async () => {
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: MAX_IMAGES - images.length, quality: 0.85 });
-    if (res.canceled) return;
+    // Several at once (whole), or one cropped: the person chooses.
+    const assets = await pickPhoto({ multiple: MAX_IMAGES - images.length, aspect: [16, 10], title: 'Photos de l’événement' });
+    if (!assets.length) return;
     setUploading(true);
     try {
-      for (const asset of res.assets.slice(0, MAX_IMAGES - images.length)) {
+      for (const asset of assets.slice(0, MAX_IMAGES - images.length)) {
         const up = await uploadImage(asset, 'event');
         setImages((list) => [...list, { id: up.id, url: up.url }]);
       }

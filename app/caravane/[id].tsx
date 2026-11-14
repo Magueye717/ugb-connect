@@ -15,6 +15,7 @@ import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useCaravans, type BookingOutcome } from '@/context/CaravansContext';
 import { caravansApi, isCaravanTicket, toCaravan, type CaravanTicketDto, type PassengerDto, type SeatMap } from '@/features/caravans/api';
 import { CompanionSheet, type CompanionStops } from '@/features/caravans/CompanionSheet';
+import { genericRows, SeatPlan, seatInfo } from '@/features/caravans/SeatPlan';
 import { ApiError } from '@/lib/api';
 import { notice } from '@/lib/notice';
 import { haptics } from '@/lib/haptics';
@@ -72,15 +73,17 @@ export default function CaravaneReservation() {
   }, [id, caravans, loadSeats]);
 
   const perRow = map?.seatsPerRow ?? 4;
-  // Numbered from the front: the first row has 2 seats on the right (door and driver on the left), then full rows.
-  const first = map?.firstRowSeats ?? 2;
-  const columnOf = (n: number) => (n <= first ? perRow - first + (n - 1) : (n - 1 - first) % perRow);
-  const rowOf = (n: number) => (n <= first ? 1 : 2 + Math.floor((n - 1 - first) / perRow));
-  // First and last column of each row are by the window.
-  const isWindow = (n: number) => columnOf(n) === 0 || columnOf(n) === perRow - 1;
-  // 5 per row: the middle one is the folding seat in the aisle (« versailler »).
-  const isMiddle = (n: number) => perRow % 2 === 1 && columnOf(n) === Math.floor(perRow / 2);
-  const seatKind = (n: number) => (isWindow(n) ? 'Fenêtre' : isMiddle(n) ? 'Versailler' : 'Couloir');
+  // The vehicle's plan, front first: a catalog vehicle's own (bus, minibus), else rows of `perRow` (2 seats beside the
+  // driver, then full rows).
+  const rows = useMemo(() => (map ? (map.rows ?? genericRows(map.capacity, perRow, map.firstRowSeats ?? 2)) : []), [map, perRow]);
+  const info = useMemo(() => seatInfo(rows), [rows]);
+  // Without a catalog plan, 5 per row: the middle one is the folding seat in the aisle (« versailler »).
+  const folding = !map?.rows && perRow === 5;
+  const rowOf = (n: number) => info.get(n)?.row ?? 1;
+  const isWindow = (n: number) => info.get(n)?.kind === 'window';
+  const isMiddle = (n: number) => info.get(n)?.kind === 'middle';
+  const seatSize = 40;
+  const seatKind = (n: number) => (isWindow(n) ? 'Fenêtre' : isMiddle(n) ? (folding ? 'Versailler' : 'Milieu') : 'Couloir');
   const taken = useMemo(() => new Set([...(map?.taken ?? []), ...(map?.blocked ?? [])]), [map]);
 
   if (!c) {
@@ -150,20 +153,6 @@ export default function CaravaneReservation() {
     setShowMap(true);
   };
   const { confirmed } = caravanState(c);
-  // Each row as its `perRow` places, front first: a seat number, or null for an empty place (the left of the first row,
-  // where the door and the driver are; the end of a short last row).
-  const capacity = map?.capacity ?? 0;
-  const rows: (number | null)[][] = capacity
-    ? [
-        Array.from({ length: perRow }, (_, c) => (c >= perRow - first && c - (perRow - first) + 1 <= capacity ? c - (perRow - first) + 1 : null)),
-        ...Array.from({ length: Math.ceil(Math.max(0, capacity - first) / perRow) }, (_, r) =>
-          Array.from({ length: perRow }, (_, c) => {
-            const n = first + r * perRow + c + 1;
-            return n <= capacity ? n : null;
-          }),
-        ),
-      ]
-    : [];
   const total = (c.price + SERVICE_FEE) * Math.max(1, picks.length);
   const ready = picks.length > 0 && !!pickup && !!dropoff && !paying;
   const ordered = [...picks].sort((a, b) => Number(!!a.passenger) - Number(!!b.passenger));
@@ -355,7 +344,7 @@ export default function CaravaneReservation() {
                   <Legend style={styles.seatTaken} label="Occupée" />
                   {!existing && <Legend style={styles.seatSelected} label="Toi" />}
                   {limit > 1 || existing || paid.length ? <Legend style={styles.seatCompanion} label="Accompagnant" /> : null}
-                  {perRow === 5 && <Legend style={[styles.seatFree, styles.seatMiddle]} label="Versailler" />}
+                  {folding && <Legend style={[styles.seatFree, styles.seatMiddle]} label="Versailler" />}
                 </View>
                 {/* Which seat the next tap places: mine, a companion's, or a new companion. */}
                 {(picks.length > 0 || paid.length > 0) && (
@@ -399,25 +388,19 @@ export default function CaravaneReservation() {
                       : `Touche une autre place pour déplacer celle de ${picks.find((p) => p.seat === current)?.passenger?.name.split(' ')[0] ?? 'ton accompagnant'}.`}
                 </Text>
                 <View style={[styles.card, styles.busCard, shadow.card]}>
-                  <View style={styles.front}>
-                    <Ionicons name="bus-outline" size={12} color={colors.primary} />
-                    <Text style={styles.frontText}>Avant du bus</Text>
-                  </View>
                   {!map && !seatsFailed && <ActivityIndicator color={colors.primary} />}
                   {!map && seatsFailed && <ErrorState text="Le plan des places n’a pas pu être chargé." onRetry={retrySeats} />}
-                  {rows.map((row) => (
-                    <View key={row.find((n) => n !== null)} style={styles.seatRow}>
-                      {row.map((n, i) => {
-                        // 4 per row: the aisle before the third seat. 5: the folding middle seat sits in it.
-                        const aisle = perRow % 2 === 0 ? i === perRow / 2 && styles.afterAisle : i === Math.floor(perRow / 2) && styles.inAisle;
-                        if (n === null) return <View key={`empty-${i}`} style={[styles.seat, aisle]} />;
+                  {map && (
+                    <SeatPlan
+                      rows={rows}
+                      size={seatSize}
+                      renderSeat={(n, size) => {
                         const isTaken = taken.has(n);
                         const pick = picks.find((p) => p.seat === n);
                         const own = paidSeat(n);
                         const selected = !!pick && current === (pick.passenger ? pick.seat : 'mine');
                         return (
                           <Pressable
-                            key={n}
                             disabled={isTaken}
                             onPress={() => tapSeat(n)}
                             accessibilityLabel={
@@ -427,12 +410,12 @@ export default function CaravaneReservation() {
                                   ? `Place ${n}, occupée`
                                   : pick
                                     ? `Place ${n}, ${pick.passenger ? pick.passenger.name : 'ta place'}`
-                                    : `Place ${n}${isMiddle(n) ? ', versailler' : ''}`
+                                    : `Place ${n}${folding && isMiddle(n) ? ', versailler' : ''}`
                             }
                             style={[
                               styles.seat,
-                              aisle,
-                              own ? [styles.seatCompanion, styles.seatPaid] : isTaken ? styles.seatTaken : pick ? (pick.passenger ? styles.seatCompanion : styles.seatSelected) : [styles.seatFree, isMiddle(n) && styles.seatMiddle],
+                              { width: size, height: size },
+                              own ? [styles.seatCompanion, styles.seatPaid] : isTaken ? styles.seatTaken : pick ? (pick.passenger ? styles.seatCompanion : styles.seatSelected) : [styles.seatFree, folding && isMiddle(n) && styles.seatMiddle],
                               selected && styles.seatMoving,
                             ]}>
                             {own ? (
@@ -446,9 +429,9 @@ export default function CaravaneReservation() {
                             )}
                           </Pressable>
                         );
-                      })}
-                    </View>
-                  ))}
+                      }}
+                    />
+                  )}
                 </View>
                 <Pressable style={[styles.seatAction, styles.seatActionMain, styles.mapDone]} onPress={() => setShowMap(false)} accessibilityRole="button">
                   <Ionicons name="checkmark" size={16} color="#fff" />
@@ -825,21 +808,7 @@ const styles = StyleSheet.create({
   legendBox: { width: 12, height: 12, borderRadius: 3 },
   legendText: { ...typo.caption, color: colors.muted2 },
   busCard: { alignItems: 'center', gap: 8 },
-  front: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: colors.primarySoft,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: radii.pill,
-    marginBottom: 4,
-  },
-  frontText: { ...typo.label, color: colors.primary },
-  seatRow: { flexDirection: 'row', gap: 8 },
   seat: { width: 40, height: 40, borderRadius: radii.sm, alignItems: 'center', justifyContent: 'center' },
-  afterAisle: { marginLeft: 28 },
-  inAisle: { marginHorizontal: 4 },
   seatMiddle: { borderStyle: 'dashed', borderColor: colors.accent },
   seatFree: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
   seatTaken: { backgroundColor: colors.border },

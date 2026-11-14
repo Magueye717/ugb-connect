@@ -1,13 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { usePullRefresh } from '@/components/PullRefresh';
 import { AdCarousel, AlertStrip, CaravanCard, EventCard, Headlines, OriginPrompt, RestoCard, TaxiCard, useHomeOrder, type HomeCard } from '@/components/home';
 import { InProgress } from '@/components/InProgress';
+import { HousingHomeCard } from '@/features/housing/HousingHomeCard';
 import { RatingPrompt } from '@/features/ratings/RatingPrompt';
+import { SpaceSheet } from '@/components/SpaceSwitcher';
 import { UnreadBadge } from '@/components/UnreadBadge';
 import { colors, radii, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
@@ -31,7 +34,8 @@ const CARDS: Record<HomeCard, () => React.JSX.Element | null> = { caravan: Carav
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { user, reloadAccount } = useAuth();
+  const { user, spaces, reloadAccount } = useAuth();
+  const [switching, setSwitching] = useState(false);
   const { unreadCount, refresh: refreshNotifications } = useNotifications();
   // Pull: banners, alerts, menus, trips, tickets, orders and the bell.
   const campus = useCampus();
@@ -39,7 +43,7 @@ export default function HomeScreen() {
   const taxi = useTaxi();
   const orders = useOrders();
   // The live cards in order of urgency, the most urgent ringed.
-  const { order, accent } = useHomeOrder();
+  const { order } = useHomeOrder();
   const pull = usePullRefresh(campus.refresh, caravans.refresh, taxi.refresh, orders.refresh, refreshNotifications, reloadAccount, () => refreshMethods(true));
   // While the profile loads: a neutral greeting, never someone else's name.
 
@@ -47,28 +51,41 @@ export default function HomeScreen() {
     <View style={styles.root}>
       {/* A trip, an event or an order just over and not rated: the question, once per session. */}
       <RatingPrompt />
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
         <View style={styles.row}>
           {/* The orange ring of every profile photo. */}
           <Pressable style={styles.ring} onPress={() => router.push('/(tabs)/profil')} accessibilityRole="button" accessibilityLabel="Mon profil">
             <View style={styles.avatar}>
-              {user?.avatarUrl ? <Image source={{ uri: user.avatarUrl }} style={StyleSheet.absoluteFill} contentFit="cover" /> : user?.initials ? <Text style={styles.avatarText}>{user.initials}</Text> : <Ionicons name="person" size={20} color="#fff" />}
+              {user?.avatarUrl ? <Image source={{ uri: user.avatarUrl }} style={StyleSheet.absoluteFill} contentFit="cover" /> : user?.initials ? <Text style={styles.avatarText}>{user.initials}</Text> : <Ionicons name="person" size={17} color="#fff" />}
             </View>
           </Pressable>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.hello}>{user?.firstName ? `Bonjour, ${user.firstName}` : 'Bonjour'}</Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            {/* One line whatever the name's length and the buttons beside it: the text shrinks a little rather than wrap. */}
+            <Text style={styles.hello} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+              {user?.firstName ? `Bonjour, ${user.firstName}` : 'Bonjour'}
+            </Text>
             {/* Today's date (context for the menus and the « ce soir »), not where the student lives: that stays private. */}
-            <Text style={styles.campus}>{today()}</Text>
+            <Text style={styles.campus} numberOfLines={1}>
+              {today()}
+            </Text>
           </View>
+          <View style={styles.actions}>
+          {/* Another space (my shop, an organization I work for): one tap to switch. */}
+          {spaces.length > 1 && (
+            <Pressable onPress={() => setSwitching(true)} style={styles.bell} accessibilityRole="button" accessibilityLabel="Changer d’espace">
+              <Ionicons name="swap-horizontal" size={19} color="#fff" />
+            </Pressable>
+          )}
           <Pressable
             onPress={() => router.push('/notifications')}
             style={styles.bell}
             accessibilityRole="button"
             accessibilityLabel={bellLabel(unreadCount)}>
-            <Ionicons name="notifications-outline" size={22} color="#fff" />
+            <Ionicons name="notifications-outline" size={19} color="#fff" />
             {/* How many are new: a red count (9+ above nine), on the bell's corner. */}
             <UnreadBadge count={unreadCount} style={styles.count} />
           </Pressable>
+          </View>
         </View>
         {/* « Où se trouve… ? »: the campus places, search ready to type (an occasional need: one slim line, no card). */}
         <Pressable
@@ -76,7 +93,7 @@ export default function HomeScreen() {
           onPress={() => router.push({ pathname: '/(tabs)/lieux', params: { vue: 'lieux', chercher: '1', n: String(Date.now()) } })}
           accessibilityRole="search"
           accessibilityLabel="Rechercher un lieu du campus">
-          <Ionicons name="search" size={16} color="rgba(255,255,255,0.85)" />
+          <Ionicons name="search" size={15} color="rgba(255,255,255,0.85)" />
           <Text style={styles.findText} numberOfLines={1}>
             Où se trouve… ? (amphi, bureau, resto…)
           </Text>
@@ -90,21 +107,18 @@ export default function HomeScreen() {
         <OriginPrompt />
         {/* What the student has going on comes first; then the next caravan, event and taxi, and today's menus. */}
         <InProgress />
-        {/* The live cards, most urgent first; the first urgent one ringed (it's the one to see). */}
+        {/* The live cards, most urgent first. */}
         {order.map((k) => {
           const Card = CARDS[k];
-          return k === accent ? (
-            <View key={k} style={styles.accent}>
-              <Card />
-            </View>
-          ) : (
-            <Card key={k} />
-          );
+          return <Card key={k} />;
         })}
         <RestoCard />
+        {/* Housing between students: the latest ads, swiped sideways. */}
+        <HousingHomeCard />
 
         <Headlines />
       </ScrollView>
+      {spaces.length > 1 && <SpaceSheet visible={switching} onClose={() => setSwitching(false)} />}
     </View>
   );
 }
@@ -114,29 +128,31 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: colors.primary,
     paddingHorizontal: 20,
-    paddingBottom: 20,
+    // Compact: the photo row and the search line, no more (the banners and cards come into view at once).
+    paddingBottom: 12,
     borderBottomLeftRadius: radii.xl,
     borderBottomRightRadius: radii.xl,
   },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  // Same as the profiles: 3 of gap and 2.5 of orange around the 48 px photo.
-  ring: { width: 59, height: 59, borderRadius: 29.5, borderWidth: 2.5, borderColor: colors.orange, alignItems: 'center', justifyContent: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  // Same as the profiles, smaller: 2 of gap and 2 of orange around the 38 px photo.
+  ring: { width: 46, height: 46, borderRadius: 23, borderWidth: 2, borderColor: colors.orange, alignItems: 'center', justifyContent: 'center' },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  avatarText: { color: '#fff', fontWeight: '700' },
-  hello: { ...typo.h2, color: '#fff' },
-  campus: { color: 'rgba(255,255,255,0.8)', marginTop: 2 },
+  avatarText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  hello: { ...typo.h3, color: '#fff' },
+  campus: { ...typo.caption, color: 'rgba(255,255,255,0.8)', marginTop: 1 },
   bell: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -144,8 +160,6 @@ const styles = StyleSheet.create({
   // A ring of the header's colour separates the count from the bell.
   count: { position: 'absolute', top: -2, right: -4, borderWidth: 2, borderColor: colors.primary },
   body: { padding: 20, paddingBottom: 32, gap: 14 },
-  find: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, minHeight: 42, paddingHorizontal: 14, borderRadius: radii.pill, backgroundColor: 'rgba(255,255,255,0.16)' },
+  find: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, minHeight: 36, paddingHorizontal: 14, borderRadius: radii.pill, backgroundColor: 'rgba(255,255,255,0.16)' },
   findText: { ...typo.small, color: 'rgba(255,255,255,0.85)', flex: 1 },
-  // The card to see first: an orange ring around it (the card keeps its own look inside).
-  accent: { borderRadius: radii.md + 4, borderWidth: 2, borderColor: colors.accent, padding: 2 },
 });

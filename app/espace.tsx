@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, useLocalSearchParams } from 'expo-router';
 import { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
+import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
 
 import { colors, typo } from '@/constants/theme';
 import { spaceInfo } from '@/components/SpacesList';
@@ -15,7 +16,7 @@ import { spaceHome, useAuth } from '@/context/AuthContext';
 export default function SwitchSpace() {
   // `vers`: a space's key ("shop:<orgId>"): from "Mes espaces", or a notification ("you joined the team").
   const { vers } = useLocalSearchParams<{ vers?: string }>();
-  const { current, spaces, setSpace } = useAuth();
+  const { current, spaces, setSpace, user } = useAuth();
   const target = spaces.find((x) => x.key === vers) ?? current;
 
   useEffect(() => {
@@ -23,18 +24,21 @@ export default function SwitchSpace() {
   }, [target, current, setSpace]);
 
   if (!target) return <Redirect href="/(auth)/welcome" />;
-  if (target.key === current?.key) return <Redirect href={spaceHome(target.type)} />;
+  if (target.key === current?.key) return <Redirect href={spaceHome(target.type, user?.roles)} />;
 
   const info = spaceInfo(target);
   return (
-    <View style={styles.root}>
-      <Ionicons name={info.icon} size={40} color="#fff" />
+    <Animated.View entering={FadeIn.duration(160)} style={styles.root}>
+      <Animated.View entering={ZoomIn.duration(220)} style={styles.badge}>
+        <Ionicons name={info.icon} size={34} color="#fff" />
+      </Animated.View>
       <Text style={styles.text}>{info.title}</Text>
-    </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.navy, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  text: { ...typo.h3, color: '#fff' },
+  badge: { width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
+  text: { ...typo.h3, color: '#fff', textAlign: 'center', paddingHorizontal: 24 },
 });

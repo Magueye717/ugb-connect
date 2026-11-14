@@ -60,6 +60,8 @@ export const bannersApi = {
   create: (body: NewBanner) => api<{ banner: BannerDto; payment: PaymentDto }>('POST', '/banners', { ...auth, body: { ...body, returnUrl: paymentReturnUrl() } }),
   mine: () => api<{ items: BannerDto[] }>('GET', '/me/banners', auth),
   cancel: (id: string) => api<BannerDto>('POST', `/me/banners/${id}/cancel`, auth),
+  /** Off my list once settled (refused, cancelled, withdrawn, ended): kept for the team. */
+  remove: (id: string) => api<void>('DELETE', `/me/banners/${id}`, auth),
   // Communication team
   review: (status?: BannerStatus) => api<{ items: BannerDto[] }>('GET', `/admin/banners${status ? `?status=${status}` : ''}`, auth),
   approve: (id: string) => api<BannerDto>('POST', `/admin/banners/${id}/approve`, auth),

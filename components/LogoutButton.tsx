@@ -46,7 +46,9 @@ export function LogoutButton({ note }: { note?: string }) {
 function buildLine() {
   const host = API_URL.replace(/^https?:\/\//, '').split('/')[0] ?? '';
   const server = /staging/i.test(host) ? 'serveur de test' : /^(localhost|\d+\.\d+\.\d+\.\d+)(:\d+)?$/.test(host) ? 'serveur local' : 'serveur principal';
-  return `Version ${Constants.expoConfig?.version ?? '?'} · ${server} (${host})`;
+  const version = `Version ${Constants.expoConfig?.version ?? '?'}`;
+  // Students on the real server only need the version; test and local builds say which server they talk to.
+  return server === 'serveur principal' ? version : `${version} · ${server} (${host})`;
 }
 
 const styles = StyleSheet.create({

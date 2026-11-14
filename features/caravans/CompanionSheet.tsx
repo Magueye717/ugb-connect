@@ -7,7 +7,7 @@ import { Field, LabeledField, PrimaryButton, SheetFooter } from '@/components/ui
 import { colors, radii, typo } from '@/constants/theme';
 import type { CaravanStop } from '@/constants/data';
 import type { PassengerDto } from '@/features/caravans/api';
-import { formatPhone, phoneDigits, validatePhone } from '@/features/register/validation';
+import { formatPhone, phoneDigits, phoneStartWrong, validatePhone } from '@/features/register/validation';
 
 type Props = {
   /** The seat being given to a companion; null hides the sheet. */
@@ -73,14 +73,14 @@ export function CompanionSheet({ seat, initial, route, pickups, dropoffs, initia
           <LabeledField label="Nom complet" error={touched ? nameError : null}>
             <Field placeholder="Awa Ndiaye" autoCapitalize="words" autoComplete="name" value={name} onChangeText={setName} invalid={touched && !!nameError} />
           </LabeledField>
-          <LabeledField label="Téléphone" error={touched || digits.length === 9 ? phoneError : null}>
+          <LabeledField label="Téléphone" error={touched || digits.length === 9 || phoneStartWrong(digits) ? phoneError : null}>
             <Field
               prefix="+221"
               placeholder="77 123 45 67"
               keyboardType="phone-pad"
               value={formatPhone(digits)}
               onChangeText={(t) => setDigits(phoneDigits(t))}
-              invalid={(touched || digits.length === 9) && !!phoneError}
+              invalid={(touched || digits.length === 9 || phoneStartWrong(digits)) && !!phoneError}
             />
           </LabeledField>
           {canChoose && (

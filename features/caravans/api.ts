@@ -92,7 +92,23 @@ export type OrgDepartureDto = DepartureDto & {
   claim: { amount: number; payout: { id: string; status: string; amount: number } | null } | null;
 };
 
-export type VehicleDto = { id: string; label: string; plate: string | null; airConditioned: boolean; capacity: number; seatsPerRow: number; blockedSeats: number[] };
+/** One place on a seat plan, front row first: a seat number, the driver, the door, or nothing (aisle, empty space). */
+export type SeatCell = number | 'driver' | 'door' | null;
+export type SeatLayout = SeatCell[][];
+export type VehicleDto = {
+  id: string;
+  label: string;
+  plate: string | null;
+  airConditioned: boolean;
+  capacity: number;
+  seatsPerRow: number;
+  blockedSeats: number[];
+  /** From the catalog ("bus-53"): its plan is `layout`, its seats don't change. Older servers: absent. */
+  model?: string | null;
+  layout?: SeatLayout | null;
+};
+/** A vehicle of the catalog (buses, Cheikhou Cherif minibuses), with its seat plan. */
+export type VehicleModelDto = { key: string; label: string; kind: 'bus' | 'minibus'; capacity: number; layout: SeatLayout };
 export type VehicleInput = { label: string; capacity: number; airConditioned: boolean; /** 4: 2 + aisle + 2; 5: with the folding middle seat (« versailler »). */ seatsPerRow: 4 | 5 };
 /** What the departure form allows (sent by the server with the vehicles). */
 export type DepartureLimits = { maxSeatsPerStudent: number; defaultSeatsPerStudent: number };
@@ -117,6 +133,8 @@ export type SeatMap = {
   /** Seats of the first row, on the right (door and driver on the left); then full rows. Numbered from the front. */
   firstRowSeats?: number;
   blocked: number[];
+  /** The plan of a catalog vehicle; null (or absent): rows of `seatsPerRow`. */
+  rows?: SeatLayout | null;
   taken: number[];
   suggested: number | null;
 };
@@ -258,7 +276,9 @@ export const caravansApi = {
   // Organizer
   orgDepartures: (orgId: string, scope: 'upcoming' | 'past' = 'upcoming') => api<{ items: OrgDepartureDto[] }>('GET', `/org/${orgId}/departures?scope=${scope}`, auth),
   orgDeparture: (orgId: string, id: string) => api<OrgDepartureDto>('GET', `/org/${orgId}/departures/${id}`, auth),
-  vehicles: (orgId: string) => api<{ items: VehicleDto[]; limits: DepartureLimits }>('GET', `/org/${orgId}/vehicles`, auth),
+  vehicles: (orgId: string) => api<{ items: VehicleDto[]; models?: VehicleModelDto[]; limits: DepartureLimits }>('GET', `/org/${orgId}/vehicles`, auth),
+  /** Owner and managers: the organization's vehicle for a catalog model (the one it has, or a new one). */
+  vehicleFromModel: (orgId: string, key: string) => api<VehicleDto>('POST', `/org/${orgId}/vehicles/models/${key}`, auth),
   /** Owner only. */
   addVehicle: (orgId: string, body: VehicleInput) => api<VehicleDto>('POST', `/org/${orgId}/vehicles`, { ...auth, body }),
   /** Owner only. Drafts take the change; published departures keep their vehicle. */

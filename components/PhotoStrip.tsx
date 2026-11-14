@@ -34,7 +34,8 @@ export function PhotoStrip({ photos, onChange, max, purpose, title, onUploading 
   };
 
   const add = async () => {
-    const assets = await pickPhoto({ aspect: [1, 1], multiple: max - photos.length, title });
+    // Whole photos, as taken (landscape kept): no forced square crop.
+    const assets = await pickPhoto({ multiple: Math.min(50, max - photos.length), title });
     if (!assets.length) return;
     busy(true);
     let list = photos;
@@ -54,7 +55,8 @@ export function PhotoStrip({ photos, onChange, max, purpose, title, onUploading 
   return (
     <View style={{ gap: 6 }}>
       <Text style={styles.label}>
-        Photos · {photos.length}/{max}
+        {/* A real limit is shown (an owner's 6); Référencement's ceiling isn't one. */}
+        Photos · {max >= 100 ? photos.length : `${photos.length}/${max}`}
       </Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row} keyboardShouldPersistTaps="handled">
         {photos.map((p, i) => (

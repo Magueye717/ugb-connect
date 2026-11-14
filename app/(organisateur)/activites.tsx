@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SpaceBar } from '@/components/SpaceBar';
 import { eventWhen } from '@/components/home';
 import { EmptyState, ErrorState, SkeletonCard } from '@/components/states';
 import { FillBar, OrganizerLine } from '@/components/caravan';
@@ -39,11 +40,11 @@ export default function Activites() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <SpaceBar />
       <ScrollView
         contentContainerStyle={styles.body}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={false} onRefresh={reload} />}>
-        <Text style={styles.h1}>Mes activités</Text>
         {organizer && (
           <View style={[styles.card, shadow.card, { gap: 12 }]}>
             <OrganizerLine organizer={organizer} />
@@ -203,7 +204,6 @@ function Chip({ icon, text, tone }: { icon: keyof typeof Ionicons.glyphMap; text
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
-  h1: { ...typo.h1, color: colors.navy },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14 },
   editLink: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingVertical: 2 },
   editLinkText: { ...typo.smallStrong, color: colors.primary },

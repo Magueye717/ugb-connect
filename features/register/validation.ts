@@ -1,6 +1,6 @@
 /** Student numbers: P then digits, 4 characters at least, 20 at most ("P232055"). The server checks the same rule. */
 export const STUDENT_ID_MAX = 20;
-export const STUDENT_ID_RE = /^P\d{3,19}$/;
+export const STUDENT_ID_RE = /^P\d{4,19}$/;
 export const PHONE_RE = /^(70|71|75|76|77|78)\d{7}$/;
 // Letters (incl. French accents), single spaces or hyphens between words.
 const NAME_RE = /^[A-Za-zÀ-ÖØ-öø-ÿ]+(?:[ -][A-Za-zÀ-ÖØ-öø-ÿ]+)*$/;
@@ -24,10 +24,22 @@ export const phoneDigits = (value: string) => value.replace(/\D/g, '').slice(0, 
 export const formatPhone = (digits: string) =>
   [digits.slice(0, 2), digits.slice(2, 5), digits.slice(5, 7), digits.slice(7, 9)].filter(Boolean).join(' ');
 
-export const validateStudentId = (v: string) => (STUDENT_ID_RE.test(v) ? null : 'Commence par P, puis des chiffres : 4 caractères au moins. Exemple : P232055');
+export const validateStudentId = (v: string) => (STUDENT_ID_RE.test(v) ? null : 'Commence par P, puis au moins 4 chiffres. Exemple : P232055');
 
-export const validatePhone = (v: string) =>
-  PHONE_RE.test(v) ? null : 'Numéro invalide. Il doit commencer par 70, 71, 75, 76, 77 ou 78';
+const PHONE_STARTS = ['70', '71', '75', '76', '77', '78'];
+/** The two first digits typed aren't an operator's: said at once, not after the 9 digits. */
+export const phoneStartWrong = (v: string) => v.length >= 2 && !PHONE_STARTS.includes(v.slice(0, 2));
+
+/**
+ * 9 digits: one of the operators' two first digits (70, 71, 75, 76, 77, 78), then 7 more. The message says which part
+ * is wrong: the start, or how many digits are missing / too many.
+ */
+export const validatePhone = (v: string) => {
+  if (PHONE_RE.test(v)) return null;
+  if (v.length >= 2 && !PHONE_STARTS.includes(v.slice(0, 2))) return 'Numéro invalide : il commence par 70, 71, 75, 76, 77 ou 78';
+  if (v.length < 9) return `Il manque ${9 - v.length} chiffre${9 - v.length > 1 ? 's' : ''} : un numéro a 9 chiffres (ex. 77 123 45 67)`;
+  return 'Un numéro a 9 chiffres (ex. 77 123 45 67)';
+};
 
 export function validateName(value: string, field: 'prénom' | 'nom') {
   const v = value.trim();

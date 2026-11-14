@@ -6,6 +6,7 @@ import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView,
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SpaceBar } from '@/components/SpaceBar';
 import { eventWhen } from '@/components/home';
 import { EmptyState, ErrorState } from '@/components/states';
 import { Chip, Field, LabeledField, PrimaryButton, SafeBottom, Segmented, SheetHeader } from '@/components/ui';
@@ -41,8 +42,8 @@ export default function EvenementsAValider() {
   const fail = (err: unknown) => Alert.alert('Action impossible', err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <SpaceBar />
       <ScrollView contentContainerStyle={styles.body} refreshControl={<RefreshControl refreshing={false} onRefresh={load} />}>
-        <Text style={styles.h1}>Événements</Text>
         <Segmented
           options={[
             { value: 'todo', label: 'À valider' },
@@ -208,7 +209,6 @@ function MessageSheet(p: { title: string; note: string; placeholder: string; con
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
-  h1: { ...typo.h1, color: colors.navy },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, overflow: 'hidden' },
   image: { width: 320, height: 170, backgroundColor: colors.border },
   content: { padding: 14, gap: 6 },

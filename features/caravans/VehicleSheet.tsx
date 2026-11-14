@@ -6,6 +6,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Field, LabeledField, PrimaryButton, SheetFooter, SheetHeader, TextButton, Toggle, useDirty } from '@/components/ui';
 import { colors, radii, typo } from '@/constants/theme';
 import { caravansApi, type VehicleDto } from '@/features/caravans/api';
+import { SeatPlan } from '@/features/caravans/SeatPlan';
 import { ApiError } from '@/lib/api';
 import { closeGuarded } from '@/lib/leaveGuard';
 
@@ -35,7 +36,9 @@ export function VehicleSheet({ visible, orgId, vehicle, onClose, onSaved, onDele
   // Closing with changes not saved asks first.
   const dirty = useDirty({ label, capacity, airConditioned, perRow }, vehicle?.id ?? 'new');
   const close = () => closeGuarded(dirty && !saving, onClose);
-  const seats = Number(capacity);
+  // A catalog vehicle keeps its plan: only its name and air conditioning change.
+  const fixed = vehicle?.layout ?? null;
+  const seats = fixed ? vehicle!.capacity : Number(capacity);
   const valid = label.trim().length >= 2 && seats >= 4 && seats <= 90;
 
   const save = async () => {
@@ -67,6 +70,14 @@ export function VehicleSheet({ visible, orgId, vehicle, onClose, onSaved, onDele
           <LabeledField label="Nom affiché aux étudiants">
             <Field placeholder="Car Khoulé et Frères" value={label} onChangeText={setLabel} maxLength={60} autoCapitalize="words" />
           </LabeledField>
+          {fixed ? (
+            <View style={{ gap: 10 }}>
+              <Text style={styles.label}>Plan des places · {seats} places</Text>
+              <SeatPlan rows={fixed} size={28} />
+              <Text style={[styles.hint, { textAlign: 'center' }]}>Le plan du modèle : il ne se modifie pas.</Text>
+            </View>
+          ) : (
+            <>
           <LabeledField label="Places assises">
             <Field placeholder="62" keyboardType="number-pad" value={capacity} onChangeText={(t) => setCapacity(t.replace(/\D/g, '').slice(0, 2))} />
           </LabeledField>
@@ -87,6 +98,8 @@ export function VehicleSheet({ visible, orgId, vehicle, onClose, onSaved, onDele
           <Text style={[styles.hint, { marginTop: -8 }]}>
             {perRow === 5 ? 'Le versailler est le siège pliant au milieu du couloir : proposé en dernier aux étudiants.' : 'Le couloir reste libre entre les deux côtés.'}
           </Text>
+            </>
+          )}
           <Pressable style={styles.option} onPress={() => setAirConditioned((v) => !v)} accessibilityRole="switch" accessibilityState={{ checked: airConditioned }}>
             <Ionicons name="snow-outline" size={20} color={colors.primary} />
             <View style={{ flex: 1 }}>

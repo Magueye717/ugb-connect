@@ -3,9 +3,10 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SpaceBar } from '@/components/SpaceBar';
 import { usePullRefresh } from '@/components/PullRefresh';
 import { LogoutButton } from '@/components/LogoutButton';
-import { ProfileHero } from '@/components/ProfileHero';
+import { AccountRow } from '@/components/ProfileHero';
 import { SpacesList } from '@/components/SpacesList';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { isOwner, useAuth } from '@/context/AuthContext';
@@ -16,11 +17,17 @@ export default function Compte() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <SpaceBar />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} refreshControl={pull}>
-        <Text style={styles.h1}>Compte</Text>
 
-        {/* The same card as on the student profile: only the chips say which organization. */}
-        <ProfileHero chips={[organizer?.name, organizer?.kind, organizer ? `${organizer.trips} trajet${organizer.trips > 1 ? 's' : ''} effectué${organizer.trips > 1 ? 's' : ''}` : null]} />
+        {/* The organization is named at the top (SpaceBar); here, who is signed in and what it has done. */}
+        <AccountRow />
+        {organizer && (
+          <Text style={styles.muted}>
+            {organizer.kind ? `${organizer.kind} · ` : ''}
+            {organizer.trips} trajet{organizer.trips > 1 ? 's' : ''} effectué{organizer.trips > 1 ? 's' : ''}
+          </Text>
+        )}
 
         <SpacesList />
 
@@ -48,7 +55,6 @@ function Row({ icon, label, onPress, last }: { icon: keyof typeof Ionicons.glyph
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
-  h1: { ...typo.h1, color: colors.navy },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14 },
   hero: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   name: { ...typo.h3, color: colors.navy },

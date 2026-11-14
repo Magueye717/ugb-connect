@@ -18,16 +18,17 @@ const PATTERN: Record<Variant, number> = { card: 54, hero: 110, thumb: 0 };
  */
 export function LostVisual({ item, variant, style }: { item: Pick<LostItemDto, 'kind' | 'category' | 'photo'>; variant: Variant; style?: StyleProp<ViewStyle> }) {
   const photo = item.kind === 'object' ? item.photo : null;
-  if (photo)
-    return (
-      <View style={[styles.fill, style]}>
-        <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} />
-      </View>
-    );
-  return <LostPlaceholder category={item.category} card={item.kind !== 'object'} variant={variant} style={style} />;
+  // The illustration is always drawn; a photo goes on top of it. While it loads, or if it can't be loaded (no
+  // network, a file gone from the storage), the object's drawing shows instead of an empty grey box.
+  return (
+    <View style={[styles.fill, style]}>
+      <LostPlaceholder category={item.category} card={item.kind !== 'object'} variant={variant} quiet={!!photo} />
+      {photo && <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} />}
+    </View>
+  );
 }
 
-function LostPlaceholder({ category, card, variant, style }: { category: string; card: boolean; variant: Variant; style?: StyleProp<ViewStyle> }) {
+function LostPlaceholder({ category, card, variant, style, quiet }: { category: string; card: boolean; variant: Variant; style?: StyleProp<ViewStyle>; /** Under a photo: no « pas de photo » caption. */ quiet?: boolean }) {
   const cat = lostCategory(category);
   const tone = lostTone(category);
   if (variant === 'thumb')
@@ -47,12 +48,14 @@ function LostPlaceholder({ category, card, variant, style }: { category: string;
           <Ionicons name={cat.icon} size={ICON[variant]} color={tone.tint} />
         </View>
       </View>
+      {!quiet && (
       <View style={[styles.caption, variant === 'hero' && styles.captionHero]}>
         {card && <Ionicons name="eye-off-outline" size={10} color={colors.muted2} />}
         <Text style={styles.captionText} numberOfLines={1}>
           {card ? (variant === 'hero' ? 'Pièce personnelle : jamais en photo' : 'Jamais en photo') : `${cat.label} · pas de photo`}
         </Text>
       </View>
+      )}
     </View>
   );
 }

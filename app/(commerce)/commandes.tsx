@@ -5,12 +5,12 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SpaceBar } from '@/components/SpaceBar';
 import { EmptyState, SkeletonCard } from '@/components/states';
 import { Segmented, StatusChip, Toggle } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-import { useNotifications } from '@/context/NotificationsContext';
 import { commerceApi, nextStep, ORDER_STATUS_LABEL, type BusinessDto, type OrderDto, type SalesDto } from '@/features/commerce/api';
 import { ApiError } from '@/lib/api';
 
@@ -26,7 +26,6 @@ const time = (iso: string) => new Date(iso).toLocaleTimeString('fr-FR', { hour: 
 /** Incoming orders: the new ones first, one tap to move each to its next step. */
 export default function Commandes() {
   const { business } = useAuth();
-  const { unreadCount } = useNotifications();
   const [scope, setScope] = useState<'active' | 'done'>('active');
   // Owners and managers: today's sales, one line above the orders (« Ventes » has the rest).
   const [today, setToday] = useState<SalesDto | null>(null);
@@ -82,30 +81,17 @@ export default function Commandes() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <SpaceBar>
+        {/* Orders picked up at the counter: scan the client's QR or type their code. */}
+        <Pressable style={styles.scan} onPress={() => router.push('/remise')} accessibilityRole="button" accessibilityLabel="Remettre une commande">
+          <Ionicons name="qr-code-outline" size={18} color="#fff" />
+          <Text style={styles.scanText}>Remettre</Text>
+        </Pressable>
+      </SpaceBar>
       <ScrollView
         contentContainerStyle={styles.body}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => (setRefreshing(true), load().finally(() => setRefreshing(false)))} />}>
-        <View style={styles.titleRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.h1}>Commandes</Text>
-            <Text style={styles.sub}>{business.name}</Text>
-          </View>
-          <Pressable style={styles.bell} onPress={() => router.push('/notifications')} accessibilityRole="button" accessibilityLabel={unreadCount ? `Notifications, ${unreadCount} non lues` : 'Notifications'}>
-            <Ionicons name={unreadCount ? 'notifications' : 'notifications-outline'} size={20} color={colors.navy} />
-            {unreadCount > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
-              </View>
-            )}
-          </Pressable>
-          {/* Orders picked up at the counter: scan the client's QR or type their code. */}
-          <Pressable style={styles.scan} onPress={() => router.push('/remise')} accessibilityRole="button" accessibilityLabel="Remettre une commande">
-            <Ionicons name="qr-code-outline" size={18} color="#fff" />
-            <Text style={styles.scanText}>Remettre</Text>
-          </Pressable>
-        </View>
-
         {profile && (
           <View style={[styles.card, shadow.card, styles.row]}>
             <View style={[styles.dot, { backgroundColor: profile.open ? colors.success : colors.muted }]} />
@@ -228,16 +214,11 @@ const styles = StyleSheet.create({
   cashText: { ...typo.captionStrong, color: colors.successText },
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
-  h1: { ...typo.h1, color: colors.navy },
   sub: { ...typo.small, color: colors.muted2 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   head: { flexDirection: 'row', gap: 12 },
   thumb: { width: 64, height: 64, borderRadius: radii.md, overflow: 'hidden', backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   more: { position: 'absolute', right: 4, bottom: 4, minWidth: 24, height: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: 'rgba(15,27,76,0.85)', alignItems: 'center', justifyContent: 'center' },
   moreText: { fontSize: 11, fontWeight: '800', color: '#fff' },
-  bell: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center', ...shadow.card },
-  badge: { position: 'absolute', top: -3, right: -3, minWidth: 20, height: 20, paddingHorizontal: 4, borderRadius: 10, backgroundColor: colors.dangerText, borderWidth: 2, borderColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
-  badgeText: { fontSize: 11, fontWeight: '800', color: '#fff' },
   scan: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 40, paddingHorizontal: 14, borderRadius: radii.pill, backgroundColor: colors.navy },
   scanText: { ...typo.smallStrong, color: '#fff' },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14, gap: 8 },

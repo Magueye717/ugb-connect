@@ -7,6 +7,7 @@ import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Tex
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SpaceBar } from '@/components/SpaceBar';
 import { usePullRefresh } from '@/components/PullRefresh';
 import { PhoneField } from '@/components/PhoneField';
 import { MultiSelect } from '@/components/Select';
@@ -16,6 +17,7 @@ import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { commerceApi, type BusinessDto, type BusinessKind, type OrderMethod, type OwnedEntity } from '@/features/commerce/api';
 import { useCommerceReference } from '@/features/commerce/useCommerceReference';
+import { hoursValid, joinOvernight, normalizeHours } from '@/features/commerce/hours';
 import { payoutDigitsOf, payoutNumbersBody, payoutNumbersOk, type PayoutDigits } from '@/features/commerce/PayoutNumbers';
 import { CAMPUSES } from '@/features/register/validation';
 import { ALL_DAY, isAllDay } from '@/features/commerce/allDay';
@@ -26,7 +28,6 @@ import { uploadImage } from '@/lib/upload';
 import { toast } from '@/lib/toast';
 import { askToRelocate } from '@/lib/relocate';
 
-const HHMM = /^\d{2}:\d{2}$/;
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
 
 /**
@@ -63,14 +64,13 @@ export default function Commerces() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <SpaceBar>
+        <Pressable style={styles.add} onPress={() => setCreating(true)} accessibilityRole="button">
+          <Ionicons name="add" size={18} color="#fff" />
+          <Text style={styles.addText}>Ajouter</Text>
+        </Pressable>
+      </SpaceBar>
       <ScrollView refreshControl={pull} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-        <View style={styles.row}>
-          <Text style={[styles.h1, { flex: 1 }]}>{kinds.length > 1 ? 'Commerces' : kind === 'restaurant' ? 'Restos privés' : 'Boutiques'}</Text>
-          <Pressable style={styles.add} onPress={() => setCreating(true)} accessibilityRole="button">
-            <Ionicons name="add" size={18} color="#fff" />
-            <Text style={styles.addText}>Ajouter</Text>
-          </Pressable>
-        </View>
         {kinds.length > 1 && (
           <Segmented
             options={[
@@ -182,7 +182,7 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
       setCampus(b.campus);
       setLocation(b.location);
       setPhoto(b.photo ? { id: '', url: b.photo } : null);
-      setServices(b.services.length ? b.services.map((x) => ({ ...x })) : defaultSlots(kind));
+      setServices(b.services.length ? joinOvernight(b.services) : defaultSlots(kind));
       setPayout(payoutDigitsOf(b.payoutNumbers));
     },
     [kind],
@@ -239,7 +239,7 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
   const runs = entity ? [...entity.businesses.map((x) => `${KIND_LABEL[x.kind]} : ${x.name}`), ...(entity.organizer ? ['Organisateur'] : [])] : [];
 
   const pick = async () => {
-    const [asset] = await pickPhoto({ aspect: [2, 1], title: 'Photo du commerce' });
+    const [asset] = await pickPhoto({ title: 'Photo du commerce' });
     if (!asset) return;
     setBusy('photo');
     try {
@@ -274,8 +274,9 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
 
   // Each slot well formed, ending after it starts, and none overlapping the previous one.
   const allDay = isAllDay(services);
-  const sorted = [...services].sort((a, b) => a.start.localeCompare(b.start));
-  const hoursOk = services.length > 0 && services.every((x) => HHMM.test(x.start) && HHMM.test(x.end) && x.start < x.end) && sorted.every((x, i) => i === 0 || x.start >= sorted[i - 1]!.end);
+  // As the server saves them: 00:00 closing is midnight, a closing before the opening runs past it (19:00 → 02:00).
+  const sorted = normalizeHours(services) ?? services;
+  const hoursOk = services.length > 0 && hoursValid(services);
   const ownerOk = !!current || !!orgId || (digits.length >= 9 && firstName.trim().length >= 2 && lastName.trim().length >= 2);
   // A business loaded in the form (the number's own): usable once something changed. Its loading starts this over.
   const payoutShown: PayoutDigits = { wave: payout.wave ?? digits, orange_money: payout.orange_money ?? digits };
@@ -409,7 +410,7 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
           {!allDay && services.length < MAX_SLOTS && (
             <TextButton label="Ajouter un créneau" icon="add-circle-outline" onPress={() => setServices((list) => [...list, nextSlot(list)])} />
           )}
-          {!hoursOk && <Text style={styles.warn}>Horaires au format 08:00, chaque fermeture après son ouverture, sans chevauchement.</Text>}
+          {!hoursOk && <Text style={styles.warn}>Horaires au format 08:00 (00:00 pour minuit), sans chevauchement. Une fermeture avant l’ouverture passe minuit : 19:00 → 02:00.</Text>}
 
           <Text style={styles.section}>Paiement</Text>
           <Text style={styles.muted}>Les commandes se paient en espèces, au livreur ou au retrait : rien ne passe par l’app.</Text>
@@ -458,7 +459,6 @@ function CreateSheet({ kind, onClose, onCreated }: { kind: BusinessKind; onClose
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
-  h1: { ...typo.h1, color: colors.navy },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   add: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 14, minHeight: 38, borderRadius: radii.pill, backgroundColor: colors.primary },
   addText: { ...typo.smallStrong, color: '#fff' },

@@ -8,8 +8,8 @@ export default function TrajetsScreen() {
     <TabScreen
       title="Trajets"
       views={[
-        { key: 'taxi', label: 'Sunu Taxi', icon: 'car-outline', subtitle: 'Partage un taxi entre étudiants', render: () => <SunuTaxiBoard /> },
-        { key: 'caravanes', label: 'Caravanes', icon: 'bus-outline', subtitle: 'Réserve ton billet en ligne', render: () => <CaravanBoard /> },
+        { key: 'taxi', label: 'Sunu Taxi', icon: 'car-outline', render: () => <SunuTaxiBoard /> },
+        { key: 'caravanes', label: 'Caravanes', icon: 'bus-outline', render: () => <CaravanBoard /> },
       ]}
     />
   );

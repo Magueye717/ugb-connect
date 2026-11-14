@@ -16,6 +16,7 @@ import {
   type ScrollViewInstance,
 } from 'react-native';
 
+import { FitImage } from '@/components/FitImage';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { useCampus } from '@/context/CampusContext';
@@ -23,8 +24,8 @@ import { useCaravans } from '@/context/CaravansContext';
 import { AlertSheet } from '@/components/AlertSheet';
 import { Segmented } from '@/components/ui';
 import { Hop, LivePulse, SearchingDots } from '@/components/motion';
-import { formatFcfa } from '@/constants/data';
-import { FillBar, OrganizerLine, shortPlace } from '@/components/caravan';
+import { caravanState, formatFcfa } from '@/constants/data';
+import { shortPlace } from '@/components/caravan';
 import { type LiveBannerDto } from '@/features/banners/api';
 import { methodLabel } from '@/features/payments/checkout';
 import { useMethodsOff } from '@/features/payments/methods';
@@ -158,10 +159,12 @@ export const eventWhen = (iso: string) => {
  */
 export function AdCarousel() {
   const { banners } = useCampus();
-  const { width, fontScale } = useWindowDimensions();
+  const { width, height, fontScale } = useWindowDimensions();
   const slideWidth = width - BODY_PADDING * 2;
-  // The pictures are 16:9: as tall as that on every phone, a little more with large text (title + button fit).
-  const slideHeight = Math.round(Math.max(180, (slideWidth * 9) / 16) * Math.min(Math.max(fontScale, 1), 1.3));
+  // Wide (2:1, the 16:9 pictures cropped a little), a bit taller with large text so the title and button fit, but
+  // never more than about a quarter of the screen: on a small phone the cards below stay in view.
+  const wanted = slideWidth * 0.5 * Math.min(Math.max(fontScale, 1), 1.2);
+  const slideHeight = Math.round(Math.min(Math.max(wanted, 150), Math.max(150, height * 0.25), 230));
   const ref = useRef<ScrollViewInstance>(null);
   const [index, setIndex] = useState(0);
   const multiple = banners.length > 1;
@@ -204,7 +207,7 @@ export function AdCarousel() {
               accessibilityRole={b.event || b.cta ? 'button' : undefined}
               accessibilityLabel={`${b.event ? 'Événement' : 'Sponsorisé'} : ${b.title}`}
               style={[styles.banner, { width: slideWidth, height: slideHeight }]}>
-              <Image source={{ uri: b.image }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} />
+              <FitImage uri={b.image} style={StyleSheet.absoluteFill} />
               {/* Darker at the bottom: the text stays readable on any picture. */}
               <LinearGradient colors={['rgba(10,16,40,0.05)', 'rgba(10,16,40,0.78)']} style={StyleSheet.absoluteFill} />
               <View style={styles.tag}>
@@ -425,7 +428,7 @@ export function CaravanCard() {
       <Pressable style={[styles.infoCard, shadow.card]} onPress={() => router.push({ pathname: '/(tabs)/caravanes', params: { vue: 'caravanes' } })}>
         <View style={styles.rowBetween}>
           <View style={styles.label}>
-            <Ionicons name="bus-outline" size={12} color={colors.primary} />
+            <Ionicons name="bus-outline" size={11} color={colors.primary} />
             <Text style={styles.labelText}>CARAVANES</Text>
           </View>
           <Ionicons name="chevron-forward" size={14} color={colors.muted} />
@@ -437,55 +440,78 @@ export function CaravanCard() {
 
   // Orange only on the last day: when everything is urgent, nothing is.
   const soon = next.departureAt - now < DAY_MS;
-  const first = next.pickups[0];
-  const open = (id: string) => router.push(`/caravane/${id}`);
   const othersThisWeek = list.slice(1).filter((c) => c.departureAt - now < WEEK_MS).length;
+  // The day under the time, as the Caravanes list says it in its sections.
+  const days = Math.round((new Date(next.departureAt).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / DAY_MS);
+  const day = days === 0 ? 'Aujourd’hui' : days === 1 ? 'Demain' : next.date;
 
+  const first = next.pickups[0];
+  const open = () => router.push(`/caravane/${next.id}`);
+  const { booked, confirmed, missing } = caravanState(next);
+  const few = next.seats <= FEW_SEATS;
+
+  // Compact, like the other home cards: its label and countdown, the trip as a slim boarding pass (when · where to ·
+  // price · boarding point · seats), then one line under a thin bar: confirmed or not, who runs it, « Réserver ».
   return (
     <Pressable
-      style={[styles.infoCard, shadow.card, { gap: 10 }]}
-      onPress={() => open(next.id)}
+      style={[styles.infoCard, shadow.card, { gap: 9 }]}
+      onPress={open}
       accessibilityRole="button"
-      accessibilityLabel={`${label.toLowerCase()} : ${next.from} vers ${next.to}, ${next.date} à ${next.time}, ${formatFcfa(next.price)}, ${next.organizer.name}`}>
+      accessibilityLabel={`${label.toLowerCase()} : ${next.from} vers ${next.to}, ${day} à ${next.time}, ${formatFcfa(next.price)}, ${next.organizer.name}`}>
       <View style={styles.rowBetween}>
         <View style={styles.label}>
-          <Ionicons name="bus-outline" size={12} color={colors.primary} />
+          <Ionicons name="bus-outline" size={11} color={colors.primary} />
           <Text style={styles.labelText}>{label}</Text>
         </View>
         <Text style={[styles.timeLeft, soon && { color: colors.orangeText }]}>{formatTimeLeft(next.departureAt - now)}</Text>
       </View>
 
-      {/* Where to, first: what a student scans for. The price on the same line. */}
-      <View style={[styles.rowBetween, { alignItems: 'flex-end' }]}>
-        <View style={styles.cvRoute}>
-          <Text style={styles.cvCity} numberOfLines={1}>
-            {next.from}
+      <View style={styles.pass}>
+        <View style={styles.passStub}>
+          <Text style={styles.passTime}>{next.time}</Text>
+          <Text style={styles.passDay} numberOfLines={1}>
+            {day}
           </Text>
-          <View style={styles.cvTrack}>
-            <View style={styles.cvLine} />
-            <Ionicons name="bus" size={14} color={colors.primary} />
-            <View style={styles.cvLine} />
+        </View>
+        <View style={styles.passTear}>
+          <View style={[styles.passNotch, { top: -6 }]} />
+          <View style={styles.passDash} />
+          <View style={[styles.passNotch, { bottom: -6 }]} />
+        </View>
+        <View style={styles.passMain}>
+          <View style={styles.rowBetween}>
+            <Text style={[styles.cvCity, { flexShrink: 1 }]} numberOfLines={1}>
+              {next.from} → {next.to}
+            </Text>
+            <Text style={styles.cvPrice}>
+              {formatFcfa(next.price).replace(' FCFA', '')}
+              <Text style={styles.passF}> F</Text>
+            </Text>
           </View>
-          <Text style={[styles.cvCity, { flexShrink: 1 }]} numberOfLines={1}>
-            {next.to}
-          </Text>
+          <View style={styles.passTags}>
+            {next.vehicle.airConditioned && <Ionicons name="snow-outline" size={12} color={colors.primary} accessibilityLabel="Climatisé" />}
+            <Text style={[styles.detail, { flexShrink: 1 }]} numberOfLines={1}>
+              {first ? shortPlace(first.place, next.from) : 'Départ'}
+              {next.pickups.length > 1 ? ` +${next.pickups.length - 1}` : ''} ·{' '}
+              <Text style={few ? { color: colors.orangeText, fontWeight: '700' } : undefined}>
+                {next.seats} libre{next.seats > 1 ? 's' : ''}
+              </Text>
+            </Text>
+          </View>
         </View>
-        <Text style={styles.cvPrice}>{formatFcfa(next.price)}</Text>
       </View>
-      <Text style={styles.detail} numberOfLines={1}>
-        {next.date} · {next.time}
-        {first ? ` · ${shortPlace(first.place, next.from)}${next.pickups.length > 1 ? ` +${next.pickups.length - 1}` : ''}` : ''}
-      </Text>
 
-      {/* One message: how many bookings it still needs, confirmed, or nearly full. */}
-      <FillBar caravan={next} count={false} few={FEW_SEATS} />
-
-      {/* Who runs it, right where the student decides. */}
-      <View style={[styles.rowBetween, styles.cvFoot]}>
-        <View style={{ flex: 1 }}>
-          <OrganizerLine organizer={next.organizer} wrap />
-        </View>
-        <Pressable style={styles.cta} onPress={() => open(next.id)} hitSlop={6} accessibilityRole="button">
+      {/* A thin bar, then one line: confirmed or how many it still needs, who runs it, and the button. */}
+      <View style={styles.passBar}>
+        <View style={[styles.passFill, { width: `${Math.min(100, (booked / Math.max(1, next.totalSeats)) * 100)}%`, backgroundColor: confirmed ? colors.success : colors.primary }]} />
+        {!confirmed && <View style={[styles.passMark, { left: `${(next.minPassengers / Math.max(1, next.totalSeats)) * 100}%` }]} />}
+      </View>
+      <View style={styles.rowBetween}>
+        <Text style={[styles.passState, { flex: 1 }]} numberOfLines={1}>
+          <Text style={{ color: confirmed ? colors.successText : colors.warningText }}>{confirmed ? '✓ Confirmé' : `Encore ${missing} pour confirmer`}</Text>
+          <Text style={styles.passBy}> · {next.organizer.name}</Text>
+        </Text>
+        <Pressable style={styles.ctaSm} onPress={open} hitSlop={6} accessibilityRole="button">
           <Text style={styles.ctaText}>Réserver</Text>
         </Pressable>
       </View>
@@ -498,7 +524,6 @@ export function CaravanCard() {
           <Ionicons name="chevron-forward" size={14} color={colors.primary} />
         </Pressable>
       )}
-
     </Pressable>
   );
 }
@@ -520,7 +545,7 @@ export function EventCard() {
     <View style={[styles.infoCard, shadow.card]}>
       <View style={styles.rowBetween}>
         <View style={styles.label}>
-          <Ionicons name="sparkles-outline" size={12} color={colors.primary} />
+          <Ionicons name="sparkles-outline" size={11} color={colors.primary} />
           <Text style={styles.labelText}>PROCHAIN ÉVÉNEMENT</Text>
         </View>
         <Text style={[styles.timeLeft, startsIn > 0 && startsIn < URGENT_MS && { color: colors.orangeText }]}>{startsIn > 0 ? formatTimeLeft(startsIn) : 'En cours'}</Text>
@@ -572,7 +597,7 @@ export function TaxiCard() {
     <View style={[styles.infoCard, shadow.card]}>
       <View style={styles.rowBetween}>
         <View style={styles.label}>
-          <Ionicons name="car-outline" size={12} color={colors.primary} />
+          <Ionicons name="car-outline" size={11} color={colors.primary} />
           <Text style={styles.labelText}>SUNU TAXI</Text>
         </View>
         {mine ? <Text style={styles.timeLeft}>Mon trajet</Text> : next && <Text style={styles.timeLeft}>{formatTimeLeft(next.departureAt - now)}</Text>}
@@ -719,8 +744,8 @@ export function RestoCard() {
     <View style={[styles.infoCard, shadow.card, { gap: 12 }]}>
       <View style={styles.rowBetween}>
         <View style={styles.label}>
-          <Ionicons name="restaurant-outline" size={12} color={colors.primary} />
-          <Text style={styles.labelText}>RESTOS PUBLICS</Text>
+          <Ionicons name="restaurant-outline" size={11} color={colors.primary} />
+          <Text style={styles.labelText}>MENUS DU JOUR</Text>
         </View>
         <View style={[styles.mealNow, meal.live && { backgroundColor: colors.successBg }]}>
           <View style={[styles.liveDot, { backgroundColor: meal.live ? colors.success : colors.muted }]} />
@@ -867,9 +892,10 @@ const styles = StyleSheet.create({
   searching: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   searchingText: { ...typo.smallStrong, color: colors.primary },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  label: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  labelText: { ...typo.label, color: colors.muted2, letterSpacing: 0.4 },
-  timeLeft: { ...typo.label, color: colors.primary },
+  label: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  // Card labels (« PROCHAINE CARAVANE », « MENUS DU JOUR »…): small caps, quiet; the content is what stands out.
+  labelText: { fontSize: 10, fontWeight: '700', color: colors.muted2, letterSpacing: 0.3 },
+  timeLeft: { fontSize: 10, fontWeight: '700', color: colors.primary },
   route: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   city: { ...typo.title, color: colors.navy },
   link: {
@@ -892,6 +918,23 @@ const styles = StyleSheet.create({
   cvLine: { flex: 1, height: 1.5, backgroundColor: colors.border },
   cvPrice: { ...typo.title, color: colors.primary },
   cvFoot: { paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  // The trip as a small boarding pass inside the card: the stub (time, day), the tear, the route and price.
+  pass: { flexDirection: 'row', borderRadius: radii.md, backgroundColor: colors.primarySofter, overflow: 'hidden' },
+  passStub: { width: 62, paddingVertical: 8, paddingHorizontal: 10, justifyContent: 'center' },
+  passTime: { fontSize: 14, fontWeight: '800', color: colors.navy },
+  passDay: { fontSize: 10.5, fontWeight: '700', color: colors.primary, marginTop: 1 },
+  passTear: { width: 1, alignItems: 'center' },
+  passDash: { flex: 1, width: 0, borderLeftWidth: 1, borderStyle: 'dashed', borderColor: colors.border, marginVertical: 8 },
+  passNotch: { position: 'absolute', left: -6, width: 12, height: 12, borderRadius: 6, backgroundColor: colors.card },
+  passMain: { flex: 1, paddingVertical: 8, paddingHorizontal: 12, gap: 2, justifyContent: 'center' },
+  passTags: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  passF: { fontSize: 11, fontWeight: '700', color: colors.muted2 },
+  passBar: { height: 5, borderRadius: 3, backgroundColor: colors.bg },
+  passFill: { height: '100%', borderRadius: 3 },
+  passMark: { position: 'absolute', top: -2, width: 2, height: 9, marginLeft: -1, borderRadius: 1, backgroundColor: colors.navy },
+  passState: { ...typo.captionStrong, flexShrink: 1 },
+  passBy: { ...typo.caption, color: colors.muted2 },
+  ctaSm: { paddingHorizontal: 14, minHeight: 32, borderRadius: radii.pill, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   more: {
     flexDirection: 'row',
     alignItems: 'center',

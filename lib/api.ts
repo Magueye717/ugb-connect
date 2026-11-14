@@ -44,6 +44,28 @@ export type Tokens = { accessToken: string; accessTokenExpiresAt: string; refres
 
 type Options = { body?: unknown; auth?: boolean; signal?: AbortSignal };
 
+/**
+ * Did the server answer the last request? The phone's own « internet reachable » flag can stay false after the
+ * connection comes back (Android checks it rarely): the offline banner trusts a real answer from the server more.
+ * null: nothing sent yet.
+ */
+let serverReached: boolean | null = null;
+const reachListeners = new Set<() => void>();
+const setReached = (v: boolean) => {
+  if (serverReached === v) return;
+  serverReached = v;
+  reachListeners.forEach((l) => l());
+};
+export const serverReachability = {
+  get: () => serverReached,
+  subscribe: (l: () => void) => {
+    reachListeners.add(l);
+    return () => {
+      reachListeners.delete(l);
+    };
+  },
+};
+
 async function send<T>(method: string, path: string, { body, auth = false }: Options, accessToken: string | null): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -60,10 +82,13 @@ async function send<T>(method: string, path: string, { body, auth = false }: Opt
       signal: controller.signal,
     });
   } catch {
+    setReached(false);
     throw new ApiError(0, 'NETWORK', 'Connexion impossible. Vérifie ta connexion internet et réessaie.');
   } finally {
     clearTimeout(timer);
   }
+  // Any answer, even an error: the server is there.
+  setReached(true);
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => null);
   if (!res.ok) {

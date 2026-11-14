@@ -29,28 +29,37 @@ const slides: Slide[] = [
     key: 'campus',
     title: 'Toute l’UGB',
     highlight: 'dans ta poche.',
-    text: 'Ton resto, ton bus pour Dakar, ton taxi, tes billets de soirée : tout se fait ici, entre étudiants.',
+    text: 'Menus du jour, boutiques, caravanes, Sunu Taxi, billets de soirée : toute la vie du campus au même endroit.',
   },
   {
     key: 'temps',
     title: 'Moins de queue,',
     highlight: 'plus de temps.',
-    text: 'Commande au resto, réserve ta place pour Dakar, partage ton taxi : tu demandes en quelques secondes, tu paies en espèces sur place.',
+    text: 'Commande au resto ou en boutique, réserve ta place dans une caravane, partage ton taxi : quelques secondes suffisent, et tu paies en espèces.',
+  },
+  {
+    key: 'entraide',
+    title: 'Entre étudiants,',
+    highlight: 'on s’entraide.',
+    text: 'Un objet perdu, une chambre à échanger, un colocataire à trouver : publie et discute en privé, sans donner ton numéro.',
   },
   {
     key: 'confiance',
     title: 'Le campus',
     highlight: 'veille sur toi.',
-    text: 'Un objet perdu retrouvé, une rupture au resto, un départ confirmé : tu es prévenu à temps. Et les étudiants notent chaque service.',
+    text: 'Départ confirmé, plat en rupture, objet retrouvé : tu es prévenu à temps. Et chaque service est noté par les étudiants.',
   },
 ];
 
 const features: { label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { label: 'Resto', icon: 'restaurant-outline' },
+  { label: 'Boutiques', icon: 'storefront-outline' },
   { label: 'Caravanes', icon: 'bus-outline' },
   { label: 'Sunu Taxi', icon: 'car-outline' },
-  { label: 'Lieux', icon: 'location-outline' },
+  { label: 'Événements', icon: 'sparkles-outline' },
+  { label: 'Logement', icon: 'bed-outline' },
   { label: 'Objets perdus', icon: 'cube-outline' },
+  { label: 'Lieux', icon: 'location-outline' },
 ];
 
 // The welcome photos, one picked at random each time the screen opens. Both 1024×1536; `face`: where the student's
@@ -71,6 +80,9 @@ function photoFrame(width: number, height: number, face: { x: number; y: number 
   const left = Math.min(0, Math.max(width - w, width / 2 - face.x * w));
   return { position: 'absolute' as const, width: w, height: h, top, left };
 }
+
+/** How long each slide stays before the next one comes. */
+const SLIDE_MS = 5000;
 
 /** Pixels per second: slow enough to read each tag as it passes. */
 const MARQUEE_SPEED = 30;
@@ -134,6 +146,19 @@ export default function WelcomeScreen() {
     setIndex(i);
   };
 
+  // The slides go by on their own (back to the first after the last), held while a finger is on them; each change,
+  // by hand or not, gives the new one its full time.
+  const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    if (dragging) return;
+    const t = setTimeout(() => {
+      const next = (index + 1) % slides.length;
+      list.current?.scrollToIndex({ index: next, animated: true });
+      setIndex(next);
+    }, SLIDE_MS);
+    return () => clearTimeout(t);
+  }, [index, dragging]);
+
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
@@ -174,7 +199,12 @@ export default function WelcomeScreen() {
             horizontal
             pagingEnabled
             showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={onScrollEnd}
+            onScrollBeginDrag={() => setDragging(true)}
+            onMomentumScrollEnd={(e) => {
+              setDragging(false);
+              onScrollEnd(e);
+            }}
+            onScrollEndDrag={() => setDragging(false)}
             getItemLayout={(_, i) => ({ length: width, offset: width * i, index: i })}
             renderItem={({ item }) => (
               <View style={[styles.slide, { width, height: slideHeight }]}>

@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, type ScrollViewInstance, Text, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { FitImage } from '@/components/FitImage';
 import { usePullRefresh } from '@/components/PullRefresh';
 import { PhoneField, phoneOk } from '@/components/PhoneField';
 import { HoldCountdown } from '@/components/HoldCountdown';
@@ -353,7 +353,7 @@ function Slider({ images, top, onBack }: { images: string[]; top: number; onBack
         onMomentumScrollEnd={onEnd}
         scrollEnabled={images.length > 1}>
         {images.map((uri, i) => (
-          <Image key={uri} source={{ uri }} style={{ width, height: width * 0.62 }} contentFit="cover" transition={200} accessibilityLabel={`Photo ${i + 1} sur ${images.length}`} />
+          <FitImage key={uri} uri={uri} style={{ width, height: width * 0.62 }} accessibilityLabel={`Photo ${i + 1} sur ${images.length}`} />
         ))}
       </ScrollView>
       <View style={[styles.backOver, { top: top + 8 }]}>

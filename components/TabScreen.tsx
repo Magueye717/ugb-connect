@@ -5,12 +5,9 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ScreenHeader } from '@/components/ui';
-import { colors, motion, typo } from '@/constants/theme';
+import { colors, motion, radii, typo } from '@/constants/theme';
 import { haptics } from '@/lib/haptics';
 
-/** Translucent: the content (a map) shows through the header. */
-const GLASS = 'rgba(236,239,244,0.86)';
 
 type Immersive = { on: boolean; set: (on: boolean) => void; top: number };
 const ImmersiveContext = createContext<Immersive>({ on: false, set: () => undefined, top: 0 });
@@ -22,7 +19,14 @@ const ImmersiveContext = createContext<Immersive>({ on: false, set: () => undefi
  */
 export const useImmersive = () => useContext(ImmersiveContext);
 
-type View_<K extends string> = { key: K; label: string; icon: keyof typeof Ionicons.glyphMap; subtitle: string; render: () => ReactNode };
+type View_<K extends string> = {
+  key: K;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  render: () => ReactNode;
+  /** Other ?vue= values that open this section (sections merged into it: « objets » and « logement » open Entraide). */
+  aliases?: string[];
+};
 
 /**
  * A tab that groups several sections (Campus: Lieux · Objets perdus · Boutiques). The sections are a strip of tabs
@@ -33,7 +37,7 @@ type View_<K extends string> = { key: K; label: string; icon: keyof typeof Ionic
 export function TabScreen<K extends string>({ title, views }: { title: string; views: View_<K>[] }) {
   // `n`: set by each notification opened (openNotificationUrl), so the same ?vue= asked again still switches.
   const { vue, n } = useLocalSearchParams<{ vue?: string; n?: string }>();
-  const fromParam = views.find((v) => v.key === vue)?.key;
+  const fromParam = views.find((v) => v.key === vue || (!!vue && v.aliases?.includes(vue)))?.key;
   const [current, setCurrent] = useState<K>(fromParam ?? views[0].key);
   const [opened, setOpened] = useState<K[]>([current]);
   const open = (k: K) => {
@@ -42,13 +46,12 @@ export function TabScreen<K extends string>({ title, views }: { title: string; v
   };
   // A new link to this tab (another ?vue=, or the same one from a new notification) switches section (state
   // adjusted during render, no effect).
-  const link = `${fromParam ?? ''}|${n ?? ''}`;
+  const link = `${vue ?? ''}|${n ?? ''}`;
   const [seenLink, setSeenLink] = useState(link);
   if (link !== seenLink) {
     setSeenLink(link);
     if (fromParam) open(fromParam);
   }
-  const view = views.find((v) => v.key === current) ?? views[0];
   // The section that asked for the whole screen (it stays so while the others are shown: only the current one counts).
   const [immersiveKey, setImmersiveKey] = useState<K | null>(null);
   const immersive = immersiveKey === current;
@@ -57,20 +60,20 @@ export function TabScreen<K extends string>({ title, views }: { title: string; v
 
   const head = (
     <>
-      <ScreenHeader title={title} subtitle={view.subtitle} />
-      {/* One view: no strip. */}
-      {views.length > 1 && <SectionTabs views={views} value={current} onChange={open} />}
+      {/* No big title: the bottom tab already names the screen. The strip of sections is the top of it. */}
+      {views.length > 1 && <SectionTabs label={title} views={views} value={current} onChange={open} />}
     </>
   );
 
   return (
-    <SafeAreaView style={styles.safe} edges={immersive ? [] : ['top']}>
+    // The brand's blue band at the top, under the status bar, as on Accueil: the sections in white on it.
+    <SafeAreaView style={styles.safe} edges={[]}>
       {immersive ? (
-        <View style={[styles.glass, { paddingTop: insets.top }]} onLayout={(e) => setChrome(e.nativeEvent.layout.height)}>
+        <View style={[styles.band, styles.glass, { paddingTop: insets.top }]} onLayout={(e) => setChrome(e.nativeEvent.layout.height)}>
           {head}
         </View>
       ) : (
-        head
+        <View style={[styles.band, { paddingTop: insets.top }]}>{head}</View>
       )}
       {views
         .filter((v) => opened.includes(v.key))
@@ -89,7 +92,7 @@ function ImmersiveSection<K extends string>({ k, on, top, setKey, children }: { 
 }
 
 /** The sections of a tab: icon and label, an underline that slides to the chosen one. */
-function SectionTabs<K extends string>({ views, value, onChange }: { views: View_<K>[]; value: K; onChange: (k: K) => void }) {
+function SectionTabs<K extends string>({ label, views, value, onChange }: { label: string; views: View_<K>[]; value: K; onChange: (k: K) => void }) {
   const [width, setWidth] = useState(0);
   const index = views.findIndex((v) => v.key === value);
   const w = width / views.length;
@@ -104,7 +107,7 @@ function SectionTabs<K extends string>({ views, value, onChange }: { views: View
   const line = useAnimatedStyle(() => ({ transform: [{ translateX: x.get() }] }));
 
   return (
-    <View style={styles.strip} onLayout={(e) => setWidth(e.nativeEvent.layout.width)} accessibilityRole="tablist">
+    <View style={styles.strip} onLayout={(e) => setWidth(e.nativeEvent.layout.width)} accessibilityRole="tablist" accessibilityLabel={label}>
       {views.map((v) => {
         const on = v.key === value;
         return (
@@ -118,7 +121,7 @@ function SectionTabs<K extends string>({ views, value, onChange }: { views: View
             }}
             accessibilityRole="tab"
             accessibilityState={{ selected: on }}>
-            <Ionicons name={v.icon} size={17} color={on ? colors.primary : colors.muted2} />
+            <Ionicons name={v.icon} size={17} color={on ? '#fff' : 'rgba(255,255,255,0.7)'} />
             <Text style={[styles.tabText, on && styles.tabTextOn]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
               {v.label}
             </Text>
@@ -136,14 +139,15 @@ function SectionTabs<K extends string>({ views, value, onChange }: { views: View
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
-  strip: { flexDirection: 'row', marginTop: 10, marginHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  band: { backgroundColor: colors.primary, borderBottomLeftRadius: radii.xl, borderBottomRightRadius: radii.xl, paddingBottom: 4 },
+  strip: { flexDirection: 'row', marginTop: 2, marginHorizontal: 12 },
   tab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 44, paddingHorizontal: 4 },
-  tabText: { ...typo.smallStrong, color: colors.muted2, flexShrink: 1 },
-  tabTextOn: { color: colors.primary },
+  tabText: { ...typo.smallStrong, color: 'rgba(255,255,255,0.7)', flexShrink: 1 },
+  tabTextOn: { color: '#fff' },
   lineBox: { position: 'absolute', left: 0, bottom: -1, alignItems: 'center' },
-  line: { width: '60%', height: 3, borderRadius: 2, backgroundColor: colors.primary },
+  line: { width: '60%', height: 3, borderRadius: 2, backgroundColor: '#fff' },
   page: { flex: 1 },
   // Above the section (which starts at the top of the screen), see-through.
-  glass: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2, paddingBottom: 2, backgroundColor: GLASS },
+  glass: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2 },
   hidden: { display: 'none' },
 });

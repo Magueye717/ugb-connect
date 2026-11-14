@@ -45,7 +45,8 @@ function NoticeCard({ notice: n }: { notice: Notice }) {
   const t = TONES[n.tone];
   const close = (then?: () => void) => {
     dismissNotice(n.id);
-    then?.();
+    if (then) then();
+    else n.onDismiss?.();
   };
 
   return (

@@ -11,6 +11,7 @@ import { MultiSelect } from '@/components/Select';
 import { Chip, Field, LabeledField, PrimaryButton, TextButton, Toggle } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { commerceApi, type BusinessDto, type BusinessTarget, type CommerceReference, type DeliveryZone, type OrderMethod } from '@/features/commerce/api';
+import { hoursValid, joinOvernight, normalizeHours } from './hours';
 import { payoutDigitsOf, payoutNumbersBody, payoutNumbersOk, type PayoutDigits } from './PayoutNumbers';
 import { CAMPUSES } from '@/features/register/validation';
 import { ALL_DAY, isAllDay } from '@/features/commerce/allDay';
@@ -23,7 +24,6 @@ import { toast } from '@/lib/toast';
 import { askToRelocate } from '@/lib/relocate';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
-const HHMM = /^\d{2}:\d{2}$/;
 
 /**
  * A business's profile as students see it: picture, specialty, where it is (GPS point, in words, campus), its number,
@@ -58,7 +58,7 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
   const [lat, setLat] = useState(b.location ? String(b.location.lat) : '');
   const [lng, setLng] = useState(b.location ? String(b.location.lng) : '');
   const [locating, setLocating] = useState(false);
-  const [services, setServices] = useState(b.services.map((s) => ({ ...s })));
+  const [services, setServices] = useState(joinOvernight(b.services));
   // One price per zone (campus 1, campus 2, outside); empty: no delivery there.
   const [fees, setFees] = useState<Record<DeliveryZone, string>>({
     campus1: b.deliveryFees.campus1 === null ? '' : String(b.deliveryFees.campus1),
@@ -73,7 +73,7 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
   const [saving, setSaving] = useState(false);
 
   const pick = async () => {
-    const [asset] = await pickPhoto({ aspect: [2, 1], title: 'Photo du commerce' });
+    const [asset] = await pickPhoto({ title: 'Photo du commerce' });
     if (!asset) return;
     setUploading(true);
     try {
@@ -111,7 +111,8 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
   const location = lat && lng ? { lat: Number(lat), lng: Number(lng) } : null;
   const locationOk = (!lat && !lng) || (!!location && Math.abs(location.lat) <= 90 && Math.abs(location.lng) <= 180);
   const allDay = isAllDay(services);
-  const servicesOk = services.length > 0 && services.every((s) => HHMM.test(s.start) && HHMM.test(s.end) && s.start < s.end);
+  // 00:00 as a closing is midnight; a closing before the opening runs past midnight (19:00 → 02:00).
+  const servicesOk = services.length > 0 && hoursValid(services);
   const ready = locationOk && servicesOk && specialties.length > 0 && name.trim().length >= 2 && payoutNumbersOk(methods, payout) && !uploading && !saving;
 
   // Something left to save: the form compared with what was last saved (or loaded).
@@ -131,7 +132,7 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
     setPhone(b.phone);
     setLat(b.location ? String(b.location.lat) : '');
     setLng(b.location ? String(b.location.lng) : '');
-    setServices(b.services.map((s) => ({ ...s })));
+    setServices(joinOvernight(b.services));
     setFees({
       campus1: b.deliveryFees.campus1 === null ? '' : String(b.deliveryFees.campus1),
       campus2: b.deliveryFees.campus2 === null ? '' : String(b.deliveryFees.campus2),
@@ -146,7 +147,7 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
       const saved = await commerceApi.updateMine(target, {
         ...(editor && name.trim() !== b.name ? { name: name.trim() } : {}),
         ...(photo.id ? { photoId: photo.id } : {}),
-        specialties, description: description.trim(), address: address.trim(), campus, phone: phone.trim(), location, services,
+        specialties, description: description.trim(), address: address.trim(), campus, phone: phone.trim(), location, services: normalizeHours(services) ?? services,
         paymentMethods: methods,
         payoutNumbers: payoutNumbersBody(methods, payout),
         deliveryFees: { campus1: fees.campus1 === '' ? null : Number(fees.campus1), campus2: fees.campus2 === '' ? null : Number(fees.campus2), outside: fees.outside === '' ? null : Number(fees.outside) },
@@ -255,7 +256,7 @@ export function BusinessProfileForm({ b, target, reference, onSaved, editor = fa
       {!allDay && services.length < 3 && (
         <TextButton label="Ajouter un service" icon="add-circle-outline" onPress={() => setServices((list) => [...list, { start: '19:00', end: '22:00' }])} />
       )}
-      {!servicesOk && <Text style={styles.warn}>Horaires au format 12:00, la fin après le début.</Text>}
+      {!servicesOk && <Text style={styles.warn}>Horaires au format 12:00 (00:00 pour minuit). Une fermeture avant l’ouverture passe minuit : 19:00 → 02:00.</Text>}
 
       <Text style={styles.section}>Livraison</Text>
       <Text style={styles.muted}>Les zones livrées et leur prix (0 = gratuite). Sans zone : à emporter uniquement.</Text>

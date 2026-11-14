@@ -208,9 +208,13 @@ export function Field({
       ) : null}
       <TextInput
         placeholderTextColor={colors.muted}
-        style={styles.input}
+        style={[styles.input, !props.multiline && styles.inputOneLine]}
         autoCapitalize="none"
-        secureTextEntry={secure ? hidden : undefined}
+        // One line unless the screen asks for several: a long text (a pasted paragraph, a password shown in clear on
+        // Android) scrolls sideways instead of wrapping and growing the field.
+        multiline={false}
+        numberOfLines={props.multiline ? undefined : 1}
+        secureTextEntry={secure ? hidden : false}
         selectionColor={accent}
         onFocus={(e) => {
           setFocused(true);
@@ -485,7 +489,7 @@ export function FilterChips<T extends string>({
 }
 
 /** Room to leave under a form's last field so it never hides behind a StickyFooter (one button, or two). */
-export const STICKY_FOOTER_SPACE = { one: 96, two: 140 } as const;
+export const STICKY_FOOTER_SPACE = { one: 84, two: 124 } as const;
 
 /**
  * A form's main action, pinned under the scrolling content and lifted above the keyboard: it never scrolls away.
@@ -530,7 +534,7 @@ export function useDirty(value: unknown, resetKey: unknown = null) {
 
 const styles = StyleSheet.create({
   sheetFooter: { gap: 8, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-  stickyFooter: { gap: 8, paddingHorizontal: 20, paddingVertical: 12, backgroundColor: colors.bg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  stickyFooter: { gap: 8, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.bg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   sheetHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   sheetHeadTitle: { ...typo.h3, color: colors.navy },
   sheetHeadSub: { ...typo.small, color: colors.muted2 },
@@ -538,7 +542,7 @@ const styles = StyleSheet.create({
   // Main buttons: same 16 px corners everywhere (welcome, sign-up, checkout).
   primary: {
     backgroundColor: colors.accent,
-    minHeight: 54,
+    minHeight: 48,
     borderRadius: radii.md,
     alignItems: 'center',
     justifyContent: 'center',
@@ -548,7 +552,7 @@ const styles = StyleSheet.create({
   primarySm: { minHeight: 40, borderRadius: radii.pill, paddingHorizontal: 16 },
   primaryLabelSm: { ...typo.smallStrong },
   accent: {
-    minHeight: 56,
+    minHeight: 50,
     borderRadius: radii.md,
     backgroundColor: colors.accent,
     shadowColor: colors.accent,
@@ -558,7 +562,7 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   outline: {
-    minHeight: 54,
+    minHeight: 48,
     borderRadius: radii.md,
     alignItems: 'center',
     justifyContent: 'center',
@@ -572,7 +576,7 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.86 },
   disabled: { opacity: 0.45 },
   field: {
-    minHeight: 56,
+    minHeight: 48,
     borderRadius: radii.md,
     backgroundColor: colors.input,
     borderWidth: 1,
@@ -586,7 +590,8 @@ const styles = StyleSheet.create({
   prefix: { paddingRight: 10, marginRight: 10, borderRightWidth: 1, borderRightColor: colors.border },
   prefixText: { fontSize: 14, fontWeight: '600', color: colors.text },
   error: { ...typo.caption, color: colors.danger },
-  input: { ...typo.body, flex: 1, color: colors.text, paddingVertical: 14 },
+  input: { ...typo.body, flex: 1, color: colors.text, paddingVertical: 11 },
+  inputOneLine: { maxHeight: 52 },
   label: { ...typo.bodyStrong, color: colors.navy },
   back: {
     width: 44,

@@ -7,7 +7,8 @@ import { SpaceSwitcher } from '@/components/SpaceSwitcher';
 import { colors } from '@/constants/theme';
 import { isOwner, useAuth } from '@/context/AuthContext';
 
-// A restaurant's or a shop's space: the orders first (they ring), then the catalog, the business, the team.
+// A restaurant's or a shop's space: the menu (or articles) first, where it opens (nothing sells without it), then the
+// orders, the business, the team.
 const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
   commandes: 'receipt-outline',
   catalogue: 'grid-outline',
@@ -28,7 +29,7 @@ export default function CommerceTabLayout() {
   const { business } = useAuth();
   // The business's tab is named after what it holds (its profile, then the account): "Boutique" or "Restaurant".
   const own = business?.kind === 'restaurant' ? 'Restaurant' : 'Boutique';
-  const titleOf = (name: string) => (name === 'commerce' ? own : (TITLES[name] ?? name));
+  const titleOf = (name: string) => (name === 'commerce' ? own : name === 'catalogue' ? (business?.kind === 'restaurant' ? 'Menu' : 'Articles') : (TITLES[name] ?? name));
   // Android edge-to-edge: the system navigation bar sits over the app, so the tab bar grows by its height.
   const insets = useSafeAreaInsets();
   const bottom = Math.max(insets.bottom, 10);
@@ -44,7 +45,7 @@ export default function CommerceTabLayout() {
           tabBarActiveTintColor: colors.primary,
           // Inactive labels must stay readable (11 px): muted2, 4.9:1.
           tabBarInactiveTintColor: colors.muted2,
-          tabBarStyle: [styles.bar, { height: 62 + bottom, paddingBottom: bottom }],
+          tabBarStyle: [styles.bar, { height: 56 + bottom, paddingBottom: bottom }],
           tabBarLabel: ({ focused, color }) => Label(titleOf(route.name), focused, String(color)),
           tabBarLabelStyle: styles.label,
           tabBarIcon: ({ focused, color }) => {
@@ -56,8 +57,8 @@ export default function CommerceTabLayout() {
             );
           },
         })}>
+        <Tabs.Screen name="catalogue" options={{ title: business?.kind === 'restaurant' ? 'Menu' : 'Articles' }} />
         <Tabs.Screen name="commandes" options={{ title: 'Commandes' }} />
-        <Tabs.Screen name="catalogue" options={{ title: 'Catalogue' }} />
         <Tabs.Screen name="commerce" options={{ title: own }} />
         {/* The team is the owner's: members never see this tab. */}
         <Tabs.Screen name="equipe" options={{ title: 'Équipe', href: isOwner(business?.roles) ? undefined : null }} />
@@ -78,7 +79,7 @@ function Label(title: string, focused: boolean, color: string) {
 
 const styles = StyleSheet.create({
   bar: {
-    paddingTop: 8,
+    paddingTop: 6,
     borderTopWidth: 0,
     backgroundColor: colors.card,
     elevation: 12,
@@ -90,8 +91,8 @@ const styles = StyleSheet.create({
   label: { fontSize: 11, marginTop: 2 },
   iconWrap: {
     width: 42,
-    height: 28,
-    borderRadius: 14,
+    height: 26,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
   },

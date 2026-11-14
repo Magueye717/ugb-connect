@@ -10,7 +10,7 @@ import { BrandLogo } from '@/components/BrandLogo';
 import { Field, LabeledField, OutlineButton, PrimaryButton } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { colors, radii, typo } from '@/constants/theme';
-import { formatPhone, PHONE_PREFIX, phoneDigits, validatePhone } from '@/features/register/validation';
+import { formatPhone, PHONE_PREFIX, phoneDigits, phoneStartWrong, validatePhone } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
 
 export default function LoginScreen() {
@@ -20,7 +20,7 @@ export default function LoginScreen() {
   const [phone, setPhone] = useState('');
   const [touched, setTouched] = useState(false);
   const phoneError = validatePhone(phone);
-  const showError = (touched || phone.length === 9) && !!phoneError;
+  const showError = (touched || phone.length === 9 || phoneStartWrong(phone)) && !!phoneError;
   const [password, setPassword] = useState('');
   const [hidden, setHidden] = useState(true);
   const [submitting, setSubmitting] = useState(false);

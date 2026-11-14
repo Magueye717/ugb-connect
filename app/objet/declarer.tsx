@@ -1,12 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState, type ReactNode } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { pickPhoto } from '@/lib/pickPhoto';
 import { BackButton, Chip, Field, PrimaryButton, StickyFooter } from '@/components/ui';
 import { lostCategories, lostCategory, lostOffice, lostSafetyTip } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
@@ -49,16 +49,9 @@ export default function Declarer() {
   const scanFirst = found && !!cat && cat.kind !== 'object';
 
   const pick = async (source: 'camera' | 'library') => {
-    const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], allowsEditing: true, quality: 0.6 };
-    if (source === 'camera') {
-      const { granted } = await ImagePicker.requestCameraPermissionsAsync();
-      if (!granted) {
-        Alert.alert('Caméra refusée', 'Autorise la caméra dans les réglages, ou choisis une photo dans ta galerie.');
-        return;
-      }
-    }
-    const res = source === 'camera' ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
-    if (!res.canceled) setPhoto(res.assets[0].uri);
+    // Whole or cropped: the person chooses.
+    const [asset] = await pickPhoto({ source, title: 'Photo de l’objet' });
+    if (asset) setPhoto(asset.uri);
   };
 
   const title = isObject ? name.trim() || cat!.label : (cat?.label ?? '');

@@ -15,6 +15,7 @@ import {
 import Animated, { LayoutAnimationConfig, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { FitImage } from '@/components/FitImage';
 import { usePullRefresh } from '@/components/PullRefresh';
 import { fadeIn, PopOnChange } from '@/components/motion';
 import { PhotoGallery } from '@/components/PhotoGallery';
@@ -142,7 +143,7 @@ export default function BusinessScreen() {
         scrollEventThrottle={32}
         onScroll={(e) => onScroll(e.nativeEvent.contentOffset.y)}>
         <View style={[styles.hero, { backgroundColor: colors.primarySoft }]}>
-          {b.photo ? <Image source={{ uri: b.photo }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} /> : <Ionicons name={isShop ? 'storefront' : 'restaurant'} size={56} color={colors.primary} />}
+          {b.photo ? <FitImage uri={b.photo} style={StyleSheet.absoluteFill} /> : <Ionicons name={isShop ? 'storefront' : 'restaurant'} size={56} color={colors.primary} />}
           <View style={[styles.heroBar, { top: insets.top + 8 }]}>
             <RoundButton icon="arrow-back" label="Retour" onPress={() => router.back()} />
             <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -506,7 +507,7 @@ function QtyInner({
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  hero: { height: 240, alignItems: 'center', justifyContent: 'center' },
+  hero: { height: 180, alignItems: 'center', justifyContent: 'center' },
   heroBar: { position: 'absolute', left: PADDING, right: PADDING, flexDirection: 'row', justifyContent: 'space-between' },
   round: {
     width: 42,

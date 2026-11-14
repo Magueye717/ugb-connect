@@ -11,7 +11,8 @@ import { BackButton, Field, LabeledField, PrimaryButton, Segmented, StickyFooter
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { isOwner, useAuth } from '@/context/AuthContext';
-import { caravansApi, dayLabel, type DepartureInput, type DepartureLimits, type OrgDepartureDto, type VehicleDto } from '@/features/caravans/api';
+import { caravansApi, dayLabel, type DepartureInput, type DepartureLimits, type OrgDepartureDto, type VehicleDto, type VehicleModelDto } from '@/features/caravans/api';
+import { planOf, SeatPlan } from '@/features/caravans/SeatPlan';
 import { VehicleSheet } from '@/features/caravans/VehicleSheet';
 import { ApiError } from '@/lib/api';
 import { useLeaveGuard } from '@/lib/leaveGuard';
@@ -152,6 +153,7 @@ export default function DepartureEditor() {
   const canEdit = !!organizer?.roles.some((r) => r === 'owner' || r === 'manager');
   const [draft, setDraft] = useState<OrgDepartureDto | null>(null);
   const [vehicles, setVehicles] = useState<VehicleDto[] | null>(null);
+  const [models, setModels] = useState<VehicleModelDto[]>([]);
   const [limits, setLimits] = useState<DepartureLimits | null>(null);
   const [past, setPast] = useState<OrgDepartureDto[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -167,6 +169,7 @@ export default function DepartureEditor() {
         isNew ? caravansApi.orgDepartures(orgId, 'past') : Promise.resolve({ items: [] }),
       ]);
       setVehicles(v.items);
+      setModels(v.models ?? []);
       setLimits(v.limits);
       setDraft(d);
       const seen = new Set<string>();
@@ -218,6 +221,7 @@ export default function DepartureEditor() {
           draft={draft}
           past={past}
           vehicles={vehicles}
+          models={models}
           setVehicles={(f) => setVehicles((list) => f(list ?? []))}
           limits={limits}
         />
@@ -232,11 +236,16 @@ type FormProps = {
   draft: OrgDepartureDto | null;
   past: OrgDepartureDto[];
   vehicles: VehicleDto[];
+  /** The catalog (buses, Cheikhou Cherif minibuses): picked here, it becomes the organization's vehicle at saving. */
+  models: VehicleModelDto[];
   setVehicles: (f: (list: VehicleDto[]) => VehicleDto[]) => void;
   limits: DepartureLimits;
 };
 
-function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limits }: FormProps) {
+/** A catalog model picked but not yet the organization's vehicle: `model:bus-53`. */
+const MODEL = 'model:';
+
+function DepartureForm({ orgId, owner, draft, past, vehicles, models, setVehicles, limits }: FormProps) {
   const init = draft ? fromDeparture(draft) : null;
   const [direction, setDirection] = useState<Direction>(init?.direction ?? 'aller');
   const [from, setFrom] = useState(init?.from ?? CAMPUS);
@@ -251,13 +260,19 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
   // The vehicle sheet: a new vehicle, or the one being edited.
   const [sheet, setSheet] = useState<VehicleDto | 'new' | null>(null);
   const [saving, setSaving] = useState<'draft' | 'publish' | null>(null);
+  const [showPlan, setShowPlan] = useState(true);
   const [copiedFrom, setCopiedFrom] = useState<string | null>(null);
   const now = useNow();
   // Leaving with changes not saved asks first; a save leaves without asking.
   const dirty = useDirty({ direction, from, to, day: day?.getTime() ?? null, pickups, dropoffs, vehicleId, price, maxSeats, minPassengers });
   const guard = useLeaveGuard(dirty && !saving);
 
-  const vehicle = vehicles.find((v) => v.id === vehicleId) ?? null;
+  // The models the organization doesn't have yet (the ones it has are among its vehicles).
+  const catalog = models.filter((m) => !vehicles.some((v) => v.model === m.key));
+  const picked = vehicleId?.startsWith(MODEL) ? catalog.find((m) => MODEL + m.key === vehicleId) : undefined;
+  const vehicle = picked
+    ? { label: picked.label, capacity: picked.capacity, blockedSeats: [] as number[], seatsPerRow: 4, layout: picked.layout }
+    : (vehicles.find((v) => v.id === vehicleId) ?? null);
   const seats = vehicle ? vehicle.capacity - vehicle.blockedSeats.length : null;
   const timed = useMemo(() => schedule(day, [...pickups, ...dropoffs], [...pickups.map((_, i) => `montée ${i + 1}`), ...dropoffs.map((_, i) => `arrêt ${i + 1}`)], now), [day, pickups, dropoffs, now]);
   const plan = timed.plan;
@@ -316,11 +331,20 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
   };
   const leave = () => guard.leave(() => (router.canGoBack() ? router.back() : router.replace('/activites')));
 
-  const input = (): DepartureInput => {
+  // A model picked from the catalog becomes the organization's vehicle (the one it has, else a new one) when saving.
+  const resolveVehicle = async () => {
+    if (!vehicleId?.startsWith(MODEL)) return vehicleId!;
+    const v = await caravansApi.vehicleFromModel(orgId, vehicleId.slice(MODEL.length));
+    setVehicles((list) => (list.some((x) => x.id === v.id) ? list : [...list, v]));
+    setVehicleId(v.id);
+    return v.id;
+  };
+
+  const input = (vehicleId: string): DepartureInput => {
     const all = plan!;
     const at = (i: number) => all[i]!.at.toISOString();
     return {
-      vehicleId: vehicleId!,
+      vehicleId,
       direction,
       from: from.trim(),
       to: to.trim(),
@@ -336,7 +360,8 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
   const save = async (publish: boolean) => {
     setSaving(publish ? 'publish' : 'draft');
     try {
-      let saved = draft ? await caravansApi.updateDeparture(orgId, draft.id, input()) : await caravansApi.createDeparture(orgId, input());
+      const body = input(await resolveVehicle());
+      let saved = draft ? await caravansApi.updateDeparture(orgId, draft.id, body) : await caravansApi.createDeparture(orgId, body);
       if (publish) {
         saved = await caravansApi.publishDeparture(orgId, saved.id);
         toast('Départ publié : les étudiants peuvent réserver.');
@@ -447,7 +472,7 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
       {departureAt && !inPast && <Text style={styles.hint}>Départ {dayLabel(departureAt.getTime())} à {hhmm(departureAt.toISOString()).replace(':', 'h')}.</Text>}
 
       <Text style={styles.label}>Véhicule</Text>
-      {vehicles.length === 0 && !owner && <Text style={styles.hint}>Aucun véhicule enregistré : demande au responsable de l’organisation d’en ajouter un.</Text>}
+      {vehicles.length === 0 && models.length === 0 && !owner && <Text style={styles.hint}>Aucun véhicule enregistré : demande au responsable de l’organisation d’en ajouter un.</Text>}
       <View style={{ gap: 8 }}>
         {vehicles.map((v) => {
           const on = v.id === vehicleId;
@@ -458,7 +483,7 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
                 <View style={{ flex: 1 }}>
                   <Text style={styles.optionTitle}>{v.label}</Text>
                   <Text style={styles.muted}>
-                    {v.capacity - v.blockedSeats.length} places · {v.seatsPerRow === 5 ? '5 par rangée (versailler)' : '4 par rangée'}{v.airConditioned ? ' · Climatisé' : ''}
+                    {v.capacity - v.blockedSeats.length} places{v.layout ? '' : v.seatsPerRow === 5 ? ' · 5 par rangée (versailler)' : ' · 4 par rangée'}{v.airConditioned ? ' · Climatisé' : ''}
                   </Text>
                 </View>
               </Pressable>
@@ -470,8 +495,54 @@ function DepartureForm({ orgId, owner, draft, past, vehicles, setVehicles, limit
             </View>
           );
         })}
-        {owner && <AddRow label="Ajouter un véhicule" onPress={() => setSheet('new')} />}
+        {owner && <AddRow label="Décrire un autre véhicule" onPress={() => setSheet('new')} />}
       </View>
+      {catalog.length > 0 && (
+        <>
+          <Text style={[styles.hint, { marginTop: 2 }]}>{vehicles.length ? 'Ou un modèle courant :' : 'Choisis ton modèle :'}</Text>
+          <View style={styles.models}>
+            {catalog.map((m) => {
+              const on = vehicleId === MODEL + m.key;
+              return (
+                <Pressable
+                  key={m.key}
+                  onPress={() => {
+                    setVehicleId(MODEL + m.key);
+                    setShowPlan(true);
+                  }}
+                  style={[styles.model, on && styles.optionOn]}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: on }}
+                  accessibilityLabel={`${m.label}, ${m.capacity} places à vendre`}>
+                  <Ionicons name={m.kind === 'bus' ? 'bus-outline' : 'car-outline'} size={18} color={on ? colors.primary : colors.muted2} />
+                  <Text style={[styles.optionTitle, on && { color: colors.primary }]} numberOfLines={2}>
+                    {m.label}
+                  </Text>
+                  <Text style={styles.muted}>{m.capacity} places à vendre</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </>
+      )}
+      {/* Before saving: the plan the students will book on. */}
+      {vehicle && (
+        <View style={[styles.planCard, shadow.card]}>
+          <Pressable onPress={() => setShowPlan((v) => !v)} style={styles.planHead} accessibilityRole="button" accessibilityState={{ expanded: showPlan }}>
+            <Ionicons name="grid-outline" size={16} color={colors.primary} />
+            <Text style={[styles.optionTitle, { flex: 1 }]} numberOfLines={1}>
+              Plan · {vehicle.label}
+            </Text>
+            <Text style={styles.planToggle}>{showPlan ? 'Masquer' : 'Voir le plan'}</Text>
+          </Pressable>
+          {showPlan && (
+            <>
+              <SeatPlan rows={planOf(vehicle)} size={30} />
+              <Text style={[styles.hint, { textAlign: 'center' }]}>{seats} places à vendre, numérotées comme dans le véhicule. Les étudiants choisissent la leur sur ce plan.</Text>
+            </>
+          )}
+        </View>
+      )}
 
       <View style={styles.row}>
         <View style={{ flex: 1 }}>
@@ -885,6 +956,11 @@ const styles = StyleSheet.create({
   addText: { ...typo.smallStrong, color: colors.primary },
   optionOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   optionTitle: { ...typo.smallStrong, color: colors.navy },
+  models: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  model: { width: '48.5%', gap: 4, padding: 12, borderRadius: radii.md, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.card },
+  planCard: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14, gap: 12 },
+  planHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  planToggle: { ...typo.captionStrong, color: colors.primary },
   step: { width: 32, height: 32, borderRadius: 16, borderWidth: 1.5, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   nextDayText: { ...typo.label, color: colors.warningText },
   rowError: { width: '100%', paddingLeft: 34, marginTop: -6, marginBottom: 8 },

@@ -45,7 +45,7 @@ export default function OrganizerTabLayout() {
           tabBarActiveTintColor: colors.primary,
           // Inactive labels must stay readable (11 px): muted2, 4.9:1.
           tabBarInactiveTintColor: colors.muted2,
-          tabBarStyle: [styles.bar, { height: 62 + bottom, paddingBottom: bottom }],
+          tabBarStyle: [styles.bar, { height: 56 + bottom, paddingBottom: bottom }],
           tabBarLabel: ({ focused, color }) => Label(TITLES[route.name] ?? route.name, focused, String(color)),
           tabBarLabelStyle: styles.label,
           tabBarIcon: ({ focused, color }) => {
@@ -86,7 +86,7 @@ function Label(title: string, focused: boolean, color: string) {
 
 const styles = StyleSheet.create({
   bar: {
-    paddingTop: 8,
+    paddingTop: 6,
     borderTopWidth: 0,
     backgroundColor: colors.card,
     elevation: 12,
@@ -98,8 +98,8 @@ const styles = StyleSheet.create({
   label: { fontSize: 11, marginTop: 2 },
   iconWrap: {
     width: 42,
-    height: 28,
-    borderRadius: 14,
+    height: 26,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
   },

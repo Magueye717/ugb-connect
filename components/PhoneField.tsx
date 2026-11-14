@@ -4,7 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { Field, LabeledField } from '@/components/ui';
 import { colors, typo } from '@/constants/theme';
-import { formatPhone, phoneDigits, validatePhone } from '@/features/register/validation';
+import { formatPhone, phoneDigits, phoneStartWrong, validatePhone } from '@/features/register/validation';
 
 type Props = {
   /** Above the field; none: the field alone. */
@@ -34,7 +34,7 @@ export function PhoneField({ label, value, onChange, icon = 'call-outline', plac
   const [left, setLeft] = useState(false);
   const digits = phoneDigits(value);
   const error = digits ? validatePhone(digits) : null;
-  const show = !!error && (touched || left || digits.length === 9);
+  const show = !!error && (touched || left || digits.length === 9 || phoneStartWrong(digits));
   const field = (
     <Field
       icon={icon}

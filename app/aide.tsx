@@ -68,6 +68,16 @@ export default function Aide() {
             <Text style={styles.muted}>{support.hours}</Text>
           </View>
         )}
+
+        <View style={styles.legal}>
+          <Pressable onPress={() => router.push('/legal/conditions')} hitSlop={8} accessibilityRole="link">
+            <Text style={styles.legalLink}>Conditions d’utilisation</Text>
+          </Pressable>
+          <Text style={styles.muted}>·</Text>
+          <Pressable onPress={() => router.push('/legal/confidentialite')} hitSlop={8} accessibilityRole="link">
+            <Text style={styles.legalLink}>Confidentialité</Text>
+          </Pressable>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -103,4 +113,6 @@ const styles = StyleSheet.create({
   contact: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.card, borderRadius: radii.lg, padding: 12 },
   icon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   muted: { ...typo.caption, color: colors.muted2 },
+  legal: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10, marginTop: 16 },
+  legalLink: { ...typo.captionStrong, color: colors.primary },
 });

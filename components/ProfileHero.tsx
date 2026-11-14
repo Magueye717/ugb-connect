@@ -42,3 +42,31 @@ const styles = StyleSheet.create({
   chip: { maxWidth: '100%', paddingHorizontal: 9, paddingVertical: 3, borderRadius: radii.pill, backgroundColor: 'rgba(255,255,255,0.14)' },
   chipText: { ...typo.label, color: '#fff' },
 });
+
+/**
+ * Who is signed in, on a work space's account screen: a slim row (photo, name, number). The space itself is named at
+ * the top of every screen (SpaceBar): the person isn't the subject here.
+ */
+export function AccountRow() {
+  const { user } = useAuth();
+  const phone = user?.phone?.replace(/^\+221(\d{2})(\d{3})(\d{2})(\d{2})$/, '$1 $2 $3 $4');
+  return (
+    <View style={[accountStyles.account, shadow.card]}>
+      <AvatarPicker size={44} tone="soft" />
+      <View style={{ flex: 1 }}>
+        <Text style={accountStyles.accountName} numberOfLines={1}>
+          {user?.firstName} {user?.lastName}
+        </Text>
+        <Text style={accountStyles.accountSub} numberOfLines={1}>
+          Connecté{phone ? ` · ${phone}` : ''}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+const accountStyles = StyleSheet.create({
+  account: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.card, borderRadius: radii.lg, padding: 12 },
+  accountName: { ...typo.bodyStrong, color: colors.navy },
+  accountSub: { ...typo.caption, color: colors.muted2, marginTop: 1 },
+});

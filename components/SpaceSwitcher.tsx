@@ -58,10 +58,10 @@ const subscribe = (l: () => void) => {
  * 14 above the tab bar, plus a margin).
  */
 /**
- * The floating button appears from this many spaces. With 2 or 3, switching happens from the account screen's
- * « Mes espaces » (every space has one), and the corner stays free for the screen.
+ * The floating button is retired: every space shows its name at the top (SpaceBar), and a tap there switches. Kept
+ * at Infinity so the corner stays free (and for the screens that still lift it).
  */
-export const FAB_MIN_SPACES = 4;
+export const FAB_MIN_SPACES = Infinity;
 
 export const SPACE_BUTTON_CLEARANCE = 54 + 14 + 16;
 
@@ -84,7 +84,6 @@ export function useLiftSpaceButton(px: number) {
 export function SpaceSwitcher() {
   const { spaces, current } = useAuth();
   const insets = useSafeAreaInsets();
-  const { height } = useWindowDimensions();
   const raised = useSyncExternalStore(subscribe, () => lift);
   const [open, setOpen] = useState(false);
   const [keyboard, setKeyboard] = useState(false);
@@ -102,8 +101,8 @@ export function SpaceSwitcher() {
   }, []);
 
   if (spaces.length < FAB_MIN_SPACES || !current || keyboard) return null;
-  // Above the tab bar (62 + the system bar); a screen's pinned bar lifts it further (animated, see FabButton).
-  const bottom = 62 + Math.max(insets.bottom, 10) + 14;
+  // Above the tab bar (56 + the system bar); a screen's pinned bar lifts it further (animated, see FabButton).
+  const bottom = 56 + Math.max(insets.bottom, 10) + 14;
 
   return (
     <>
@@ -116,34 +115,30 @@ export function SpaceSwitcher() {
         onPress={() => setOpen(true)}
       />
 
-      <Modal
-        visible={open}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setOpen(false)}
-      >
-        <Pressable
-          style={styles.backdrop}
-          onPress={() => setOpen(false)}
-          accessibilityLabel="Fermer"
-        />
-        {/* At most most of the screen: a long list of spaces scrolls, the title and ✕ stay in sight. */}
-        <SafeAreaView edges={["bottom"]} style={[styles.sheet, { maxHeight: height * 0.85 }]}>
-          <View style={styles.handle} />
-          <SheetHeader onClose={() => setOpen(false)} titleStyle={styles.title} subtitle={`Tu es dans : ${spaceInfo(current).title}`}>
-            Mes espaces
-          </SheetHeader>
-          <View style={{ height: 6 }} />
-          <ScrollView
-            style={{ flexShrink: 1 }}
-            contentContainerStyle={{ gap: 6, paddingBottom: 4 }}
-            showsVerticalScrollIndicator
-          >
-            <SpaceRows onOpen={() => setOpen(false)} />
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
+      <SpaceSheet visible={open} onClose={() => setOpen(false)} />
     </>
+  );
+}
+
+/** « Mes espaces »: every space of the account, the current one marked; a tap switches. */
+export function SpaceSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const { current } = useAuth();
+  const { height } = useWindowDimensions();
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Fermer" />
+      {/* At most most of the screen: a long list of spaces scrolls, the title and ✕ stay in sight. */}
+      <SafeAreaView edges={["bottom"]} style={[styles.sheet, { maxHeight: height * 0.85 }]}>
+        <View style={styles.handle} />
+        <SheetHeader onClose={onClose} titleStyle={styles.title} subtitle={current ? `Tu es dans : ${spaceInfo(current).title}` : undefined}>
+          Changer d’espace
+        </SheetHeader>
+        <View style={{ height: 6 }} />
+        <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 6, paddingBottom: 4 }} showsVerticalScrollIndicator>
+          <SpaceRows onOpen={onClose} />
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
   );
 }
 

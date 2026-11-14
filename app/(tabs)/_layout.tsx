@@ -5,6 +5,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SpaceSwitcher } from '@/components/SpaceSwitcher';
 import { colors } from '@/constants/theme';
+import { useCaravans } from '@/context/CaravansContext';
+import { useOrders } from '@/context/OrdersContext';
+import { useTaxi } from '@/context/TaxiContext';
 
 const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
   index: 'home-outline',
@@ -28,6 +31,15 @@ export default function TabLayout() {
   // Android edge-to-edge: the system navigation bar sits over the app, so the tab bar grows by its height.
   const insets = useSafeAreaInsets();
   const bottom = Math.max(insets.bottom, 10);
+  // A red dot on a tab when something there waits for the student: an order ready to collect (or to pay), a seat
+  // request to pay the organizer, a Sunu Taxi trip under way.
+  const { orders } = useOrders();
+  const { caravans } = useCaravans();
+  const { activeTrip } = useTaxi();
+  const waiting: Record<string, boolean> = {
+    resto: orders.some((o) => o.status === 'ready' || o.status === 'pending_payment'),
+    caravanes: caravans.some((c) => !!c.myBooking) || !!activeTrip(),
+  };
   return (
     // The space button floats over every tab (only with several spaces).
     <View style={{ flex: 1 }}>
@@ -40,7 +52,7 @@ export default function TabLayout() {
           tabBarActiveTintColor: colors.primary,
           // Inactive labels must stay readable (11 px): muted2, 4.9:1.
           tabBarInactiveTintColor: colors.muted2,
-          tabBarStyle: [styles.bar, { height: 62 + bottom, paddingBottom: bottom }],
+          tabBarStyle: [styles.bar, { height: 56 + bottom, paddingBottom: bottom }],
           tabBarLabel: ({ focused, color }) => Label(TITLES[route.name] ?? route.name, focused, String(color)),
           tabBarLabelStyle: styles.label,
           tabBarIcon: ({ focused, color }) => {
@@ -48,6 +60,7 @@ export default function TabLayout() {
             return (
               <View style={[styles.iconWrap, focused && styles.iconOn]}>
                 <Ionicons name={name ?? 'ellipse-outline'} size={22} color={String(color)} />
+                {waiting[route.name] && <View style={styles.dot} accessibilityLabel="À voir" />}
               </View>
             );
           },
@@ -76,7 +89,7 @@ function Label(title: string, focused: boolean, color: string) {
 
 const styles = StyleSheet.create({
   bar: {
-    paddingTop: 8,
+    paddingTop: 6,
     borderTopWidth: 0,
     backgroundColor: colors.card,
     elevation: 12,
@@ -88,10 +101,12 @@ const styles = StyleSheet.create({
   label: { fontSize: 11, marginTop: 2, textAlign: 'center', alignSelf: 'stretch' },
   iconWrap: {
     width: 42,
-    height: 28,
-    borderRadius: 14,
+    height: 26,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
   },
   iconOn: { backgroundColor: colors.primarySoft },
+  // Something waits on this tab: a small red dot on the icon's corner, ringed white to stand off it.
+  dot: { position: 'absolute', top: 1, right: 7, width: 9, height: 9, borderRadius: 5, backgroundColor: colors.danger, borderWidth: 1.5, borderColor: colors.card },
 });

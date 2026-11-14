@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -8,6 +7,8 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { pickPhoto } from '@/lib/pickPhoto';
+import { FitImage } from '@/components/FitImage';
 import { eventWhen, openCta } from '@/components/home';
 import { PaymentLogo } from '@/components/PaymentLogo';
 import { ErrorState } from '@/components/states';
@@ -110,11 +111,12 @@ export default function NouvellePublicite() {
   const eventEnd = event ? new Date(event.endsAt).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
 
   const pick = async () => {
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [16, 9], quality: 0.85 });
-    if (res.canceled || !res.assets[0]) return;
+    // Whole or cropped to the banner's 16:9: the person chooses.
+    const [asset] = await pickPhoto({ aspect: [16, 9], title: 'Image de la bannière' });
+    if (!asset) return;
     setUploading(true);
     try {
-      const up = await uploadImage(res.assets[0], 'banner');
+      const up = await uploadImage(asset, 'banner');
       setImage({ id: up.id, url: up.url });
     } catch (err) {
       Alert.alert('Image refusée', err instanceof ApiError ? err.message : 'Réessaie avec une autre image.');
@@ -193,7 +195,7 @@ export default function NouvellePublicite() {
         )}
 
         <View style={[styles.preview, shadow.card]}>
-          {previewImage ? <Image source={{ uri: previewImage }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.navy }]} />}
+          {previewImage ? <FitImage uri={previewImage} style={StyleSheet.absoluteFill} /> : <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.navy }]} />}
           <LinearGradient colors={['rgba(10,16,40,0.05)', 'rgba(10,16,40,0.78)']} style={StyleSheet.absoluteFill} />
           <View style={styles.tag}>
             <Text style={styles.tagText}>{kind === 'event' ? 'ÉVÉNEMENT' : 'SPONSORISÉ'}</Text>

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, type Href } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { usePullRefresh } from '@/components/PullRefresh';
 import { AvatarPicker } from '@/components/AvatarPicker';
@@ -12,14 +12,12 @@ import { colors, radii, shadow, typo } from '@/constants/theme';
 import { ownShop, useAuth } from '@/context/AuthContext';
 import { useNotifications } from '@/context/NotificationsContext';
 
-/** `todo`: something to fill in ("À compléter"). */
 /** Each section's icon colours, a soft tile and a darker icon (≥ 4.5:1): the list is scanned by colour. */
 type Tone = { bg: string; fg: string };
-const TONES: Record<'account' | 'activity' | 'publish' | 'prefs' | 'help', Tone> = {
+const TONES: Record<'account' | 'activity' | 'publish' | 'help', Tone> = {
   account: { bg: colors.primarySoft, fg: colors.primary },
   activity: { bg: colors.accentSoft, fg: colors.orangeText },
   publish: { bg: colors.successBg, fg: colors.successText },
-  prefs: { bg: '#EEEBFE', fg: colors.purpleText },
   help: { bg: colors.input, fg: colors.muted2 },
 };
 
@@ -27,6 +25,7 @@ type Row = { icon: keyof typeof Ionicons.glyphMap; label: string; href?: Href; b
 
 export default function ProfilScreen() {
   const { user, spaces, reloadAccount } = useAuth();
+  const insets = useSafeAreaInsets();
   // The shop they own: "Ma boutique" once there is one.
   const myShop = ownShop(spaces);
   const cardDone = !!user?.identity?.fromCard;
@@ -47,9 +46,9 @@ export default function ProfilScreen() {
       rows: [
         { icon: 'person-outline', label: 'Informations personnelles', href: '/infos' },
         { icon: 'school-outline', label: 'Mon UFR et mon niveau', href: '/mes-etudes', todo: !user?.ufrCode || !user.niveau },
-        // The student number and the card's details both live there.
         // The student number, the région and the card's details all live there.
         { icon: 'card-outline', label: 'Ma carte étudiant', href: '/ma-carte', todo: !cardDone || !user?.studentId || !user.region, done: cardDone && !!user?.studentId && !!user.region },
+        { icon: 'notifications-outline', label: 'Notifications', href: '/notifications', badge: unreadCount },
       ],
     },
     {
@@ -60,7 +59,6 @@ export default function ProfilScreen() {
         { icon: 'ticket-outline', label: 'Mes billets', href: '/mes-billets' },
         // `as Href`: the route types are regenerated on the next `expo start` (new screen).
         { icon: 'receipt-outline', label: 'Mes commandes', href: '/mes-commandes' as Href },
-        { icon: 'bag-handle-outline', label: 'Mon panier', href: '/panier' },
       ],
     },
     {
@@ -72,68 +70,55 @@ export default function ProfilScreen() {
         { icon: 'storefront-outline', label: myShop ? 'Ma boutique' : 'Vendre sur le campus', href: '/ma-boutique' },
         { icon: 'megaphone-outline', label: 'Mes publicités', href: '/mes-publicites' },
         { icon: 'cube-outline', label: 'Mes objets perdus', href: '/mes-objets' },
+        { icon: 'bed-outline', label: 'Mes annonces logement', href: { pathname: '/(tabs)/lieux', params: { vue: 'logement', filtre: 'mine', n: 'profil' } } as Href },
       ],
-    },
-    {
-      title: 'Préférences',
-      tone: TONES.prefs,
-      rows: [{ icon: 'notifications-outline', label: 'Notifications et préférences', href: '/notifications', badge: unreadCount }],
     },
     {
       title: 'Aide',
       tone: TONES.help,
       rows: [
-        { icon: 'help-circle-outline', label: 'Aide & support', href: '/aide' },
-        { icon: 'document-text-outline', label: 'Conditions d’utilisation', href: '/legal/conditions' },
-        { icon: 'shield-checkmark-outline', label: 'Confidentialité', href: '/legal/confidentialite' },
+        // The terms and the privacy policy are at the bottom of it.
+        { icon: 'help-circle-outline', label: 'Aide, conditions et confidentialité', href: '/aide' },
       ],
     },
   ];
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} refreshControl={pull}>
-        <Text style={styles.h1}>Profil</Text>
-        {/* The student's own block: the one coloured card of the screen. */}
-        <View style={[styles.hero, shadow.raised]}>
-          <View style={styles.heroTop}>
-            <AvatarPicker size={64} tone="solid" ring />
-            <View style={{ flex: 1, gap: 6 }}>
-              <Text style={styles.name} numberOfLines={2}>
-                {user?.firstName} {user?.lastName}
-              </Text>
-              <View style={styles.chips}>
-                {[user?.ufrCode ? `UFR ${user.ufrCode}` : null, user?.niveau, user?.campus].filter(Boolean).map((c) => (
-                  <View key={c} style={styles.chip}>
-                    <Text style={styles.chipText} numberOfLines={1}>
-                      {c}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-              {/* UFR, filière and level aren't asked at sign-up yet: the line appears once they're known. */}
-              {!!user?.filiere && (
-                <Text style={styles.heroMeta} numberOfLines={1}>
-                  {user.filiere}
-                </Text>
-              )}
+    <View style={styles.safe}>
+      {/* The student's own block, fixed at the top under the status bar (as on Accueil): the list scrolls under it. */}
+      <View style={[styles.hero, { paddingTop: insets.top + 10 }]}>
+        <View style={styles.heroTop}>
+          <AvatarPicker size={52} tone="solid" ring />
+          <View style={{ flex: 1, gap: 6 }}>
+            <Text style={styles.name} numberOfLines={2}>
+              {user?.firstName} {user?.lastName}
+            </Text>
+            <View style={styles.chips}>
+              {[user?.ufrCode ? `UFR ${user.ufrCode}` : null, user?.niveau].filter(Boolean).map((c) => (
+                <View key={c} style={styles.chip}>
+                  <Text style={styles.chipText} numberOfLines={1}>
+                    {c}
+                  </Text>
+                </View>
+              ))}
             </View>
           </View>
-          {done < steps.length && (
-            <View style={styles.progress} accessible accessibilityLabel={`Profil complété : ${done} sur ${steps.length}`}>
-              <View style={styles.progressHead}>
-                <Text style={styles.progressText}>Profil complété</Text>
-                <Text style={styles.progressText}>
-                  {done}/{steps.length}
-                </Text>
-              </View>
-              <View style={styles.bar}>
-                <View style={[styles.barFill, { width: `${(done / steps.length) * 100}%` }]} />
-              </View>
-            </View>
-          )}
         </View>
-
+        {done < steps.length && (
+          <View style={styles.progress} accessible accessibilityLabel={`Profil complété : ${done} sur ${steps.length}`}>
+            <View style={styles.progressHead}>
+              <Text style={styles.progressText}>Profil complété</Text>
+              <Text style={styles.progressText}>
+                {done}/{steps.length}
+              </Text>
+            </View>
+            <View style={styles.bar}>
+              <View style={[styles.barFill, { width: `${(done / steps.length) * 100}%` }]} />
+            </View>
+          </View>
+        )}
+      </View>
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} refreshControl={pull}>
         {/* An organizer, restaurant staff, the communication team…: their other spaces, one tap away. */}
         <SpacesList />
 
@@ -169,18 +154,16 @@ export default function ProfilScreen() {
         {/* In its own group, like the other rows: clear, and not floating where a thumb lands (same in every space). */}
         <LogoutButton />
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 18, paddingBottom: 40 },
-  h1: { ...typo.h1, color: colors.navy },
-  hero: { backgroundColor: colors.primary, borderRadius: radii.lg, padding: 18, gap: 16 },
-  heroTop: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  name: { ...typo.h2, color: '#fff' },
-  heroMeta: { ...typo.small, color: 'rgba(255,255,255,0.78)' },
+  hero: { backgroundColor: colors.primary, borderBottomLeftRadius: radii.xl, borderBottomRightRadius: radii.xl, paddingHorizontal: 20, paddingBottom: 16, gap: 12 },
+  heroTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  name: { ...typo.h3, color: '#fff' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: { maxWidth: '100%', paddingHorizontal: 9, paddingVertical: 3, borderRadius: radii.pill, backgroundColor: 'rgba(255,255,255,0.14)' },
   chipText: { ...typo.label, color: '#fff' },

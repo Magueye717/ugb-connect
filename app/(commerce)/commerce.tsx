@@ -6,6 +6,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SpaceBar } from '@/components/SpaceBar';
 import { usePullRefresh } from '@/components/PullRefresh';
 import { SpacesList } from '@/components/SpacesList';
 import { ErrorState } from '@/components/states';
@@ -50,15 +51,13 @@ export default function Commerce() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <SpaceBar>
+        {/* Always in sight, not only under the form. */}
+        <Pressable style={styles.headLogout} onPress={confirmLogout} accessibilityRole="button" accessibilityLabel="Se déconnecter">
+          <Ionicons name="log-out-outline" size={18} color={colors.dangerText} />
+        </Pressable>
+      </SpaceBar>
       <KeyboardAwareScrollView refreshControl={pull} style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          <View style={styles.headRow}>
-            <Text style={[styles.h1, { flex: 1 }]}>{business.kind === 'restaurant' ? 'Mon restaurant' : 'Ma boutique'}</Text>
-            {/* Always in sight, not only under the form. */}
-            <Pressable style={styles.headLogout} onPress={confirmLogout} accessibilityRole="button" accessibilityLabel="Se déconnecter">
-              <Ionicons name="log-out-outline" size={18} color={colors.dangerText} />
-              <Text style={styles.headLogoutText}>Déconnexion</Text>
-            </Pressable>
-          </View>
           {(!b && failed) || (canEdit && !ref && refFailed) ? (
             <ErrorState
               onRetry={() => {
@@ -108,7 +107,6 @@ function ProfileView({ b }: { b: BusinessDto }) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 40 },
-  h1: { ...typo.h1, color: colors.navy },
   section: { ...typo.section, color: colors.navy, marginTop: 10 },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14, gap: 8 },
   cardTitle: { ...typo.title, color: colors.navy },

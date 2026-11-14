@@ -2,9 +2,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SpaceBar } from '@/components/SpaceBar';
 import { LogoutButton } from '@/components/LogoutButton';
-import { ProfileHero } from '@/components/ProfileHero';
-import { formatPhone, phoneDigits } from '@/features/register/validation';
+import { AccountRow } from '@/components/ProfileHero';
 import { SpacesList, spaceInfo } from '@/components/SpacesList';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
@@ -17,11 +17,11 @@ export default function StaffCompte() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <SpaceBar />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-        <Text style={styles.h1}>Compte</Text>
 
-        {/* The same card as on the student profile: only the chips say which space. */}
-        <ProfileHero chips={['Équipe campus', here?.title, user?.phone ? `+221 ${formatPhone(phoneDigits(user.phone.replace(/^\+221/, '')))}` : null]} />
+        {/* The space is named at the top (SpaceBar); here, who is signed in. */}
+        <AccountRow />
 
         {here && (
           <View style={[styles.card, shadow.card, { gap: 10 }]}>
@@ -35,7 +35,7 @@ export default function StaffCompte() {
         )}
 
         {/* The Wave / Orange Money switches, app-wide: the admins only. */}
-        {space === 'admin' && user?.roles.includes('admin') && <PaymentSwitches />}
+        {space === 'admin' && user?.roles.includes('payments_manager') && <PaymentSwitches />}
 
         <SpacesList />
 
@@ -48,7 +48,6 @@ export default function StaffCompte() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
-  h1: { ...typo.h1, color: colors.navy },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, padding: 14 },
   hero: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   name: { ...typo.h3, color: colors.navy },

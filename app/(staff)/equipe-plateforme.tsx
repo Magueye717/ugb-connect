@@ -5,6 +5,7 @@ import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Tex
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SpaceBar } from '@/components/SpaceBar';
 import { usePullRefresh } from '@/components/PullRefresh';
 import { PhoneField, phoneOk } from '@/components/PhoneField';
 import { ErrorState } from '@/components/states';
@@ -64,17 +65,14 @@ export default function EquipePlateforme() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <SpaceBar>
+        <Pressable style={styles.add} onPress={() => setEditing('new')} accessibilityRole="button">
+          <Ionicons name="person-add" size={16} color="#fff" />
+          <Text style={styles.addText}>Ajouter</Text>
+        </Pressable>
+      </SpaceBar>
       <ScrollView refreshControl={pull} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-        <View style={styles.row}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.h1}>Équipe UGB Connect</Text>
-            <Text style={styles.sub}>{members ? `${members.length} membre${members.length > 1 ? 's' : ''}` : ' '}</Text>
-          </View>
-          <Pressable style={styles.add} onPress={() => setEditing('new')} accessibilityRole="button">
-            <Ionicons name="person-add" size={16} color="#fff" />
-            <Text style={styles.addText}>Ajouter</Text>
-          </Pressable>
-        </View>
+          <Text style={styles.sub}>{members ? `${members.length} membre${members.length > 1 ? 's' : ''}` : ' '}</Text>
 
         {!members && !loadFailed && <ActivityIndicator color={colors.primary} />}
         {!members && loadFailed && <ErrorState onRetry={load} />}
@@ -235,8 +233,8 @@ function MemberSheet({ member, roles, restos, restosFailed, onRetryRestos, self,
               <Text style={styles.section}>{member ? 'Ses rôles' : '2. Ses rôles'}</Text>
               {roles.map((r) => {
                 const on = picked.includes(r.value);
-                // The super admin never takes his own admin role away.
-                const locked = self && r.value === 'admin';
+                // The team manager never takes their own team role away (nobody could give it back).
+                const locked = self && r.value === 'team_manager';
                 return (
                   <Pressable key={r.value} disabled={locked} onPress={() => setPicked((p) => toggle(p, r.value))} style={[styles.role, on && styles.roleOn, locked && { opacity: 0.6 }]} accessibilityRole="checkbox" accessibilityState={{ checked: on, disabled: locked }}>
                     <Ionicons name={on ? 'checkbox' : 'square-outline'} size={20} color={on ? colors.primary : colors.muted} />
@@ -285,7 +283,6 @@ const styles = StyleSheet.create({
   deleteBtn: { backgroundColor: colors.dangerBg },
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
-  h1: { ...typo.h1, color: colors.navy },
   sub: { ...typo.small, color: colors.muted2 },
   section: { ...typo.section, color: colors.navy, marginTop: 4 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },

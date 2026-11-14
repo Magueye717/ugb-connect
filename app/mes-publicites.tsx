@@ -6,12 +6,16 @@ import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EmptyState, ErrorState, SkeletonCard } from '@/components/states';
+import { SwipeToDelete } from '@/components/SwipeToDelete';
 import { BackButton, StatusChip, TextButton } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
 import { colors, radii, shadow, typo } from '@/constants/theme';
 import { BANNER_STATUS, bannersApi, type BannerDto } from '@/features/banners/api';
 import { payInBrowser } from '@/features/payments/checkout';
 import { ApiError } from '@/lib/api';
+import { confirmAction } from '@/lib/notice';
+import { toast } from '@/lib/toast';
+import { useNow } from '@/lib/useNow';
 
 const day = (iso: string) => new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 
@@ -33,6 +37,28 @@ export default function MesPublicites() {
       { text: 'Garder', style: 'cancel' },
       { text: 'Annuler', style: 'destructive', onPress: () => bannersApi.cancel(b.id).then(load, fail) },
     ]);
+
+  // Settled (refused, cancelled, withdrawn, or its days over): it can leave the list. Waiting or showing: not yet.
+  const now = useNow();
+  const settled = (b: BannerDto) => b.status === 'rejected' || b.status === 'cancelled' || b.status === 'withdrawn' || (b.status === 'approved' && Date.parse(b.endsAt) <= now);
+  const remove = (b: BannerDto) =>
+    confirmAction({
+      title: `Supprimer « ${b.title} » ?`,
+      message: 'Elle disparaît de ta liste. Son paiement reste enregistré.',
+      confirm: 'Supprimer',
+      onConfirm: () => {
+        // Off the list at once; back if the server refuses.
+        const before = items;
+        setItems((cur) => cur?.filter((x) => x.id !== b.id) ?? cur);
+        bannersApi.remove(b.id).then(
+          () => toast('Bannière supprimée.'),
+          (err) => {
+            setItems(before);
+            fail(err);
+          },
+        );
+      },
+    });
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -56,10 +82,12 @@ export default function MesPublicites() {
         {!items && !loadFailed && (<><SkeletonCard /><SkeletonCard /></>)}
         {!items && loadFailed && <ErrorState onRetry={load} />}
         {items?.length === 0 && <EmptyState icon="megaphone-outline" title="Aucune bannière" text="Elle passe par une validation de l’équipe UGB Connect avant de s’afficher." />}
+        {!!items?.some(settled) && <Text style={styles.hint}>Glisse une bannière terminée vers la gauche pour la supprimer.</Text>}
         {items?.map((b) => {
           const s = BANNER_STATUS[b.status];
           return (
-            <View key={b.id} style={[styles.card, shadow.card]}>
+            <SwipeToDelete key={b.id} enabled={settled(b)} onDelete={() => remove(b)}>
+            <View style={[styles.card, shadow.card]}>
               <Image source={{ uri: b.image }} style={styles.thumb} contentFit="cover" />
               <View style={{ flex: 1, gap: 4 }}>
                 <StatusChip label={s.label} tone={s.tone} />
@@ -83,6 +111,7 @@ export default function MesPublicites() {
                 </View>
               </View>
             </View>
+            </SwipeToDelete>
           );
         })}
       </ScrollView>
@@ -103,4 +132,5 @@ const styles = StyleSheet.create({
   muted: { ...typo.caption, color: colors.muted2, lineHeight: 17 },
   reason: { ...typo.caption, color: colors.dangerText },
   actions: { flexDirection: 'row', gap: 18, marginTop: 2 },
+  hint: { ...typo.caption, color: colors.muted2, textAlign: 'center' },
 });

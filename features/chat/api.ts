@@ -15,7 +15,7 @@ export type MessageDto = {
 
 export type ConversationDto = {
   id: string;
-  type: 'taxi_trip' | 'lost_claim';
+  type: 'taxi_trip' | 'lost_claim' | 'housing_contact';
   contextRef: string;
   title: string;
   status: 'open' | 'closed';

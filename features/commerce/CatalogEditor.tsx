@@ -30,7 +30,7 @@ export const aislesFor = (items: Pick<ItemDto, 'category'>[]) => [...new Set([..
  * switch an item off for today; `canManage` (owner, managers, Référencement) add, edit and remove. Goes inside a
  * ScrollView, under the screen's title.
  */
-export function CatalogEditor({ target, kind, canManage, title = 'Catalogue' }: { target: BusinessTarget; kind: BusinessKind; canManage: boolean; title?: string }) {
+export function CatalogEditor({ target, kind, canManage, title = kind === 'shop' ? 'Articles' : 'Menu' }: { target: BusinessTarget; kind: BusinessKind; canManage: boolean; title?: string }) {
   const [items, setItems] = useState<ItemDto[] | null>(null);
   // The first load failed (no network…): « Impossible de charger », with « Réessayer » (not an empty list).
   const [loadFailed, setLoadFailed] = useState(false);

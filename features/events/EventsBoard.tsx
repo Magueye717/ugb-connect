@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { FitImage } from '@/components/FitImage';
 import { eventWhen } from '@/components/home';
 import { EmptyState } from '@/components/states';
 import { PrimaryButton } from '@/components/ui';
@@ -13,7 +14,7 @@ import { useCampus } from '@/context/CampusContext';
 
 /**
  * Every event on sale for this student, soonest first: the Campus tab's « Événements » section (and the events screen).
- * Each opens its page; « Demander un billet » goes straight to the tickets (paid in cash to the organizer).
+ * Each opens its page; « Réserver un ticket » goes straight to the tickets (paid in cash to the organizer).
  */
 export function EventsBoard() {
   const { events, refresh } = useCampus();
@@ -29,7 +30,7 @@ export function EventsBoard() {
         {items.length === 0 && <EmptyState icon="sparkles-outline" title="Aucun événement" text="Les soirées, conférences et sorties ouvertes à la réservation apparaîtront ici." />}
         {items.map((e) => (
           <Pressable key={e.id} style={[styles.card, shadow.card]} onPress={() => router.push(`/evenement/${e.id}`)} accessibilityRole="button">
-            <Image source={{ uri: e.images[0] }} style={styles.cover} contentFit="cover" />
+            <FitImage uri={e.images[0]!} style={styles.cover} />
             <View style={styles.info}>
               <Text style={styles.category}>{e.categoryLabel.toUpperCase()}</Text>
               <Text style={styles.title} numberOfLines={2}>
@@ -50,7 +51,7 @@ export function EventsBoard() {
                 <PrimaryButton
                   size="sm"
                   icon="ticket-outline"
-                  label={e.minPrice ? 'Demander un billet' : 'Réserver ma place'}
+                  label={e.minPrice ? 'Réserver un ticket' : 'Réserver ma place'}
                   onPress={() => router.push({ pathname: '/evenement/[id]', params: { id: e.id, acheter: '1' } })}
                 />
               </View>
@@ -64,7 +65,7 @@ export function EventsBoard() {
 const styles = StyleSheet.create({
   body: { padding: 20, gap: 14, paddingBottom: 32 },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, overflow: 'hidden' },
-  cover: { width: '100%', height: 150, backgroundColor: colors.border },
+  cover: { width: '100%', height: 116, backgroundColor: colors.border },
   info: { padding: 14, gap: 4 },
   category: { ...typo.label, color: colors.primary, letterSpacing: 0.4 },
   title: { ...typo.title, color: colors.navy },

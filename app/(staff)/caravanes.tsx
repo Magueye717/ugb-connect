@@ -5,6 +5,7 @@ import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Tex
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SpaceBar } from '@/components/SpaceBar';
 import { usePullRefresh } from '@/components/PullRefresh';
 import { PhoneField } from '@/components/PhoneField';
 import { OrganizerLine } from '@/components/caravan';
@@ -70,14 +71,13 @@ export default function Caravanes() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <SpaceBar>
+        <Pressable style={styles.add} onPress={() => setSheet('new')} accessibilityRole="button">
+          <Ionicons name="add" size={18} color="#fff" />
+          <Text style={styles.addText}>Ajouter</Text>
+        </Pressable>
+      </SpaceBar>
       <ScrollView refreshControl={pull} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-        <View style={styles.row}>
-          <Text style={[styles.h1, { flex: 1 }]}>Caravanes</Text>
-          <Pressable style={styles.add} onPress={() => setSheet('new')} accessibilityRole="button">
-            <Ionicons name="add" size={18} color="#fff" />
-            <Text style={styles.addText}>Ajouter</Text>
-          </Pressable>
-        </View>
         <Text style={styles.muted}>Les organisateurs de caravanes : transporteurs, entreprises, amicales. Leur responsable crée ensuite ses véhicules et ses départs.</Text>
         {!items && !loadFailed && <ActivityIndicator color={colors.primary} />}
         {!items && loadFailed && <ErrorState onRetry={load} />}
@@ -286,7 +286,6 @@ function OrganizerSheet({ organizer: o, onClose, onSaved }: SheetProps) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
-  h1: { ...typo.h1, color: colors.navy },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   add: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 14, minHeight: 38, borderRadius: radii.pill, backgroundColor: colors.primary },
   addText: { ...typo.smallStrong, color: '#fff' },

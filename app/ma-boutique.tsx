@@ -93,8 +93,8 @@ function MyShop({ orgId, spaceKey }: { orgId: string; spaceKey: string }) {
                 </View>
                 <View style={styles.bannerActions}>
                   <Pressable style={({ pressed }) => [styles.action, pressed && { opacity: 0.8 }]} onPress={() => openSpace(spaceKey)} accessibilityRole="button">
-                    <Ionicons name="receipt-outline" size={16} color="#fff" />
-                    <Text style={styles.actionText}>Mes commandes</Text>
+                    <Ionicons name="storefront-outline" size={16} color="#fff" />
+                    <Text style={styles.actionText}>Ouvrir mon espace</Text>
                   </Pressable>
                   <Pressable style={({ pressed }) => [styles.action, styles.actionSoft, pressed && { opacity: 0.8 }]} onPress={() => router.push({ pathname: '/(tabs)/resto', params: { vue: 'boutiques', boutique: b.id } })} accessibilityRole="button">
                     <Ionicons name="eye-outline" size={16} color={colors.primary} />
@@ -140,7 +140,7 @@ function OpenShop() {
   const back = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profil'));
 
   const pick = async () => {
-    const [asset] = await pickPhoto({ aspect: [2, 1], title: 'Ton image de marque' });
+    const [asset] = await pickPhoto({ title: 'Ton image de marque' });
     if (!asset) return;
     setBusy('photo');
     try {

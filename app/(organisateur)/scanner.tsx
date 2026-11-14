@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SpaceBar } from '@/components/SpaceBar';
 import { colors, radii, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { hourLabel } from '@/features/caravans/api';
@@ -29,8 +30,8 @@ export default function Scanner() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <SpaceBar />
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-        <Text style={styles.h1}>Scanner</Text>
         {/* A request paid in cash: its own QR (also recognised below), or its code typed. */}
         <Pressable style={styles.payBtn} onPress={() => router.push('/valider-paiement')} accessibilityRole="button">
           <Ionicons name="cash-outline" size={20} color={colors.navy} />
@@ -64,7 +65,6 @@ export default function Scanner() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.navy },
   body: { padding: 20, gap: 16, paddingBottom: 32 },
-  h1: { ...typo.h1, color: '#fff' },
   ready: { gap: 6, padding: 12, borderRadius: radii.md, backgroundColor: 'rgba(255,255,255,0.08)' },
   readyTitle: { ...typo.captionStrong, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 0.5 },
   readyRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },

@@ -833,7 +833,7 @@ const styles = StyleSheet.create({
   banner: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 12, borderRadius: radii.md },
   bannerText: { flex: 1, fontSize: 13, fontWeight: '600', lineHeight: 18 },
   ticket: { backgroundColor: colors.card, borderRadius: radii.xl, overflow: 'hidden' },
-  cover: { width: '100%', height: 140 },
+  cover: { width: '100%', height: 100 },
   top: { padding: 18, gap: 12 },
   route: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   city: { ...typo.h2, color: colors.navy },

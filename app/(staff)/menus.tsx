@@ -5,6 +5,7 @@ import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleS
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SpaceBar } from '@/components/SpaceBar';
 import { EmptyState, ErrorState } from '@/components/states';
 import { Field, PrimaryButton, TextButton } from '@/components/ui';
 import { colors, radii, shadow, typo } from '@/constants/theme';
@@ -60,8 +61,8 @@ export default function MenusDuJour() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <SpaceBar />
       <KeyboardAwareScrollView style={{ flex: 1 }} bottomOffset={24} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={pull} />}>
-          <Text style={styles.h1}>Menus du jour</Text>
           <View style={[styles.now, meal.live && styles.nowLive]}>
             <Ionicons name={meal.live ? 'restaurant' : 'time-outline'} size={16} color={meal.live ? colors.successText : colors.muted2} />
             <Text style={[styles.nowText, meal.live && { color: colors.successText }]}>
@@ -419,7 +420,6 @@ const styles = StyleSheet.create({
   reuseBtnText: { ...typo.smallStrong, color: '#fff' },
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
-  h1: { ...typo.h1, color: colors.navy },
   now: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, paddingHorizontal: 12, borderRadius: radii.md, backgroundColor: colors.card, alignSelf: 'flex-start' },
   nowLive: { backgroundColor: colors.successBg },
   nowText: { ...typo.smallStrong, color: colors.muted2 },

@@ -6,6 +6,7 @@ import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView,
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SpaceBar } from '@/components/SpaceBar';
 import { EmptyState, ErrorState } from '@/components/states';
 import { Field, LabeledField, PrimaryButton, SafeBottom, Segmented, SheetHeader, StatusChip, TextButton } from '@/components/ui';
 import { formatFcfa } from '@/constants/data';
@@ -49,8 +50,8 @@ export default function Bannieres() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <SpaceBar />
       <ScrollView contentContainerStyle={styles.body} refreshControl={<RefreshControl refreshing={false} onRefresh={load} />}>
-        <Text style={styles.h1}>Bannières</Text>
         <Segmented
           options={[
             { value: 'review', label: waiting ? `À valider · ${waiting}` : 'À valider' },
@@ -154,7 +155,6 @@ function ReasonSheet({ title, note, confirm, onClose, onConfirm }: { title: stri
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
-  h1: { ...typo.h1, color: colors.navy },
   card: { backgroundColor: colors.card, borderRadius: radii.lg, overflow: 'hidden' },
   image: { width: '100%', height: 150, backgroundColor: colors.border },
   content: { padding: 14, gap: 6 },

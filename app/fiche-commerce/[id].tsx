@@ -24,7 +24,8 @@ export default function FicheCommerce() {
   const target: BusinessTarget = { editorOf: id };
   const [b, setB] = useState<BusinessDto | null>(null);
   const { reference: ref, failed: refFailed, retry: retryRef } = useCommerceReference();
-  const [tab, setTab] = useState<Tab>('profile');
+  // The menu (or the articles) first, as in the restaurant's and the shop's own space.
+  const [tab, setTab] = useState<Tab>('catalog');
   const back = () => (router.canGoBack() ? router.back() : router.replace('/(staff)/commerces'));
   const [verifying, setVerifying] = useState(false);
   // A student's shop: Wave and Orange Money once the team has checked who runs it.
@@ -61,8 +62,8 @@ export default function FicheCommerce() {
       <View style={styles.tabs}>
         <Segmented
           options={[
+            { value: 'catalog', label: b?.kind === 'shop' ? 'Articles' : 'Menu' },
             { value: 'profile', label: 'Fiche' },
-            { value: 'catalog', label: b?.kind === 'shop' ? 'Articles' : 'Menus' },
           ]}
           value={tab}
           onChange={setTab}

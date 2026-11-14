@@ -23,6 +23,8 @@ export type Notice = {
   bullets?: string[];
   /** A question: these buttons instead of primary / secondary, in this order. Tapping outside is backing out. */
   choices?: NoticeChoice[];
+  /** Closed without a choice (tapped outside, back button). */
+  onDismiss?: () => void;
 };
 
 let next = 1;

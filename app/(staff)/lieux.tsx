@@ -7,6 +7,7 @@ import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Tex
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SpaceBar } from '@/components/SpaceBar';
 import { usePullRefresh } from '@/components/PullRefresh';
 import { EmptyState, ErrorState } from '@/components/states';
 import { Chip, Field, LabeledField, PrimaryButton, SheetFooter, SheetHeader, Toggle, useDirty } from '@/components/ui';
@@ -22,7 +23,8 @@ import { askToRelocate } from '@/lib/relocate';
 
 const fail = (title: string) => (err: unknown) => Alert.alert(title, err instanceof ApiError ? err.message : 'Réessaie dans un instant.');
 // Places are documented by Référencement only: as many as it takes (the API's ceiling, against slips).
-const MAX_PHOTOS = 30;
+// Référencement: no practical limit (the server's ceiling only stops a runaway upload).
+const MAX_PHOTOS = 300;
 
 /**
  * The communication team: the campus places students see in the Lieux tab and on the map. Add, edit (photos, GPS
@@ -54,14 +56,13 @@ export default function LieuxAdmin() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <SpaceBar>
+        <Pressable style={styles.add} onPress={() => setEditing('new')} accessibilityRole="button">
+          <Ionicons name="add" size={18} color="#fff" />
+          <Text style={styles.addText}>Ajouter</Text>
+        </Pressable>
+      </SpaceBar>
       <ScrollView refreshControl={pull} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
-        <View style={styles.row}>
-          <Text style={[styles.h1, { flex: 1 }]}>Lieux du campus</Text>
-          <Pressable style={styles.add} onPress={() => setEditing('new')} accessibilityRole="button">
-            <Ionicons name="add" size={18} color="#fff" />
-            <Text style={styles.addText}>Ajouter</Text>
-          </Pressable>
-        </View>
         <Text style={styles.sub}>Ce que les étudiants voient dans l’onglet Lieux et sur la carte du campus.</Text>
         {!!items?.length && (
           <Field
@@ -155,7 +156,8 @@ function PlaceEditor({ place, onClose, onSaved }: { place: PlaceDto | null; onCl
   const [saving, setSaving] = useState(false);
 
   const pick = async () => {
-    const assets = await pickPhoto({ multiple: MAX_PHOTOS - photos.length, title: 'Photos du lieu' });
+    // The gallery picks up to 50 at a time (as many rounds as needed).
+    const assets = await pickPhoto({ multiple: Math.min(50, MAX_PHOTOS - photos.length), title: 'Photos du lieu' });
     if (!assets.length) return;
     setUploading(true);
     try {
@@ -310,7 +312,6 @@ function PlaceEditor({ place, onClose, onSaved }: { place: PlaceDto | null; onCl
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   body: { padding: 20, gap: 12, paddingBottom: 32 },
-  h1: { ...typo.h1, color: colors.navy },
   sub: { ...typo.small, color: colors.muted2, marginTop: -6 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

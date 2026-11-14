@@ -12,7 +12,7 @@ import { colors, radii, typo } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { resetPassword, sendOtp, type OtpChallenge } from '@/features/register/auth';
 import { StepOtp } from '@/features/register/StepOtp';
-import { formatPhone, PHONE_PREFIX, phoneDigits, passwordRules, validateConfirm, validatePassword, validatePhone } from '@/features/register/validation';
+import { formatPhone, PHONE_PREFIX, phoneDigits, passwordRules, phoneStartWrong, validateConfirm, validatePassword, validatePhone } from '@/features/register/validation';
 import { ApiError } from '@/lib/api';
 
 type Stage = 'phone' | 'code' | 'password';
@@ -125,7 +125,7 @@ export default function ForgotScreen() {
             keyboardShouldPersistTaps="handled">
             {stage === 'phone' && (
               <>
-                <LabeledField label="Numéro de téléphone" error={touched.phone ? phoneError : null}>
+                <LabeledField label="Numéro de téléphone" error={touched.phone || phoneStartWrong(phone) ? phoneError : null}>
                   <Field
                     accent={colors.orange}
                     icon="phone-portrait-outline"
@@ -138,7 +138,7 @@ export default function ForgotScreen() {
                       setError(null);
                     }}
                     onBlur={() => setTouched((v) => ({ ...v, phone: true }))}
-                    invalid={touched.phone && !!phoneError}
+                    invalid={(touched.phone || phoneStartWrong(phone)) && !!phoneError}
                     maxLength={12}
                   />
                 </LabeledField>

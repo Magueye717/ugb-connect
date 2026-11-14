@@ -283,6 +283,7 @@ export function MarketBoard() {
   // The newest articles first by default: what's new on the market.
   const [sort, setSort] = useState<MarketSort>('newest');
   const [seller, setSeller] = useState<Seller>('all');
+  const [picking, setPicking] = useState(false);
   // The article whose details are open (its sheet).
   const [detailId, setDetailId] = useState<string | null>(null);
   // How many articles are drawn: one page more as the list scrolls; back to the first page when what's shown changes.
@@ -358,13 +359,29 @@ export function MarketBoard() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => (setRefreshing(true), load().finally(() => setRefreshing(false)))} />}>
         <SearchBar value={query} onChange={setQuery} placeholder="Un article, une boutique…" onFilter={() => setSorting(true)} filtered={sort !== 'newest' || seller !== 'all'} />
 
-        {/* The shops of the market: tap one to see only its stalls. */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.shops}>
-          <ShopBubble label="Toutes" on={!shopId} onPress={() => (setShopId(null), setAisle(null))} />
-          {shopsShown.map((b) => (
-            <ShopBubble key={b.id} label={b.name} photo={b.photo} open={b.open} student={b.byStudent} on={shopId === b.id} onPress={() => (setShopId(shopId === b.id ? null : b.id), setAisle(null))} />
-          ))}
-        </ScrollView>
+        {/* The shops of the market: tap one to see only its stalls. More than 3: their photos stacked on one slim line,
+            the whole list in a sheet. */}
+        {shopsShown.length > STACK_FROM ? (
+          <ShopStack shops={shopsShown} selected={shop ?? null} onOpen={() => setPicking(true)} onClear={() => (setShopId(null), setAisle(null))} />
+        ) : (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.shops}>
+            <ShopBubble label="Toutes" on={!shopId} onPress={() => (setShopId(null), setAisle(null))} />
+            {shopsShown.map((b) => (
+              <ShopBubble key={b.id} label={b.name} photo={b.photo} open={b.open} student={b.byStudent} on={shopId === b.id} onPress={() => (setShopId(shopId === b.id ? null : b.id), setAisle(null))} />
+            ))}
+          </ScrollView>
+        )}
+        <ShopsSheet
+          visible={picking}
+          shops={shopsShown}
+          value={shopId}
+          onClose={() => setPicking(false)}
+          onPick={(id) => {
+            setShopId(id);
+            setAisle(null);
+            setPicking(false);
+          }}
+        />
 
         {shop && (
           <Pressable style={[styles.shopBanner, shadow.card]} onPress={() => router.push(`/resto/${shop.id}`)} accessibilityRole="button">
@@ -472,6 +489,71 @@ export function MarketBoard() {
         </View>
       </SortSheet>
     </View>
+  );
+}
+
+/** From this many shops, their photos are stacked on one line instead of a row of bubbles. */
+const STACK_FROM = 3;
+const STACK_SHOWN = 4;
+
+/**
+ * Many shops: their photos overlap on one slim line (« + 8 »), with how many there are; a tap opens them all. With
+ * one chosen, its name is said and ✕ shows them all again.
+ */
+function ShopStack({ shops, selected, onOpen, onClear }: { shops: BusinessDto[]; selected: BusinessDto | null; onOpen: () => void; onClear: () => void }) {
+  const faces = selected ? [selected, ...shops.filter((b) => b.id !== selected.id)].slice(0, STACK_SHOWN) : shops.slice(0, STACK_SHOWN);
+  const more = shops.length - faces.length;
+  const open = shops.filter((b) => b.open).length;
+  return (
+    <Pressable style={({ pressed }) => [styles.stack, shadow.card, pressed && { opacity: 0.9 }]} onPress={onOpen} accessibilityRole="button" accessibilityLabel={`${shops.length} boutiques, choisir une boutique`}>
+      <View style={styles.faces}>
+        {faces.map((b, i) => (
+          <View key={b.id} style={[styles.face, { marginLeft: i ? -12 : 0, zIndex: STACK_SHOWN - i }, selected?.id === b.id && styles.faceOn]}>
+            {b.photo ? <Image source={{ uri: b.photo }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ionicons name="storefront" size={14} color={colors.navy} />}
+          </View>
+        ))}
+        {more > 0 && (
+          <View style={[styles.face, styles.faceMore, { marginLeft: -12 }]}>
+            <Text style={styles.faceMoreText}>+{more}</Text>
+          </View>
+        )}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.stackTitle} numberOfLines={1}>
+          {selected ? selected.name : `${shops.length} boutiques`}
+        </Text>
+        <Text style={styles.muted} numberOfLines={1}>
+          {selected ? 'Changer de boutique' : `${open} ouverte${open > 1 ? 's' : ''} · voir toutes`}
+        </Text>
+      </View>
+      {selected ? (
+        <Pressable onPress={onClear} hitSlop={10} accessibilityRole="button" accessibilityLabel="Toutes les boutiques">
+          <Ionicons name="close-circle" size={20} color={colors.muted} />
+        </Pressable>
+      ) : (
+        <Ionicons name="chevron-down" size={18} color={colors.primary} />
+      )}
+    </Pressable>
+  );
+}
+
+/** Every shop, in a sheet: a grid of their bubbles (open dot, « Étudiant » tag); « Toutes » first. */
+function ShopsSheet({ visible, shops, value, onClose, onPick }: { visible: boolean; shops: BusinessDto[]; value: string | null; onClose: () => void; onPick: (id: string | null) => void }) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose} />
+      <View style={[styles.sheet, { maxHeight: '75%' }]}>
+        <SheetHeader onClose={onClose} titleStyle={styles.sheetTitle}>
+          Les boutiques
+        </SheetHeader>
+        <ScrollView contentContainerStyle={styles.shopGrid} showsVerticalScrollIndicator={false}>
+          <ShopBubble label="Toutes" on={!value} onPress={() => onPick(null)} />
+          {shops.map((b) => (
+            <ShopBubble key={b.id} label={b.name} photo={b.photo} open={b.open} student={b.byStudent} on={value === b.id} onPress={() => onPick(b.id)} />
+          ))}
+        </ScrollView>
+      </View>
+    </Modal>
   );
 }
 
@@ -603,7 +685,7 @@ function SortSheet<K extends string>({
 
 const styles = StyleSheet.create({
   rCard: { borderRadius: 20, backgroundColor: colors.card, overflow: 'hidden', borderWidth: 1, borderColor: '#EEF0F4' },
-  rPhoto: { height: 128, backgroundColor: TILE, alignItems: 'center', justifyContent: 'center' },
+  rPhoto: { height: 112, backgroundColor: TILE, alignItems: 'center', justifyContent: 'center' },
   rDim: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(255,255,255,0.45)' },
   rStatus: { position: 'absolute', left: 10, top: 10, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 4, borderRadius: radii.pill },
   rStatusText: { ...typo.label, color: '#fff' },
@@ -656,6 +738,14 @@ const styles = StyleSheet.create({
   // Market
   marketBody: { padding: 20, paddingTop: 16, gap: 14 },
   shops: { flexDirection: 'row', gap: 12, paddingRight: 8 },
+  stack: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10, borderRadius: radii.lg, backgroundColor: colors.card },
+  faces: { flexDirection: 'row', alignItems: 'center' },
+  face: { width: 34, height: 34, borderRadius: 17, borderWidth: 2, borderColor: colors.card, backgroundColor: colors.primarySoft, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  faceOn: { borderColor: colors.primary },
+  faceMore: { backgroundColor: colors.navy },
+  faceMoreText: { ...typo.label, color: '#fff' },
+  stackTitle: { ...typo.bodyStrong, color: colors.navy },
+  shopGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14, paddingTop: 8, paddingBottom: 8 },
   bubble: { width: 70, alignItems: 'center', gap: 6 },
   bubbleImg: { width: 62, height: 62, borderRadius: 31, backgroundColor: colors.card, borderWidth: 2, borderColor: 'transparent', overflow: 'hidden', alignItems: 'center', justifyContent: 'center', ...shadow.card },
   bubbleOn: { borderColor: colors.primary },

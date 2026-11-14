@@ -10,6 +10,7 @@ import {
   formatPhone,
   PHONE_PREFIX,
   phoneDigits,
+  phoneStartWrong,
   validatePhone,
   STUDENT_ID_MAX,
   typeStudentId,
@@ -65,7 +66,7 @@ export function StepIdentification({ values, onChange, onSubmit, submitting, sub
         )}
       </LabeledField>
 
-      <LabeledField label="Numéro de téléphone" error={touched.phone ? errors.phone : null}>
+      <LabeledField label="Numéro de téléphone" error={touched.phone || phoneStartWrong(values.phone) ? errors.phone : null}>
         <Field
           accent={colors.orange}
           icon="phone-portrait-outline"
@@ -74,7 +75,7 @@ export function StepIdentification({ values, onChange, onSubmit, submitting, sub
           value={formatPhone(values.phone)}
           onChangeText={(t) => onChange({ phone: phoneDigits(t) })}
           onBlur={() => touch('phone')}
-          invalid={touched.phone && !!errors.phone}
+          invalid={(touched.phone || phoneStartWrong(values.phone)) && !!errors.phone}
           keyboardType="number-pad"
           textContentType="telephoneNumber"
           autoComplete="tel"
